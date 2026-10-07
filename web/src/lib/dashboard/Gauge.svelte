@@ -97,21 +97,21 @@
 <div class="flex h-full flex-col items-center justify-center" title={detail}>
   <svg viewBox="0 0 140 82" class="max-h-[calc(100%-18px)] w-full max-w-[180px]">
     {#if layerArcs.length}
-      <path d={track} stroke="#343a45" stroke-width="10" fill="none" stroke-linecap="round" />
+      <path d={track} style:stroke="var(--color-grid)" stroke-width="10" fill="none" stroke-linecap="round" />
       {#each layerArcs as a}
         {#if a.fill}<path d={a.fill} stroke={a.color} stroke-width="10" fill="none" stroke-linecap="round" />{/if}
       {/each}
     {:else if pieces.length}
       {#each pieces as p}
-        <path d={p.track} stroke="#343a45" stroke-width="10" fill="none" stroke-linecap="round" />
+        <path d={p.track} style:stroke="var(--color-grid)" stroke-width="10" fill="none" stroke-linecap="round" />
         {#if p.fill}<path d={p.fill} stroke={p.color} stroke-width="10" fill="none" stroke-linecap="round" />{/if}
       {/each}
     {:else}
-      <path d={track} stroke="#343a45" stroke-width="10" fill="none" stroke-linecap="round" />
+      <path d={track} style:stroke="var(--color-grid)" stroke-width="10" fill="none" stroke-linecap="round" />
       {#if frac > 0}<path d={arc} stroke={arcColor} stroke-width="10" fill="none" stroke-linecap="round" />{/if}
     {/if}
-    <text x="70" y="62" text-anchor="middle" fill="#e3e6eb" font-size="22" font-weight="700">{shown}</text>
-    <text x="70" y="79" text-anchor="middle" fill="#a3aab6" font-size="11">{unit} of {Math.round(max)}</text>
+    <text x="70" y="62" text-anchor="middle" style:fill="var(--color-text)" font-size="22" font-weight="700">{shown}</text>
+    <text x="70" y="79" text-anchor="middle" style:fill="color-mix(in srgb, var(--color-text) 25%, var(--color-muted))" font-size="11">{unit} of {Math.round(max)}</text>
   </svg>
   <div class="text-xs text-muted">
     {#if layers.length > 1}

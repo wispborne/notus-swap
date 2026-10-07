@@ -106,25 +106,25 @@ Each flag can also be set in the `env` file, as `NOTUS_LISTEN`, `NOTUS_UPSTREAM`
   - Unsaved edits survive navigation and reloads through `localStorage` (`config_draft`). The draft keeps the original file and hash, so saving returns 409 if the file changed on disk.
   - The Config, Dashboard, Models and Logs pages load their code only when opened (`import()` in `App.svelte`), which keeps the first load around 170 kB.
 - `GET /notus/api/status`: feeds the status bar. The UI polls it every 2 s, and it answers from the monitors' cached values.
-- `internal/selfupdate` and `web/src/lib/system/Manage.svelte`: the System page's Update and Roll back buttons.
-  - Source: Gitea when `GITEA_URL`, `GITEA_REPO`, `GITEA_USER` and `GITEA_TOKEN` are all set, using basic auth with the token as the password. Otherwise GitHub releases of `NOTUS_GITHUB_REPO` (default `wispborne/notus-swap`), with `GITHUB_TOKEN` if set. An empty `NOTUS_GITHUB_REPO` turns updates off. `Updater.Source` names the one in use, and the System page shows it. `scripts/update-notus-swap.sh` follows the same rule.
+- `internal/selfupdate` and `web/src/lib/system/Manage.svelte`: the Settings page's Update and Roll back buttons.
+  - Source: Gitea when `GITEA_URL`, `GITEA_REPO`, `GITEA_USER` and `GITEA_TOKEN` are all set, using basic auth with the token as the password. Otherwise GitHub releases of `NOTUS_GITHUB_REPO` (default `wispborne/notus-swap`), with `GITHUB_TOKEN` if set. An empty `NOTUS_GITHUB_REPO` turns updates off. `Updater.Source` names the one in use, and the Settings page shows it. `scripts/update-notus-swap.sh` follows the same rule.
   - Install: download `notus-swap-<os>-<arch>` and its `.sha256` from `<server>/<repo>/releases/download/<tag>/<file>` (the same layout on both), then check the checksum. Rename the running binary to `<exe>.prev` and move the download into its place. Write `<exe>.update.json`, then shut down cleanly. systemd's `Restart=always` starts the new binary.
   - Planned restarts (update, roll back, the Restart button) go through `internal/restart`. `Plan.Ask` records the restart, and `main.go` shuts down once `Hub.Idle` says no requests are in flight. Until then the server keeps answering, and `/notus/api/health` and `/notus/api/system` report `restarting` with the count in flight. Update and roll back answer 409 while a restart waits. `POST /notus/api/restart/notus-swap/now` (the "Restart now" button) skips the wait; answers still streaming then get 10 seconds.
   - Cancellation: `POST /notus/api/restart/notus-swap/cancel` cancels a waiting restart. `UndoInstall` restores the running binary and removes the download and marker; no previous version remains for rollback. `UndoRollback` swaps the binaries back. If undo fails, the restart stays pending.
   - `internal/idlewait` handles the wait for config saves and restarts. `Start` replaces a waiting job; `Now` skips the wait. `Cancel` runs undo under the lock, preventing the job from starting during undo. Running jobs cannot be cancelled. `restart.Plan` keeps the first restart; `llamaconfig.Held` replaces a waiting save with the newest one.
   - At startup, `CheckOnStart` counts attempts in that marker. On the third start without a confirmation, it swaps `.prev` back and exits. After 30 s of running, `Confirm` removes the marker and writes `<exe>.update-result.json`.
   - Manual rollback swaps the binary and `.prev`, so rolling back twice returns to where it began.
-  - `Updater.Watch` checks for releases every 15 minutes. `/notus/api/status` sends `update_available` from that check, and the sidebar puts a dot on the System icon when it is true.
+  - `Updater.Watch` checks for releases every 15 minutes. `/notus/api/status` sends `update_available` from that check, and the sidebar puts a dot on the Settings icon when it is true.
   - The same page restarts llama-swap (`systemctl restart $NOTUS_LLAMA_SWAP_UNIT`, allowed by the polkit rule) and notus-swap. It also sets body retention: the `retention` setting `{days, gb}` overrides `-keep-days` and `-keep-gb`, and saving it prunes at once.
   - The same section shows the database size from `Store.DiskUsage`: file and `-wal` sizes, free pages, and the body total. It avoids SQLite's `dbstat` table, which would read the whole file.
-- `internal/llamaupdate` and `web/src/lib/system/LlamaUpdates.svelte`: the System page's llama-swap and llama.cpp updates, from GitHub releases.
+- `internal/llamaupdate` and `web/src/lib/system/LlamaUpdates.svelte`: the Settings page's llama-swap and llama.cpp updates, from GitHub releases.
   - `Manager.Watch` checks every hour, using 3 API calls: llama-swap's latest release, llama.cpp's latest release, and llama.cpp's 10 newest releases for the newest nightly. GitHub allows 60 calls an hour per IP without `GITHUB_TOKEN`. The status poll's `update_available` includes a newer llama-swap or weekly llama.cpp release.
   - Each item's Changelog button lists recent releases with their notes. llama-swap and llama.cpp use `GET /notus/api/llama-updates/{component}/changelog` (`Manager.Changelog`, 1 API call, cached 15 minutes). A llama.cpp nightly's notes are cut down to the title of its change. notus-swap's list is `changelog` in `GET /notus/api/system`.
   - Installs run one at a time in the background (`Manager.Start`). The page polls `GET /notus/api/llama-updates` every second while one runs, for the step and the bytes downloaded. Downloads are checked against the SHA-256 in GitHub's API (`digest`).
   - llama-swap: `-version` prints `version: v258 (...)`, and the running one answers `GET /api/version`. An install extracts the binary, runs `<new> -validate -config <config>`, renames the old binary to `<bin>.bak` (the same name as llama-swap's own update script), restarts `NOTUS_LLAMA_SWAP_UNIT`, and waits up to a minute for `/api/version` to report the new tag. If it doesn't, the binaries swap back and llama-swap restarts again. Roll back swaps the binary and `.bak`.
   - llama.cpp: a weekly release (`v0.5.0`) has no downloads, only `nightly-tag.txt` naming its build (`b11146`). Nightly builds are pre-releases, with files named `llama-<build>-bin-<flavor>.tar.gz` holding one top-level folder. Each build unpacks into `NOTUS_LLAMA_CPP_DIR/llama-<build>-bin-<flavor>`, and the relative link `current` is replaced in one rename. The build `current` pointed at before is kept. Older builds of the same flavor are deleted unless `/proc/*/exe` shows a program running from one. Roll back points `current` at the newest other build.
   - Tests that need shell scripts or folder links skip on Windows. To run them on the dev machine, build the test binary with `GOOS=linux go test -c` and run it in WSL.
-- `internal/autoload` and `web/src/lib/system/DefaultModel.svelte`: the System page's default model. When llama-swap is up with no model loaded for the configured number of minutes (15 by default), notus-swap loads the chosen model through `/upstream/<model>/health`.
+- `internal/autoload` and `web/src/lib/system/DefaultModel.svelte`: the Settings page's default model. When llama-swap is up with no model loaded for the configured number of minutes (15 by default), notus-swap loads the chosen model through `/upstream/<model>/health`.
   - The setting is `default_model` (`{enabled, model, minutes}`), read and saved with `GET/PUT /notus/api/default-model`. Saving clears a pause and starts the countdown again.
   - The countdown resets while any model is loaded (any state but stopped) and while llama-swap is down. It restarts when notus-swap restarts.
   - An unload from the web UI (one model or all) pauses it until any model next starts loading. The pause is kept in memory only.
@@ -199,14 +199,14 @@ notus-swap is a **separate layer**, not a fork. This is decided.
 - **Config editor:** a YAML editor (CodeMirror 6) with a live check, a diff review before saving, the last 20 backups kept, and a "save anyway" option when llama-swap's check fails or can't run. The YAML check always applies. Details are under Code layout.
 
 - **Hidden models** (for taking screenshots without revealing some models):
-  - The System page lists models with a hide switch for each, plus one "Show hidden models" toggle. Both are server-side settings (`hidden_models`, `show_hidden`).
+  - The Settings page lists models with a hide switch for each, plus one "Show hidden models" toggle. Both are server-side settings (`hidden_models`, `show_hidden`).
   - Hidden models are still captured and measured like any other model.
   - While the toggle is off, no hidden model name appears anywhere in the UI: status bar, Requests (rows, filters, live feed), and Dashboard (lanes, tables, charts, swaps, readouts).
   - Totals that don't name a model, such as power, stay as they are.
   - Filter in one place per data source; don't scatter checks across components.
   - The UI side is `web/src/lib/privacy.svelte.ts`. `privacy.visible(model)` checks a single model. `privacy.dashboard(data)` filters the Dashboard's data once, before any widget sees it. The settings arrive with every `/notus/api/status` poll, so a change on one device reaches every open page within 2 s. `App.svelte` shows no page until the settings have been read once.
   - The places that filter are the status bar's loaded models, the Requests rows and model dropdown, the Dashboard data, the models table, and the in-flight list. Any new place that shows a model name must go through `privacy.visible`.
-  - On the System page, hidden names stay covered until clicked while the toggle is off, so that page can be screenshotted too.
+  - On the Settings page, hidden names stay covered until clicked while the toggle is off, so that page can be screenshotted too.
 
 ### UI
 
@@ -216,7 +216,7 @@ notus-swap is a **separate layer**, not a fork. This is decided.
   - **Models.**
   - **Logs.**
   - **Model Config** (the llama-swap config editor; its route is still `/notus/config`).
-  - **System.** Restart llama-swap, update or roll back notus-swap, llama-swap and llama.cpp, and settings such as retention limits and the default model.
+  - **Settings** (route `/notus/system`, file `pages/System.svelte`). Restart llama-swap, update or roll back notus-swap, llama-swap and llama.cpp, and settings such as retention limits, the default model, hidden models and the theme.
 - Navigation is a collapsible left sidebar. Its pages can be dragged into another order, saved per browser (`sidebar_order`, `lib/navOrder.svelte.ts`). The collapse button is at the bottom. The current page has a green bar on the sidebar's left edge. The sidebar stays in view while the page scrolls. A thin status bar across the top of every page shows, by default in this order:
   - whether llama-swap is up
   - how many requests are in flight
@@ -228,14 +228,18 @@ notus-swap is a **separate layer**, not a fork. This is decided.
 - Scrollbars are styled to the theme in `app.css`.
 - Icons must look crisp. Draw them as inline SVG, not text characters or emoji, which render differently on each system. Icons are filled, solid shapes, not hollow outlines. Put straight lines on whole pixels: a viewBox whose units are pixels at the drawn size, whole-pixel stroke widths, and pixel sizes around the icon so it doesn't sit on a half pixel. Where an icon can't avoid half pixels, `shape-rendering="crispEdges"` snaps straight edges. The sidebar icons are in `lib/NavIcon.svelte`, and the chip icons in `lib/NotableChips.svelte`.
 - Tooltips: give elements a plain `title`. `lib/tooltip.ts` replaces the browser's tooltip on every page: it shows at once and follows the mouse. It removes the title while the mouse is over the element and puts it back after. The Notable chip popover follows the mouse the same way until clicked.
-- Dark theme only. It uses the "Sigma" theme from TriOS:
+- Dark themes only. The default is the "Sigma" theme from TriOS:
   - primary `#40D7A3`
   - secondary `#18FFFF`
   - surface `#21242B`
   - surface container `#282C34`
 
   Extra chart colors must stay easy to tell apart on these surfaces.
-- Dense spacing, like Grafana, on Dashboard, Requests, and Logs. Normal spacing on Config and System.
+- Other themes: the Settings page has a theme picker, saved per browser (`theme`, `lib/theme.svelte.ts`). Sigma is the default. The others are TriOS themes ([REDACTED], Player, One Dark, Independents, Lavender, Knights of Ludd, Sindrian Diktat), in `src/themes.css` as `:root[data-theme=...]` blocks.
+  - Each sets surface, panel, primary and secondary. The other shades are mixed from those by the rules at the top of `themes.css`. Some TriOS colours were changed so they don't look like the warning, error or thinking colours; the file lists them.
+  - Warning, error, violet, model colours, chip colours and chart series stay the same in every theme. Only theme colours change: write them as `var(--color-...)` or Tailwind classes, never as hex. Canvas charts can't use `var()`, so `charts.ts` reads them with `cssColor` when a chart is built.
+  - An inline script in `index.html` sets `data-theme` before the page draws, so a reload doesn't flash Sigma.
+- Dense spacing, like Grafana, on Dashboard, Requests, and Logs. Normal spacing on Config and Settings.
 - Models and Logs follow llama-swap's pages.
 - **Requests page:**
   - A dense, full-width table with one row per request. In-flight requests are listed first and update live.

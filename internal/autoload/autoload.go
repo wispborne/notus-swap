@@ -41,7 +41,7 @@ func (s Setting) Clean() Setting {
 	return s
 }
 
-// State is what the System page shows about the default model.
+// State is what the Settings page shows about the default model.
 type State struct {
 	Setting
 	// Status is one of:

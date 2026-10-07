@@ -8,6 +8,13 @@
     <link rel="apple-touch-icon" href="/notus/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>notus-swap</title>
+    <!-- Sets the saved colour theme before the page draws. See src/lib/theme.svelte.ts. -->
+    <script>
+      try {
+        var t = localStorage.getItem('theme')
+        if (t) document.documentElement.dataset.theme = t
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"></div>

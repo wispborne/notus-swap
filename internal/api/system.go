@@ -49,7 +49,7 @@ func (a *API) registerSystem(mux *http.ServeMux) {
 	mux.HandleFunc("POST /notus/api/stop/llama-swap", a.stopLlamaSwap)
 }
 
-// SystemInfo is what the System page shows about updates and settings.
+// SystemInfo is what the Settings page shows about updates and settings.
 type SystemInfo struct {
 	Version       string               `json:"version"`
 	Configured    bool                 `json:"update_configured"`

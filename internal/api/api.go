@@ -144,7 +144,7 @@ func summary(r *store.Record) Summary {
 }
 
 // health: GET /notus/api/health. "restarting" is set while a restart waits
-// for requests to finish; the System page uses it to tell the old process
+// for requests to finish; the Settings page uses it to tell the old process
 // from the new one.
 func (a *API) health(w http.ResponseWriter, r *http.Request) {
 	h := map[string]any{"ok": true, "version": a.Version}

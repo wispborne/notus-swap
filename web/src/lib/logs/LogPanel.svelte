@@ -110,7 +110,7 @@
     {#if !allowed}
       <div class="p-4 text-[12.5px] text-muted">
         {source === 'upstream'
-          ? 'Combined logs may reveal hidden models. Choose one model or enable “Show hidden models” on the System page.'
+          ? 'Combined logs may reveal hidden models. Choose one model or enable “Show hidden models” on the Settings page.'
           : 'This model is hidden.'}
       </div>
     {:else}

@@ -1,0 +1,133 @@
+/* The other themes from TriOS. The picker is on the Settings page
+   (lib/theme.svelte.ts), and each browser saves its own choice in `theme`.
+   Sigma, the default, is the @theme block in app.css and sets no data-theme.
+
+   Each block sets the theme's four TriOS colours (surface, panel, primary,
+   secondary). The rest are worked out from them: panel2, line-soft and hover
+   mix 3.5-5% white into the panel, line 9%, grid 7%, scroll 15%; sunken mixes
+   18% black into the surface; text is 91% white over the surface, muted and dim
+   are text mixed 42% and 60% toward the surface.
+
+   Some TriOS colours were changed so they don't look like the warning, error or
+   thinking colours, or so small text is readable:
+   - Player: secondary #31779c -> #4fb3c8
+   - One Dark: primary #4d78cc -> #6a93e0
+   - Lavender: primary #c0a2e8 -> #e3b7d8 (the thinking violet), secondary #e3b7d8 -> #9ad8e8
+   - Knights of Ludd: secondary #e03b30 -> #e4dcc4 (from Luddic Church)
+   - Sindrian Diktat: secondary #c8007d -> #f2a6e0
+   Warning, error, violet, the model colours and chart series stay the same in
+   every theme. */
+
+:root[data-theme="redacted"] {
+  --color-surface: #071412;
+  --color-panel: #0d1f1c;
+  --color-panel2: #152724;
+  --color-sunken: #06100f;
+  --color-line: #233330;
+  --color-line-soft: #152724;
+  --color-hover: #192a27;
+  --color-grid: #1e2f2c;
+  --color-scroll: #31413e;
+  --color-text: #e9eaea;
+  --color-muted: #8a908f;
+  --color-dim: #616a68;
+  --color-primary: #46ffeb;
+  --color-secondary: #8fa9a6;
+}
+:root[data-theme="player"] {
+  --color-surface: #04141c;
+  --color-panel: #0a2029;
+  --color-panel2: #132830;
+  --color-sunken: #031017;
+  --color-line: #20343c;
+  --color-line-soft: #132830;
+  --color-hover: #162b34;
+  --color-grid: #1b3038;
+  --color-scroll: #2f4149;
+  --color-text: #e8eaeb;
+  --color-muted: #889094;
+  --color-dim: #5f6a6f;
+  --color-primary: #8bc3e8;
+  --color-secondary: #4fb3c8;
+}
+:root[data-theme="one-dark"] {
+  --color-surface: #21242b;
+  --color-panel: #282c34;
+  --color-panel2: #30333b;
+  --color-sunken: #1b1e23;
+  --color-line: #3b3f46;
+  --color-line-soft: #30333b;
+  --color-hover: #33373e;
+  --color-grid: #373b42;
+  --color-scroll: #484c52;
+  --color-text: #ebebec;
+  --color-muted: #96979b;
+  --color-dim: #727478;
+  --color-primary: #6a93e0;
+  --color-secondary: #98c379;
+}
+:root[data-theme="independents"] {
+  --color-surface: #101216;
+  --color-panel: #1a1d23;
+  --color-panel2: #22252b;
+  --color-sunken: #0d0f12;
+  --color-line: #2f3137;
+  --color-line-soft: #22252b;
+  --color-hover: #25282e;
+  --color-grid: #2a2d32;
+  --color-scroll: #3c3f44;
+  --color-text: #e9eaea;
+  --color-muted: #8e8f91;
+  --color-dim: #67686b;
+  --color-primary: #b8bcc4;
+  --color-secondary: #ffd737;
+}
+:root[data-theme="lavender"] {
+  --color-surface: #1a1524;
+  --color-panel: #241d31;
+  --color-panel2: #2c2538;
+  --color-sunken: #15111e;
+  --color-line: #383144;
+  --color-line-soft: #2c2538;
+  --color-hover: #2f283b;
+  --color-grid: #332d3f;
+  --color-scroll: #453f50;
+  --color-text: #eaeaeb;
+  --color-muted: #939197;
+  --color-dim: #6d6a74;
+  --color-primary: #e3b7d8;
+  --color-secondary: #9ad8e8;
+}
+:root[data-theme="knights-of-ludd"] {
+  --color-surface: #14170a;
+  --color-panel: #1d2110;
+  --color-panel2: #252918;
+  --color-sunken: #101308;
+  --color-line: #313526;
+  --color-line-soft: #252918;
+  --color-hover: #282c1c;
+  --color-grid: #2d3121;
+  --color-scroll: #3f4234;
+  --color-text: #eaeae9;
+  --color-muted: #90918b;
+  --color-dim: #6a6b63;
+  --color-primary: #b4d93c;
+  --color-secondary: #e4dcc4;
+}
+:root[data-theme="sindrian-diktat"] {
+  --color-surface: #170a12;
+  --color-panel: #22101b;
+  --color-panel2: #2a1823;
+  --color-sunken: #13080f;
+  --color-line: #362630;
+  --color-line-soft: #2a1823;
+  --color-hover: #2d1c26;
+  --color-grid: #31212b;
+  --color-scroll: #43343d;
+  --color-text: #eae9ea;
+  --color-muted: #918b8f;
+  --color-dim: #6b6368;
+  --color-primary: #e762ce;
+  --color-secondary: #f2a6e0;
+}
+

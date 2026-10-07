@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// DiskUsage is how much space the database takes, for the System page.
+// DiskUsage is how much space the database takes, for the Settings page.
 type DiskUsage struct {
 	Path string `json:"path"`
 	// FileBytes is the main database file. WALBytes is the write-ahead log

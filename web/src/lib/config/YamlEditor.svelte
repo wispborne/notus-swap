@@ -25,7 +25,7 @@
       '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.5' },
       '.cm-content': { caretColor: 'var(--color-primary)' },
       '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-primary)' },
-      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: '#40d7a333 !important' },
+      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'color-mix(in srgb, var(--color-primary) 20%, transparent) !important' },
       '.cm-gutters': { backgroundColor: 'var(--color-panel)', color: 'var(--color-dim)', border: 'none', borderRight: '1px solid var(--color-line)' },
       '.cm-activeLineGutter': { backgroundColor: 'var(--color-hover)', color: 'var(--color-text)' },
       '.cm-activeLine': { backgroundColor: '#ffffff08' },
@@ -36,18 +36,18 @@
       '.cm-panels input, .cm-panels button': { color: 'var(--color-text)' },
       '.cm-tooltip': { backgroundColor: 'var(--color-panel2)', border: '1px solid var(--color-line)', color: 'var(--color-text)' },
       '.cm-diagnostic-error': { borderLeftColor: 'var(--color-err)' },
-      '.cm-matchingBracket': { backgroundColor: '#18ffff22', outline: 'none' },
+      '.cm-matchingBracket': { backgroundColor: 'color-mix(in srgb, var(--color-secondary) 13%, transparent)', outline: 'none' },
     },
     { dark: true },
   )
   const colors = HighlightStyle.define([
-    { tag: [t.propertyName, t.definition(t.propertyName)], color: '#40d7a3' },
+    { tag: [t.propertyName, t.definition(t.propertyName)], color: 'var(--color-primary)' },
     { tag: [t.string, t.special(t.string)], color: '#f0b85a' },
     { tag: [t.number, t.integer, t.float], color: '#b69cff' },
     { tag: [t.bool, t.null, t.atom, t.keyword], color: '#ff7a9a' },
-    { tag: [t.comment, t.lineComment], color: '#636b79', fontStyle: 'italic' },
+    { tag: [t.comment, t.lineComment], color: 'var(--color-dim)', fontStyle: 'italic' },
     { tag: [t.meta, t.labelName, t.typeName], color: '#7aa7ff' },
-    { tag: [t.punctuation, t.separator, t.bracket], color: '#8b93a1' },
+    { tag: [t.punctuation, t.separator, t.bracket], color: 'var(--color-muted)' },
   ])
 
   onMount(() => {

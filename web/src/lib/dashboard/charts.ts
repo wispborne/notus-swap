@@ -1,11 +1,19 @@
-// Shared uPlot settings in the Sigma colours.
+// Shared uPlot settings. Grid, axis text and primary follow the colour theme;
+// the series colours stay the same in every theme.
 import uPlot from 'uplot'
+import { cssColor } from '../theme.svelte'
 import { zoom } from './zoom.svelte'
 
 export const C = {
-  grid: '#343a45',
-  axis: '#636b79',
-  text: '#8b93a1',
+  get grid() {
+    return cssColor('grid')
+  },
+  get axis() {
+    return cssColor('dim')
+  },
+  get text() {
+    return cssColor('muted')
+  },
   power: '#f0b85a',
   system: '#c9ced6',
   cpu: '#7aa7ff',
@@ -13,7 +21,9 @@ export const C = {
   vram: '#b69cff',
   ram: '#40d7a3',
   temp: '#ff7a9a',
-  primary: '#40d7a3',
+  get primary() {
+    return cssColor('primary')
+  },
 }
 
 /** Colours for several cards on one chart. */

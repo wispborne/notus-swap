@@ -48,7 +48,7 @@ clients → notus-swap (:8080) → llama-swap (127.0.0.1:8081) → model servers
 
 - notus-swap's own UI and API are under `/notus/`. Every other path goes to llama-swap unchanged, so llama-swap's own UI is still at `/ui/`.
 - Only POST requests under `/v1/` and `/upstream/` are recorded. Everything else passes straight through.
-- Request metadata (model, timing, token counts, energy) is kept for good. Request and response bodies are deleted after 90 days, or once they pass 20 GB, whichever comes first. Both limits can be changed on the System page.
+- Request metadata (model, timing, token counts, energy) is kept for good. Request and response bodies are deleted after 90 days, or once they pass 20 GB, whichever comes first. Both limits can be changed on the Settings page.
 - Everything is stored in one SQLite file.
 - If llama-swap is down, notus-swap stays up, shows that in the UI, and answers proxied requests with a 503.
 
@@ -120,13 +120,13 @@ Settings that belong to one machine, such as paths, service names, and tokens, g
 
 Every push to `main` is built and published as a [GitHub release](https://github.com/wispborne/notus-swap/releases), named by date and commit, such as `2026.10.06.1200-a28d7c2`.
 
-The update button on the System page downloads the newest release, checks its SHA-256, swaps the binary, and restarts through systemd. If the new version doesn't stay up for 30 seconds, it rolls back on its own. A Roll back button goes back to the previous version by hand. `scripts/update-notus-swap.sh` does the same from a shell, for when the web UI can't be reached.
+The update button on the Settings page downloads the newest release, checks its SHA-256, swaps the binary, and restarts through systemd. If the new version doesn't stay up for 30 seconds, it rolls back on its own. A Roll back button goes back to the previous version by hand. `scripts/update-notus-swap.sh` does the same from a shell, for when the web UI can't be reached.
 
 If you build notus-swap on your own Gitea server, it can update from there instead. See "Getting updates from your own Gitea" in [docs/install.md](docs/install.md).
 
 ### llama-swap and llama.cpp
 
-The System page checks GitHub for new releases of both every hour.
+The Settings page checks GitHub for new releases of both every hour.
 
 - **llama-swap:** an update downloads the release for this machine, checks its SHA-256, and checks llama-swap's config with the new version. Then it swaps the binary, keeping the old one as `llama-swap.bak`, and restarts llama-swap's systemd unit. If the new version doesn't answer within a minute, the old one is put back. It needs `NOTUS_LLAMA_SWAP_BIN` or `NOTUS_LLAMA_SWAP_CONFIG`.
 - **llama.cpp:** builds sit side by side in `NOTUS_LLAMA_CPP_DIR`, each in its own folder, with a `current` link to the one in use. llama-swap's config should start models from `current`. An update unpacks the new build and moves the link, keeping the previous build for rolling back. Both the weekly release and the newest nightly build can be installed.

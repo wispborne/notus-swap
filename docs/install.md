@@ -43,7 +43,7 @@ NOTUS_LLAMA_SWAP_BIN=/home/YOUR_USER/Applications/llama-swap/llama-swap
 chmod 600 env
 ```
 
-The last two lines turn on the Model Config page and llama-swap updates on the System page. The Model Config page edits llama-swap's `config.yaml`, and checks each change with `llama-swap -validate` before saving. `-validate` only exists in recent llama-swap releases. With an older llama-swap, the page still checks the YAML, and lets you save without llama-swap's check. Updating llama-swap from the System page adds `-validate`.
+The last two lines turn on the Model Config page and llama-swap updates on the Settings page. The Model Config page edits llama-swap's `config.yaml`, and checks each change with `llama-swap -validate` before saving. `-validate` only exists in recent llama-swap releases. With an older llama-swap, the page still checks the YAML, and lets you save without llama-swap's check. Updating llama-swap from the Settings page adds `-validate`.
 
 `NOTUS_LISTEN=:8080` listens on every network interface, the same as a llama-swap listening on `0.0.0.0:8080`. So it relies on the same firewall rules that already limit who can reach port 8080. notus-swap has no login, so never let the open internet reach this port.
 
@@ -152,7 +152,7 @@ Three details:
 
 - `Wants=` starts llama-swap along with notus-swap. It doesn't stop notus-swap when llama-swap stops. While llama-swap is down, notus-swap stays up and answers with a 503.
 - Self-update replaces the binary and exits; systemd's `Restart=always` starts the new version.
-- Planned restarts (updates, roll backs, and the Restart button) wait until no requests are in flight, so no answer is cut off. The System page shows how many it is waiting for, and has a **Restart now** button.
+- Planned restarts (updates, roll backs, and the Restart button) wait until no requests are in flight, so no answer is cut off. The Settings page shows how many it is waiting for, and has a **Restart now** button.
 
 ```bash
 sudo systemctl daemon-reload
@@ -247,7 +247,7 @@ If llama-swap's unit has another name, put it in this rule and in `env` as `NOTU
 
 ## 8. Let notus-swap update llama.cpp (optional)
 
-The System page can install new llama.cpp releases from GitHub. It works with this layout:
+The Settings page can install new llama.cpp releases from GitHub. It works with this layout:
 
 - Each build gets its own folder, named like the download: `llama-b11146-bin-ubuntu-rocm-10.0-x64`.
 - A link called `current` points at the build in use.
@@ -270,7 +270,7 @@ The flavor is the part of the download's name after `-bin-`. It depends on your 
 
 The prebuilt ROCm and CUDA builds don't include the GPU driver stack. That must already be installed.
 
-llama.cpp publishes a weekly release, such as `v0.5.0`, and several nightly builds a day, such as `b11185`. A weekly release is made from one nightly build. The System page offers both, and its update dot only counts weekly releases.
+llama.cpp publishes a weekly release, such as `v0.5.0`, and several nightly builds a day, such as `b11185`. A weekly release is made from one nightly build. The Settings page offers both, and its update dot only counts weekly releases.
 
 Restart notus-swap to pick up the change:
 
@@ -331,7 +331,7 @@ Energy counters can reveal a little about what other programs are doing, which i
 
 ## Update to the newest release
 
-On the **System** page, press **Update** to install the newest release. notus-swap checks its checksum, keeps the current binary as `notus-swap.prev`, and restarts. If the new version stops before 30 seconds twice, it restores the previous version automatically. Use **Roll back** to restore the previous version yourself.
+On the **Settings** page, press **Update** to install the newest release. notus-swap checks its checksum, keeps the current binary as `notus-swap.prev`, and restarts. If the new version stops before 30 seconds twice, it restores the previous version automatically. Use **Roll back** to restore the previous version yourself.
 
 Releases come from GitHub. notus-swap checks for new ones every 15 minutes. If other machines on your network use GitHub's API too, add a `GITHUB_TOKEN` to `env`, as step 8 describes. To turn notus-swap's updates off, add an empty `NOTUS_GITHUB_REPO=` line to `env`.
 

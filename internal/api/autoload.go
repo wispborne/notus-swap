@@ -27,7 +27,7 @@ func (a *API) DefaultModelSetting(ctx context.Context) autoload.Setting {
 	return autoload.Parse(v)
 }
 
-// DefaultModel is what the System page shows about the default model.
+// DefaultModel is what the Settings page shows about the default model.
 type DefaultModel struct {
 	autoload.State
 	// TTLs is each model's idle unload time in seconds from llama-swap's

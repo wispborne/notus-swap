@@ -6,6 +6,7 @@
   import { status } from '../lib/status.svelte'
   import DefaultModel from '../lib/system/DefaultModel.svelte'
   import Manage from '../lib/system/Manage.svelte'
+  import { theme, themes } from '../lib/theme.svelte'
 
   let seen = $state<string[]>([])
   onMount(() => {
@@ -26,11 +27,31 @@
 </script>
 
 <div class="max-w-[760px]">
-  <h1 class="mb-3 text-[17px] font-semibold">System</h1>
+  <h1 class="mb-3 text-[17px] font-semibold">Settings</h1>
 
   <Manage />
 
   <DefaultModel />
+
+  <section class="mb-4 rounded-lg border border-line bg-panel p-4">
+    <h2 class="text-sm font-semibold">Theme</h2>
+    <p class="mt-1 text-[12.5px] text-muted">Colour themes from TriOS. Saved in this browser only.</p>
+    <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Theme">
+      {#each themes as t (t.id)}
+        <button
+          role="radio"
+          aria-checked={theme.id === t.id}
+          class="flex items-center gap-2 rounded-md border bg-panel2 py-1 pr-2.5 pl-1.5 text-[12.5px] {theme.id === t.id ? 'border-primary text-text' : 'border-line text-muted hover:border-dim hover:text-text'}"
+          onclick={() => theme.set(t.id)}
+        >
+          <span class="flex overflow-hidden rounded-sm border border-black/40">
+            {#each t.swatch as c}<span class="h-4 w-2" style:background={c}></span>{/each}
+          </span>
+          {t.name}
+        </button>
+      {/each}
+    </div>
+  </section>
 
   <section class="rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Hidden models</h2>

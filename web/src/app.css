@@ -1,7 +1,10 @@
 @import "tailwindcss";
+@import "./themes.css";
 
-/* The "Sigma" theme from TriOS, plus shades derived from it. Dark only. */
-@theme {
+/* The "Sigma" theme from TriOS, plus shades derived from it. Dark only. It is
+   the default; the other themes in themes.css override these colours.
+   `static` keeps every colour in the CSS, because some are only read with var(). */
+@theme static {
   --color-surface: #21242b;
   --color-panel: #282c34;
   --color-panel2: #2e333c;
@@ -9,6 +12,8 @@
   --color-line: #3a404b;
   --color-line-soft: #30353f;
   --color-hover: #323843;
+  --color-grid: #343a45;
+  --color-scroll: #454c59;
   --color-text: #e3e6eb;
   --color-muted: #8b93a1;
   --color-dim: #636b79;
@@ -34,7 +39,7 @@ body {
    primary on hover. The first rule is for Firefox, the rest for Chromium/WebKit. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #454c59 transparent;
+  scrollbar-color: var(--color-scroll) transparent;
 }
 ::-webkit-scrollbar {
   width: 10px;
@@ -44,7 +49,7 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #454c59;
+  background: var(--color-scroll);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: padding-box;
@@ -57,7 +62,7 @@ body {
   background: transparent;
 }
 html {
-  scrollbar-color: #454c59 var(--color-surface);
+  scrollbar-color: var(--color-scroll) var(--color-surface);
 }
 
 .num {

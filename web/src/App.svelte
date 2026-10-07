@@ -23,7 +23,7 @@
     { path: 'models', label: 'Models', ready: true },
     { path: 'logs', label: 'Logs', ready: true },
     { path: 'config', label: 'Model Config', ready: true },
-    { path: 'system', label: 'System', ready: true },
+    { path: 'system', label: 'Settings', ready: true },
   ]
 
   function current() {
