@@ -1,10 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import type uPlot from 'uplot'
-  import type { Summary } from '../api'
   import { modelColor, when } from '../format'
   import { base, dots, logRange, xAxis, yAxis, zeroToMax, type Window } from './charts'
-  import type { DashboardData } from './data'
+  import type { DashboardData, DashRequest } from './data'
   import { shortNames } from './shortNames'
   import UChart from './UChart.svelte'
 
@@ -22,7 +21,7 @@
     legend = 'dots',
   }: {
     data: DashboardData
-    value: (r: Summary) => number | null
+    value: (r: DashRequest) => number | null
     format: (v: number) => string
     unit?: string
     log?: boolean
@@ -69,7 +68,7 @@
 
   // The request nearest the cursor, so a dot can be matched to its model
   // without relying on colour.
-  let hovered = $state<Summary | null>(null)
+  let hovered = $state<DashRequest | null>(null)
   function onCursor(idx: number | null) {
     hovered = idx == null ? null : (pts[idx] ?? null)
   }

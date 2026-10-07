@@ -54,6 +54,11 @@ func TestSamplesRollupSeriesAndEnergy(t *testing.T) {
 	if len(gpus) != 2 || gpus[0] != 100 || gpus[1] != 200 {
 		t.Errorf("series %v", gpus)
 	}
+	// Oldest bucket first, and sources in name order within a bucket.
+	if len(pts) != 4 || pts[0].Source != "gpu:0000:03:00.0" || pts[1].Source != "gpus" || pts[0].T != pts[1].T || pts[2].T <= pts[1].T ||
+		pts[0].TempC == nil || *pts[0].TempC != 60 || pts[0].Kind != "gpu" || pts[1].Kind != "gpus" {
+		t.Errorf("series order %+v", pts)
+	}
 
 	// Rollup makes minute rows; running it twice changes nothing.
 	for range 2 {

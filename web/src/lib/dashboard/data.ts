@@ -39,7 +39,7 @@ export interface DashboardData {
   bucket_s: number
   series: Point[]
   cards: Card[]
-  requests: Summary[]
+  requests: DashRequest[]
   model_events: ModelEvent[]
   energy: {
     today_gpu_wh: number | null
@@ -49,10 +49,85 @@ export interface DashboardData {
   }
 }
 
-export async function fetchDashboard(range: Range): Promise<DashboardData> {
+/** The fields of a request that the Dashboard draws. The server sends only these. */
+export type DashRequest = Pick<
+  Summary,
+  | 'id'
+  | 'started_at'
+  | 'first_token_at'
+  | 'finished_at'
+  | 'model'
+  | 'state'
+  | 'prompt_tokens'
+  | 'completion_tokens'
+  | 'cached_tokens'
+  | 'prompt_ms'
+  | 'prompt_per_second'
+  | 'predicted_per_second'
+  | 'energy_j'
+  | 'queued_ms'
+>
+
+/** The range picked last time, saved per browser. */
+export function savedRange(): Range {
+  let r: string | null = null
+  try {
+    r = localStorage.getItem('dashboard_range')
+  } catch {}
+  return (RANGES as string[]).includes(r ?? '') ? (r as Range) : '1h'
+}
+
+export interface SavedLayout<Item, Opts> {
+  v?: number
+  items?: Item[]
+  opts?: Opts
+}
+
+async function getDashboard(range: Range): Promise<DashboardData> {
   const res = await fetch(`/notus/api/dashboard?range=${range}`)
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
   return res.json()
+}
+
+async function getLayout(): Promise<SavedLayout<unknown, unknown> | null> {
+  try {
+    return await (await fetch('/notus/api/settings/dashboard_layout')).json()
+  } catch {
+    return null
+  }
+}
+
+// Started by prefetchDashboard, and used once by the page's first fetches,
+// if the page opens within FRESH_MS.
+const FRESH_MS = 10_000
+let early: { at: number; range: Range; data?: Promise<DashboardData>; layout?: Promise<SavedLayout<unknown, unknown> | null> } | null = null
+
+/**
+ * Starts loading the Dashboard's data and layout at once, while the page's
+ * code and the privacy settings are still loading. The page's first
+ * fetchDashboard and fetchLayout take these answers instead of asking again.
+ */
+export function prefetchDashboard() {
+  const range = savedRange()
+  const data = getDashboard(range)
+  data.catch(() => {}) // the page sees the error when it takes this
+  early = { at: Date.now(), range, data, layout: getLayout() }
+}
+
+function takeEarly<K extends 'data' | 'layout'>(key: K) {
+  if (!early || Date.now() - early.at > FRESH_MS) return undefined
+  const p = early[key]
+  early[key] = undefined
+  return p
+}
+
+export function fetchDashboard(range: Range): Promise<DashboardData> {
+  const fresh = early?.range === range ? takeEarly('data') : undefined
+  return fresh ?? getDashboard(range)
+}
+
+export function fetchLayout<Item, Opts>(): Promise<SavedLayout<Item, Opts> | null> {
+  return (takeEarly('layout') ?? getLayout()) as Promise<SavedLayout<Item, Opts> | null>
 }
 
 /** Series aligned on one time axis, as uPlot wants: xs in seconds, one array per key. */
@@ -99,7 +174,7 @@ export function median(values: number[]) {
 }
 
 /** Time to first token, leaving out time spent waiting behind other requests. */
-export const ttftOf = (r: Summary) => (r.first_token_at ? r.first_token_at - r.started_at - (r.queued_ms ?? 0) : null)
+export const ttftOf = (r: DashRequest) => (r.first_token_at ? r.first_token_at - r.started_at - (r.queued_ms ?? 0) : null)
 
 export interface ModelStats {
   model: string
@@ -114,9 +189,9 @@ export interface ModelStats {
 }
 
 /** Per-model numbers over the finished requests in range. */
-export function modelStats(requests: Summary[]): Map<string, ModelStats> {
+export function modelStats(requests: DashRequest[]): Map<string, ModelStats> {
   const out = new Map<string, ModelStats>()
-  const groups = new Map<string, Summary[]>()
+  const groups = new Map<string, DashRequest[]>()
   for (const r of requests) {
     if (!r.model) continue
     let g = groups.get(r.model)
@@ -161,7 +236,7 @@ export function modelStats(requests: Summary[]): Map<string, ModelStats> {
 }
 
 /** Cached prompt tokens over prompt tokens, for requests that report a cache count. */
-export function cacheRate(requests: Summary[]): number | null {
+export function cacheRate(requests: DashRequest[]): number | null {
   let cached = 0, prompt = 0
   for (const r of requests)
     if (r.cached_tokens != null && r.prompt_tokens) {

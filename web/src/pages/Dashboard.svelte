@@ -4,7 +4,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { duration, num, pct, when } from '../lib/format'
   import { C } from '../lib/dashboard/charts'
-  import { cacheRate, fetchDashboard, median, RANGES, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
+  import { cacheRate, fetchDashboard, fetchLayout, median, RANGES, savedRange, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
   import Gauge from '../lib/dashboard/Gauge.svelte'
   import Lists from '../lib/dashboard/Lists.svelte'
   import ModelScatter from '../lib/dashboard/ModelScatter.svelte'
@@ -102,14 +102,7 @@
   }
 
   // ---- Time range and data ----
-  function stored(key: string) {
-    try {
-      return localStorage.getItem(key)
-    } catch {
-      return null
-    }
-  }
-  let range = $state<Range>((RANGES as string[]).includes(stored('dashboard_range') ?? '') ? (stored('dashboard_range') as Range) : '1h')
+  let range = $state<Range>(savedRange())
   let raw = $state<DashboardData | null>(null)
   // Hidden models are removed here, once, before any widget sees the data.
   const data = $derived(raw && privacy.dashboard(raw))
@@ -183,10 +176,7 @@
     status.start()
     let cancelled = false
     ;(async () => {
-      let saved: { v?: number; items?: Item[]; opts?: Record<string, WidgetOpts> } | null = null
-      try {
-        saved = await (await fetch('/notus/api/settings/dashboard_layout')).json()
-      } catch {}
+      const saved = await fetchLayout<Item, Record<string, WidgetOpts>>()
       if (cancelled) return
       items = (saved?.items ?? DEFAULT).filter((it) => WIDGETS[it.id])
       opts = saved?.opts ?? {}

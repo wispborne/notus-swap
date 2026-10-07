@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -171,6 +172,20 @@ func TestLiveFeedListAndDetail(t *testing.T) {
 	getJSON(t, srv.URL+"/notus/api/dashboard?range=15m", &dash)
 	if len(dash.Requests) != 1 || dash.Requests[0].Model != "qwen" || dash.BucketS < 1 {
 		t.Errorf("dashboard: %+v", dash)
+	}
+	// Sent gzipped when the client accepts it. Setting the header by hand
+	// stops Go's client from unzipping the answer itself.
+	gzReq, _ := http.NewRequest("GET", srv.URL+"/notus/api/dashboard?range=15m", nil)
+	gzReq.Header.Set("Accept-Encoding", "gzip")
+	if resp, err := http.DefaultClient.Do(gzReq); err != nil {
+		t.Fatal(err)
+	} else {
+		defer resp.Body.Close()
+		zr, err := gzip.NewReader(resp.Body)
+		var unzipped api.Dashboard
+		if resp.Header.Get("Content-Encoding") != "gzip" || err != nil || json.NewDecoder(zr).Decode(&unzipped) != nil || len(unzipped.Requests) != 1 {
+			t.Errorf("gzipped dashboard: %v %v %+v", resp.Header, err, unzipped)
+		}
 	}
 
 	// Settings: unset is null; a PUT is read back.

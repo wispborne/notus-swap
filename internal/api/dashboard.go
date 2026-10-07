@@ -76,8 +76,9 @@ type Dashboard struct {
 	// Series holds every source's samples, one Point per source per bucket.
 	Series []store.Point `json:"series"`
 	// Cards names each "gpu:<pci>" source, from the latest reading.
-	Cards       []Card             `json:"cards"`
-	Requests    []Summary          `json:"requests"`
+	Cards []Card `json:"cards"`
+	// Requests holds only the fields the Dashboard draws.
+	Requests    []store.Timing     `json:"requests"`
 	ModelEvents []store.ModelEvent `json:"model_events"`
 	Energy      Energy             `json:"energy"`
 }
@@ -115,7 +116,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		span = max(now.Sub(first), 15*time.Minute)
 	}
 	from := now.Add(-span)
-	d := Dashboard{From: from.UnixMilli(), To: now.UnixMilli(), Cards: []Card{}, Requests: []Summary{}}
+	d := Dashboard{From: from.UnixMilli(), To: now.UnixMilli(), Cards: []Card{}}
 
 	var err error
 	// About 600 buckets across the range.
@@ -136,15 +137,9 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		d.Cards = append(d.Cards, Card{Source: src, Card: g.Card, Name: g.Name, Integrated: g.Integrated})
 	}
 
-	recs, err := a.Store.List(ctx, store.ListOptions{Since: from, Until: now, Limit: 20000})
-	if err != nil {
+	if d.Requests, err = a.Store.Timings(ctx, from, now, 20000); err != nil {
 		a.fail(w, err)
 		return
-	}
-	for i := range recs {
-		s := summary(&recs[i])
-		s.Preview = "" // not drawn; keeps the answer small
-		d.Requests = append(d.Requests, s)
 	}
 	if d.ModelEvents, err = a.Store.ModelEvents(ctx, from, now); err != nil {
 		a.fail(w, err)
@@ -164,7 +159,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		TodayGPU: energy(midnight, "gpus"), TodaySystem: energy(midnight, "system"),
 		RangeGPU: energy(from, "gpus"), RangeSystem: energy(from, "system"),
 	}
-	writeJSON(w, d)
+	writeJSONGzip(w, r, d)
 }
 
 // Settings the UI may read and write. Values are JSON.

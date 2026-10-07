@@ -1,10 +1,12 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -106,24 +108,62 @@ func (s *Store) Series(ctx context.Context, now, from, to time.Time, bucket int6
 		bucket = tier
 	}
 	bucket = (bucket + tier - 1) / tier * tier
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT (ts / ?) * ? AS b, source, MAX(kind), AVG(watts), AVG(temp_c), AVG(vram_used), MAX(vram_total), AVG(busy)
-		 FROM samples WHERE tier = ? AND ts >= ? AND ts <= ?
-		 GROUP BY source, b ORDER BY b`,
-		bucket, bucket, tier, from.Unix(), to.Unix())
+	sources, err := s.sampleSources(ctx, tier)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	// One query per source reads the primary key (tier, source, ts) in
+	// order. One query for all sources used the (tier, ts) index and looked
+	// up each row, which took about 1 s for 24 hours of 1-second rows.
 	out := []Point{}
-	for rows.Next() {
-		var p Point
-		if err := rows.Scan(&p.T, &p.Source, &p.Kind, &p.Watts, &p.TempC, &p.VRAMUsed, &p.VRAMTotal, &p.Busy); err != nil {
+	for _, src := range sources {
+		if err := s.seriesOf(ctx, &out, src, tier, from, to, bucket); err != nil {
 			return nil, 0, err
 		}
-		out = append(out, p)
 	}
-	return out, bucket, rows.Err()
+	slices.SortStableFunc(out, func(a, b Point) int { return cmp.Compare(a.T, b.T) })
+	return out, bucket, nil
+}
+
+func (s *Store) seriesOf(ctx context.Context, out *[]Point, source string, tier int64, from, to time.Time, bucket int64) error {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT (ts / ?) * ? AS b, MAX(kind), AVG(watts), AVG(temp_c), AVG(vram_used), MAX(vram_total), AVG(busy)
+		 FROM samples WHERE tier = ? AND source = ? AND ts >= ? AND ts <= ?
+		 GROUP BY b`,
+		bucket, bucket, tier, source, from.Unix(), to.Unix())
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		p := Point{Sample: Sample{Source: source}}
+		if err := rows.Scan(&p.T, &p.Kind, &p.Watts, &p.TempC, &p.VRAMUsed, &p.VRAMTotal, &p.Busy); err != nil {
+			return err
+		}
+		*out = append(*out, p)
+	}
+	return rows.Err()
+}
+
+// sampleSources lists the sources stored in a tier, in name order. Each
+// step finds the next name from the primary key, so it reads one row per
+// source instead of every row.
+func (s *Store) sampleSources(ctx context.Context, tier int64) ([]string, error) {
+	var out []string
+	last := ""
+	for {
+		var name string
+		err := s.db.QueryRowContext(ctx,
+			`SELECT source FROM samples WHERE tier = ? AND source > ? ORDER BY source LIMIT 1`, tier, last).Scan(&name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+		last = name
+	}
 }
 
 // EnergyWh adds up a source's energy between from and to, in watt-hours,

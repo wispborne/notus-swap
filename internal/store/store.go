@@ -540,6 +540,50 @@ func (s *Store) List(ctx context.Context, o ListOptions) ([]Record, error) {
 	return out, rows.Err()
 }
 
+// Timing is the part of a request the Dashboard draws. Times are unix ms.
+// The JSON names match the Requests list's, so the UI reads both alike.
+type Timing struct {
+	ID                 int64    `json:"id"`
+	StartedAt          int64    `json:"started_at"`
+	FirstTokenAt       *int64   `json:"first_token_at"`
+	FinishedAt         *int64   `json:"finished_at"`
+	Model              string   `json:"model"`
+	State              string   `json:"state"`
+	PromptTokens       *int64   `json:"prompt_tokens"`
+	CompletionTokens   *int64   `json:"completion_tokens"`
+	CachedTokens       *int64   `json:"cached_tokens"`
+	PromptMs           *float64 `json:"prompt_ms"`
+	PromptPerSecond    *float64 `json:"prompt_per_second"`
+	PredictedPerSecond *float64 `json:"predicted_per_second"`
+	EnergyJ            *float64 `json:"energy_j"`
+	QueuedMs           *int64   `json:"queued_ms"`
+}
+
+// Timings returns the requests started between from and to, newest first,
+// at most limit. It reads only the columns in Timing, so it is much cheaper
+// than List over a long range.
+func (s *Store) Timings(ctx context.Context, from, to time.Time, limit int) ([]Timing, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, started_at, first_token_at, finished_at, model, state, prompt_tokens, completion_tokens,
+			cached_tokens, prompt_ms, prompt_per_second, predicted_per_second, energy_j, queued_ms
+		 FROM requests WHERE started_at >= ? AND started_at <= ? ORDER BY id DESC LIMIT ?`,
+		from.UnixMilli(), to.UnixMilli(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Timing{}
+	for rows.Next() {
+		var t Timing
+		if err := rows.Scan(&t.ID, &t.StartedAt, &t.FirstTokenAt, &t.FinishedAt, &t.Model, &t.State, &t.PromptTokens,
+			&t.CompletionTokens, &t.CachedTokens, &t.PromptMs, &t.PromptPerSecond, &t.PredictedPerSecond, &t.EnergyJ, &t.QueuedMs); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // Models lists every model name seen, for filters.

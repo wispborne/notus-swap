@@ -3,6 +3,7 @@
 package api
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/wispborne/notus-swap/internal/autoload"
 	"github.com/wispborne/notus-swap/internal/capture"
+	"github.com/wispborne/notus-swap/internal/compress"
 	"github.com/wispborne/notus-swap/internal/llamaconfig"
 	"github.com/wispborne/notus-swap/internal/llamaswap"
 	"github.com/wispborne/notus-swap/internal/llamaupdate"
@@ -375,6 +377,25 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(v)
+}
+
+// writeJSONGzip is writeJSON, compressed when the client accepts gzip. The
+// Dashboard's answer is up to several MB of JSON, which shrinks about
+// tenfold. Only for answers sent whole: never for streams.
+func writeJSONGzip(w http.ResponseWriter, r *http.Request, v any) {
+	w.Header().Set("Vary", "Accept-Encoding")
+	if !compress.AcceptsGzip(r) {
+		writeJSON(w, v)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Encoding", "gzip")
+	// BestSpeed compresses JSON nearly as well as the default level, in a
+	// fraction of the time.
+	gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+	json.NewEncoder(gz).Encode(v)
+	gz.Close()
 }
 
 func (a *API) fail(w http.ResponseWriter, err error) {
