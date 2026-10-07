@@ -473,3 +473,27 @@ func TestAccountGetsTimesFromTimings(t *testing.T) {
 		t.Errorf("energy %v, queued %v", r.EnergyJ, r.QueuedMs)
 	}
 }
+
+func TestClientIP(t *testing.T) {
+	for _, c := range []struct {
+		remote, xff, real, want string
+	}{
+		{"192.0.2.5:4123", "", "", "192.0.2.5"},
+		{"192.0.2.5:4123", "198.51.100.7, 192.0.2.9", "", "198.51.100.7"},
+		{"192.0.2.5:4123", "", "198.51.100.8", "198.51.100.8"},
+		{"[2001:db8::1]:80", "", "", "2001:db8::1"},
+		{"", "", "", ""},
+	} {
+		r := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+		r.RemoteAddr = c.remote
+		if c.xff != "" {
+			r.Header.Set("X-Forwarded-For", c.xff)
+		}
+		if c.real != "" {
+			r.Header.Set("X-Real-IP", c.real)
+		}
+		if got := capture.ClientIP(r); got != c.want {
+			t.Errorf("ClientIP(%q, xff %q, real %q) = %q, want %q", c.remote, c.xff, c.real, got, c.want)
+		}
+	}
+}

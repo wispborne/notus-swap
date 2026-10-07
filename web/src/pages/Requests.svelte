@@ -10,7 +10,9 @@
   import { rowChips } from '../lib/notable'
   import { noteModels } from '../lib/modelColors.svelte'
   import { privacy } from '../lib/privacy.svelte'
+  import { modelLabel, modelTitle, type ModelShow } from '../lib/modelNames'
   import RequestDetail from '../lib/RequestDetail.svelte'
+  import { sourceLabel, sourceTitle } from '../lib/source'
   import StatusPill from '../lib/StatusPill.svelte'
 
   const PAGE = 100
@@ -146,6 +148,7 @@
     { key: 'id', label: 'ID' },
     { key: 'model', label: 'Model' },
     { key: 'status', label: 'Status' },
+    { key: 'source', label: 'Source', title: 'The client that sent the request, from its User-Agent, and its address. Hover a value for the full User-Agent.' },
     { key: 'build', label: 'Build', title: 'The server build that answered, such as the llama.cpp build number' },
     { key: 'prompt', label: 'Prompt' },
     { key: 'notable', label: 'Notable', title: 'Problems first, then tool calls, thinking, images, and other request details. Hover or tap a chip for more.' },
@@ -162,11 +165,11 @@
     { key: 'jtok', label: 'J/tok', num: true, title: 'GPU energy per generated token, in joules' },
   ] as const satisfies readonly Column[]
   type Col = (typeof columns)[number]['key']
-  const defaultCols: Col[] = ['time', 'model', 'status', 'prompt', 'notable', 'cache_pct', 'in', 'out', 'in_tps', 'out_tps', 'ttft', 'duration', 'energy']
+  const defaultCols: Col[] = ['time', 'model', 'status', 'source', 'prompt', 'notable', 'cache_pct', 'in', 'out', 'in_tps', 'out_tps', 'ttft', 'duration', 'energy']
 
   // The column choice is kept per browser, since a phone may want fewer.
   // COLS_VERSION goes up when new columns should appear in saved choices.
-  const COLS_VERSION = 3
+  const COLS_VERSION = 4
   function savedCols(): Col[] {
     try {
       let v = JSON.parse(localStorage.getItem('requests_columns') ?? 'null')
@@ -180,6 +183,8 @@
         // Version 3: Status is added, because failed and cancelled requests
         // have no chip and looked like any other row without it.
         if (version < 3 && !v.includes('status')) v.push('status')
+        // Version 4: Source is added.
+        if (version < 4 && !v.includes('source')) v.push('source')
         if (version < COLS_VERSION) {
           localStorage.setItem('requests_columns', JSON.stringify(v))
           localStorage.setItem('requests_columns_version', String(COLS_VERSION))
@@ -221,17 +226,129 @@
   }
   function setGrouping(g: Grouping) {
     grouping = g
+    order = grouped(order, g)
+    saveOrder()
     try {
       localStorage.setItem('requests_grouping', g)
     } catch {
       // Not saved; it still applies until the page reloads.
     }
   }
+  // The column order, with every column, shown or not. It can be changed by
+  // dragging a header or an entry in the Columns menu, and is saved per
+  // browser (requests_column_order).
+  const allKeys = columns.map((c) => c.key) as Col[]
+  // Puts the token and speed columns side by side in the grouping's order,
+  // where the first of them sits.
+  function grouped(list: Col[], g: Grouping): Col[] {
+    const block = groupings[g].map(([k]) => k)
+    const at = list.findIndex((k) => block.includes(k))
+    const rest = list.filter((k) => !block.includes(k))
+    const restAt = list.slice(0, at).filter((k) => !block.includes(k)).length
+    return [...rest.slice(0, restAt), ...block, ...rest.slice(restAt)]
+  }
+  function savedOrder(): Col[] {
+    try {
+      const v = JSON.parse(localStorage.getItem('requests_column_order') ?? 'null')
+      if (Array.isArray(v)) {
+        const list = v.filter((k, n): k is Col => allKeys.includes(k) && v.indexOf(k) === n)
+        // A column added in a later version goes after the column it
+        // follows in the default order.
+        for (const [n, k] of allKeys.entries()) {
+          if (list.includes(k)) continue
+          const prev = allKeys.slice(0, n).findLast((p) => list.includes(p))
+          list.splice(prev ? list.indexOf(prev) + 1 : 0, 0, k)
+        }
+        return list
+      }
+    } catch {
+      // No storage, or a bad value: use the default order.
+    }
+    return grouped(allKeys, grouping)
+  }
+  let order = $state<Col[]>(savedOrder())
+  function saveOrder() {
+    try {
+      localStorage.setItem('requests_column_order', JSON.stringify(order))
+    } catch {
+      // Not saved; it still applies until the page reloads.
+    }
+  }
+  // Moves a column to sit just before or after another. Saving is left to
+  // the caller, so a drag saves once at the end.
+  function place(k: Col, target: Col, after: boolean) {
+    if (k === target) return
+    const rest = order.filter((c) => c !== k)
+    const at = rest.indexOf(target) + (after ? 1 : 0)
+    order = [...rest.slice(0, at), k, ...rest.slice(at)]
+  }
+  // Dragging a header, or an entry in the Columns menu, moves the column as
+  // the pointer passes the middle of another. The order is saved when the
+  // drag ends.
+  let dragging = $state<Col | null>(null)
+
+  // Settings for single columns, chosen from a gear in the Columns menu and
+  // saved per browser (requests_column_settings). Each setting is a choice
+  // between a few options; a column with no saved value uses its default.
+  type ColumnSetting = { key: string; label: string; options: [string, string][]; default: string; title?: string }
+  const columnSettings: Partial<Record<Col, ColumnSetting[]>> = {
+    model: [
+      {
+        key: 'show',
+        label: 'Show',
+        options: [
+          ['name', 'Name'],
+          ['id', 'ID'],
+        ],
+        default: 'name',
+        title: "The name from llama-swap's config, or the model's ID. A model without a name shows its ID either way.",
+      },
+    ],
+  }
+  let colValues = $state<Record<string, Record<string, string>>>(savedColValues())
+  function savedColValues() {
+    try {
+      const v = JSON.parse(localStorage.getItem('requests_column_settings') ?? 'null')
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+    } catch {
+      return {}
+    }
+  }
+  function colSetting(k: Col, key: string): string {
+    const def = columnSettings[k]?.find((x) => x.key === key)
+    const v = colValues[k]?.[key]
+    return def && def.options.some(([o]) => o === v) ? v! : (def?.default ?? '')
+  }
+  function setColSetting(k: Col, key: string, v: string) {
+    colValues = { ...colValues, [k]: { ...colValues[k], [key]: v } }
+    try {
+      localStorage.setItem('requests_column_settings', JSON.stringify(colValues))
+    } catch {
+      // Not saved; it still applies until the page reloads.
+    }
+  }
+  // The column whose settings are open in the Columns menu.
+  let settingsFor = $state<Col | null>(null)
+  const modelShow = $derived(colSetting('model', 'show') as ModelShow)
+  function dragStart(e: DragEvent, k: Col) {
+    dragging = k
+    e.dataTransfer!.effectAllowed = 'move'
+    e.dataTransfer!.setData('text/plain', k)
+  }
+  function dragOver(e: DragEvent, k: Col, axis: 'x' | 'y') {
+    if (!dragging) return
+    e.preventDefault()
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    place(dragging, k, axis === 'x' ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2)
+  }
+  function dragEnd() {
+    dragging = null
+    saveOrder()
+  }
+
   const orderedCols = $derived.by((): Column[] => {
-    const block = groupings[grouping].map(([key, group, label]) => ({ ...columns.find((c) => c.key === key)!, group, label }))
-    const rest = columns.filter((c) => !block.some((b) => b.key === c.key))
-    const at = columns.findIndex((c) => c.key === 'in')
-    return [...rest.slice(0, at), ...block, ...rest.slice(at)]
+    const groupOf = new Map(groupings[grouping].map(([key, group, label]) => [key, { group, label }]))
+    return order.map((k) => ({ ...columns.find((c) => c.key === k)!, ...groupOf.get(k) }))
   })
   const visibleCols = $derived(orderedCols.filter((c) => chosen.includes(c.key as Col)))
   // The top header row: one cell per run of neighbouring columns with the
@@ -260,6 +377,17 @@
       localStorage.setItem('requests_columns_version', String(COLS_VERSION))
     } catch {
       // Not saved; it still applies until the page reloads.
+    }
+  }
+  function resetCols() {
+    setCols(defaultCols)
+    order = grouped(allKeys, grouping)
+    colValues = {}
+    try {
+      localStorage.removeItem('requests_column_order')
+      localStorage.removeItem('requests_column_settings')
+    } catch {
+      // Nothing saved to remove.
     }
   }
   function toggleCol(k: Col) {
@@ -370,8 +498,9 @@
   {@const progress = flight?.progress}
   {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
-  {:else if k === 'model'}<td><span class="mr-1.5 inline-block size-2 rounded-full {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} style="background:{modelColor(r.model)}"></span>{r.model || '–'}</td>
+  {:else if k === 'model'}<td><span class="mr-1.5 inline-block size-2 rounded-full {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} style="background:{modelColor(r.model)}"></span><span title={modelTitle(r.model)}>{modelLabel(r.model, modelShow) || '–'}</span></td>
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
+  {:else if k === 'source'}<td class="max-w-[180px] overflow-hidden text-ellipsis text-muted" title={sourceTitle(r)}>{sourceLabel(r) || '–'}{#if r.client_ip}<span class="ml-1.5 font-mono text-dim">{r.client_ip}</span>{/if}</td>
   {:else if k === 'build'}<td class="font-mono text-muted" title={r.build ?? undefined}>{r.build ? shortBuild(r.build) : '–'}</td>
   {:else if k === 'prompt'}<td class="max-w-[140px] overflow-hidden text-ellipsis text-muted" title={r.preview}>{r.preview}</td>
   {:else if k === 'notable'}<td><NotableChips chips={rowChips(r, flight)} {colorful} /></td>
@@ -398,7 +527,7 @@
   />
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={model}>
     <option value="">All models</option>
-    {#each visibleModels as m}<option value={m}>{m}</option>{/each}
+    {#each visibleModels as m}<option value={m}>{modelLabel(m, modelShow)}</option>{/each}
   </select>
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={issue} title="Problems found in the output">
     <option value="">All requests</option>
@@ -415,13 +544,56 @@
   <details bind:this={picker} class="relative">
     <summary class="cursor-pointer list-none rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:text-text">Columns</summary>
     <div class="absolute right-0 z-20 mt-1 w-44 rounded-md border border-line bg-panel2 p-1.5 shadow-lg">
-      {#each columns as c}
-        <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover" title={(c as Column).title}>
-          <input type="checkbox" class="accent-primary" checked={chosen.includes(c.key)} onchange={() => toggleCol(c.key)} />
-          {c.label}
-        </label>
+      <div class="px-1.5 pt-0.5 pb-1 text-xs text-dim">Drag columns here or by their headers to move them.</div>
+      {#each orderedCols as c (c.key)}
+        {@const k = c.key as Col}
+        <div
+          role="listitem"
+          draggable="true"
+          class="flex cursor-grab items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-hover {dragging === k ? 'opacity-40' : ''}"
+          title={c.title}
+          ondragstart={(e) => dragStart(e, k)}
+          ondragover={(e) => dragOver(e, k, 'y')}
+          ondrop={(e) => e.preventDefault()}
+          ondragend={dragEnd}
+        >
+          <span class="text-dim" aria-hidden="true">⠿</span>
+          <label class="flex flex-1 cursor-pointer items-center gap-2">
+            <input type="checkbox" class="accent-primary" checked={chosen.includes(k)} onchange={() => toggleCol(k)} />
+            {columns.find((x) => x.key === k)!.label}
+          </label>
+          {#if columnSettings[k]}
+            <button
+              class="rounded p-0.5 {settingsFor === k ? 'text-primary' : 'text-dim hover:text-text'}"
+              title="Settings for this column"
+              aria-label="{columns.find((x) => x.key === k)!.label} column settings"
+              aria-expanded={settingsFor === k}
+              onclick={() => (settingsFor = settingsFor === k ? null : k)}
+            >
+              <!-- A gear: a ring with eight teeth, on a 12-pixel grid. -->
+              <svg viewBox="0 0 12 12" class="block size-3" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M5 0h2v2.1l1.4.6 1.5-1.5 1.4 1.4-1.5 1.5.6 1.4H12v2H9.9l-.6 1.4 1.5 1.5-1.4 1.4-1.5-1.5-1.4.6V12H5V9.9l-1.4-.6-1.5 1.5-1.4-1.4 1.5-1.5L1.6 7H0V5h1.6l.6-1.4L.7 2.1 2.1.7l1.5 1.5L5 1.6zM6 4a2 2 0 1 0 0 4a2 2 0 1 0 0-4z" />
+              </svg>
+            </button>
+          {/if}
+        </div>
+        {#if settingsFor === k}
+          {#each columnSettings[k] ?? [] as set (set.key)}
+            <div class="mb-1 ml-5 rounded bg-panel px-1.5 py-1 text-xs" title={set.title}>
+              <div class="mb-0.5 text-dim">{set.label}</div>
+              <div class="inline-flex overflow-hidden rounded border border-line">
+                {#each set.options as [v, label]}
+                  <button
+                    class="px-2 py-0.5 {colSetting(k, set.key) === v ? 'bg-panel2 text-text' : 'text-muted hover:text-text'}"
+                    onclick={() => setColSetting(k, set.key, v)}>{label}</button
+                  >
+                {/each}
+              </div>
+            </div>
+          {/each}
+        {/if}
       {/each}
-      <button class="mt-1 w-full rounded px-1.5 py-0.5 text-left text-xs text-primary hover:bg-hover" onclick={() => setCols(defaultCols)}>Reset to default</button>
+      <button class="mt-1 w-full rounded px-1.5 py-0.5 text-left text-xs text-primary hover:bg-hover" onclick={resetCols}>Reset to default</button>
     </div>
   </details>
   <details bind:this={overflow} class="relative">
@@ -471,8 +643,17 @@
         </tr>
       {/if}
       <tr class="text-left text-[11px] text-dim [&>th]:border-b [&>th]:border-line [&>th]:px-2 [&>th]:py-1.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
-        {#each visibleCols as c}
-          <th class={c.num ? 'text-right' : ''} title={c.title}>{c.label}</th>
+        {#each visibleCols as c (c.key)}
+          {@const k = c.key as Col}
+          <th
+            draggable="true"
+            class="cursor-grab {c.num ? 'text-right' : ''} {dragging === k ? 'opacity-40' : ''}"
+            title={c.title}
+            ondragstart={(e) => dragStart(e, k)}
+            ondragover={(e) => dragOver(e, k, 'x')}
+            ondrop={(e) => e.preventDefault()}
+            ondragend={dragEnd}
+          >{c.label}</th>
         {/each}
       </tr>
     </thead>

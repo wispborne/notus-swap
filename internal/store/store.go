@@ -133,6 +133,10 @@ var migrations = []string{
 	// retry_of is the request this one was sent again from, with the web
 	// UI's Retry button.
 	`ALTER TABLE requests ADD COLUMN retry_of INTEGER;`,
+	// client_ip and user_agent say where a request came from. client_ip is
+	// the first address in X-Forwarded-For when a reverse proxy set one.
+	`ALTER TABLE requests ADD COLUMN client_ip TEXT;
+	ALTER TABLE requests ADD COLUMN user_agent TEXT;`,
 }
 
 func Open(path string) (*Store, error) {
@@ -191,6 +195,8 @@ type Begin struct {
 	Truncated    bool
 	Tags         string // JSON list of the tags known when the request arrives
 	RetryOf      int64  // the request this one retries, or 0
+	ClientIP     string // the client's address, see ClientIP in package capture
+	UserAgent    string
 }
 
 // Finish is what is known when the response ends.
@@ -228,9 +234,10 @@ func (s *Store) Begin(ctx context.Context, b Begin) (int64, error) {
 	}
 	defer tx.Rollback()
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO requests (started_at, method, path, model, streaming, state, request_bytes, prompt_preview, tags, retry_of)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.StartedAt.UnixMilli(), b.Method, b.Path, b.Model, b.Streaming, StateInFlight, b.RequestBytes, b.Preview, nilIfEmpty(b.Tags), nilIfZero(b.RetryOf))
+		`INSERT INTO requests (started_at, method, path, model, streaming, state, request_bytes, prompt_preview, tags, retry_of, client_ip, user_agent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		b.StartedAt.UnixMilli(), b.Method, b.Path, b.Model, b.Streaming, StateInFlight, b.RequestBytes, b.Preview, nilIfEmpty(b.Tags), nilIfZero(b.RetryOf),
+		nilIfEmpty(b.ClientIP), nilIfEmpty(b.UserAgent))
 	if err != nil {
 		return 0, err
 	}
@@ -387,6 +394,10 @@ type Record struct {
 	Tags *string
 	// RetryOf is the request this one retries, or nil.
 	RetryOf *int64
+	// ClientIP and UserAgent say where the request came from; nil for
+	// requests stored before they were kept.
+	ClientIP  *string
+	UserAgent *string
 	// Issues lists the kinds of issue found, leaving out muted ones. Only
 	// List fills it in; Store.Issues has the details.
 	Issues []string
@@ -397,7 +408,8 @@ var ErrNotFound = errors.New("request not found")
 const metaCols = `r.id, r.started_at, r.first_byte_at, r.first_token_at, r.finished_at, r.method, r.path,
 	r.model, r.streaming, r.state, r.status_code, r.error, r.prompt_tokens, r.completion_tokens,
 	r.prompt_ms, r.predicted_ms, r.prompt_per_second, r.predicted_per_second, r.request_bytes,
-	r.response_bytes, r.prompt_preview, r.energy_j, r.cached_tokens, r.finish_reason, r.n_ctx, r.build, r.cmd_hash, r.tags, r.queued_ms, r.retry_of`
+	r.response_bytes, r.prompt_preview, r.energy_j, r.cached_tokens, r.finish_reason, r.n_ctx, r.build, r.cmd_hash, r.tags, r.queued_ms, r.retry_of,
+	r.client_ip, r.user_agent`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -408,7 +420,8 @@ func scanMeta(row scanner, r *Record, extra ...any) error {
 	dest := append([]any{&r.ID, &started, &firstByte, &firstToken, &finished, &r.Method, &r.Path,
 		&r.Model, &r.Streaming, &r.State, &r.StatusCode, &r.Error, &r.PromptTokens, &r.CompletionTokens,
 		&r.PromptMs, &r.PredictedMs, &r.PromptPerSecond, &r.PredictedPerSecond, &r.RequestBytes,
-		&r.ResponseBytes, &r.Preview, &r.EnergyJ, &r.CachedTokens, &r.FinishReason, &r.NCtx, &r.Build, &r.CmdHash, &r.Tags, &r.QueuedMs, &r.RetryOf}, extra...)
+		&r.ResponseBytes, &r.Preview, &r.EnergyJ, &r.CachedTokens, &r.FinishReason, &r.NCtx, &r.Build, &r.CmdHash, &r.Tags, &r.QueuedMs, &r.RetryOf,
+		&r.ClientIP, &r.UserAgent}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return err
 	}

@@ -113,6 +113,10 @@ type Summary struct {
 	Issues []string `json:"issues"`
 	// RetryOf is the request this one was sent again from, or null.
 	RetryOf *int64 `json:"retry_of"`
+	// ClientIP and UserAgent say where the request came from, or null for
+	// requests stored before they were kept.
+	ClientIP  *string `json:"client_ip"`
+	UserAgent *string `json:"user_agent"`
 }
 
 func summary(r *store.Record) Summary {
@@ -135,6 +139,7 @@ func summary(r *store.Record) Summary {
 		PredictedMs: r.PredictedMs, PromptPerSecond: r.PromptPerSecond, PredictedPerSecond: r.PredictedPerSecond,
 		EnergyJ: r.EnergyJ, QueuedMs: r.QueuedMs, RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes, Preview: r.Preview, HasBodies: r.HasBodies,
 		FinishReason: r.FinishReason, NCtx: r.NCtx, Build: r.Build, Issues: r.Issues, RetryOf: r.RetryOf,
+		ClientIP: r.ClientIP, UserAgent: r.UserAgent,
 	}
 }
 

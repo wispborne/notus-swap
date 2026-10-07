@@ -7,6 +7,7 @@
   import Markdown from './Markdown.svelte'
   import RequestMessages from './RequestMessages.svelte'
   import StatusPill from './StatusPill.svelte'
+  import { sourceLabel, sourceTitle } from './source'
 
   let { row, onopen }: { row: Summary; onopen?: (id: number) => void } = $props()
 
@@ -164,6 +165,9 @@
     {#if row.build}<span class="font-mono text-xs text-muted" title="Server build {row.build}">{shortBuild(row.build)}</span>{/if}
     <span class="text-muted">{when(row.started_at)}</span>
     <span class="font-mono text-xs text-dim">{row.method} {row.path}</span>
+    {#if row.user_agent || row.client_ip}
+      <span class="text-xs text-muted" title={sourceTitle(row)}>from {sourceLabel(row) || 'unknown client'}{#if row.client_ip}<span class="ml-1 font-mono text-dim">{row.client_ip}</span>{/if}</span>
+    {/if}
     {#if row.retry_of}
       <span class="text-xs text-muted">
         retry of <button class="font-mono text-primary hover:underline" onclick={() => onopen?.(row.retry_of!)}>#{row.retry_of}</button>

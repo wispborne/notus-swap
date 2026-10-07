@@ -40,6 +40,10 @@ export interface Summary {
   issues: string[]
   /** The request this one was sent again from, with the Retry button. */
   retry_of: number | null
+  /** The client's address, from X-Forwarded-For behind a reverse proxy. Null for older requests. */
+  client_ip: string | null
+  /** The client's User-Agent header. Null for older requests. */
+  user_agent: string | null
 }
 
 /** One thing worth noticing about a request. Only the fields that apply are set. */
@@ -122,6 +126,8 @@ export interface Start {
   /** The tags known from the request alone. */
   tags: Tag[]
   retry_of?: number
+  client_ip?: string
+  user_agent?: string
 }
 
 export interface Flight {
@@ -213,5 +219,7 @@ export function summaryFromStart(s: Start): Summary {
     build: null,
     issues: [],
     retry_of: s.retry_of ?? null,
+    client_ip: s.client_ip ?? null,
+    user_agent: s.user_agent ?? null,
   }
 }

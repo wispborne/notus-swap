@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -76,10 +77,11 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 		if retry != nil {
 			retryOf = retry.of
 		}
+		ip, agent := ClientIP(r), r.UserAgent()
 		id, err := st.Begin(r.Context(), store.Begin{
 			StartedAt: start, Method: r.Method, Path: r.URL.Path, Model: model, Streaming: streaming,
 			Preview: preview, RequestBody: stored, RequestBytes: int64(len(reqBody)), Truncated: truncated,
-			Tags: MarshalTags(tags), RetryOf: retryOf,
+			Tags: MarshalTags(tags), RetryOf: retryOf, ClientIP: ip, UserAgent: agent,
 		})
 		if err != nil {
 			log.Error("capture: could not store request", "err", err)
@@ -93,7 +95,7 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 		defer cancel(nil)
 		hub.start(Start{ID: id, StartedAt: start.UnixMilli(), Method: r.Method, Path: r.URL.Path,
 			Model: model, Streaming: streaming, Preview: preview, RequestBytes: int64(len(reqBody)), Tags: tags,
-			RetryOf: retryOf}, cancel)
+			RetryOf: retryOf, ClientIP: ip, UserAgent: agent}, cancel)
 		if retry != nil {
 			retry.id <- id
 		}
@@ -239,6 +241,27 @@ func measureSpeeds(f *store.Finish, start, firstChunk time.Time, queued time.Dur
 			f.PromptMs, f.PromptPerSecond = &ms, &perSec
 		}
 	}
+}
+
+// ClientIP is the address a request came from. Behind a reverse proxy, such
+// as Caddy, that is the first address in X-Forwarded-For, or else X-Real-IP.
+// notus-swap has no login and must only be reachable from a trusted network,
+// so these headers are taken as they are. A retry from the web UI has no
+// address.
+func ClientIP(r *http.Request) string {
+	if f := r.Header.Get("X-Forwarded-For"); f != "" {
+		first, _, _ := strings.Cut(f, ",")
+		if first = strings.TrimSpace(first); first != "" {
+			return first
+		}
+	}
+	if v := strings.TrimSpace(r.Header.Get("X-Real-IP")); v != "" {
+		return v
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 // upstreamModel reads the model from a llama-swap /upstream/<model>/... path.

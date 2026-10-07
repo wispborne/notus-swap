@@ -24,6 +24,9 @@ type Start struct {
 	Tags []Tag `json:"tags"`
 	// RetryOf is the request this one retries, or 0.
 	RetryOf int64 `json:"retry_of,omitempty"`
+	// ClientIP and UserAgent say where the request came from.
+	ClientIP  string `json:"client_ip,omitempty"`
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 // Progress is how far llama-server has got through a request's prompt, read
