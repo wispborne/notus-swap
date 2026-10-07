@@ -304,6 +304,20 @@
         title: "The name from llama-swap's config, or the model's ID. A model without a name shows its ID either way.",
       },
     ],
+    source: [
+      {
+        key: 'show',
+        label: 'Show',
+        options: [
+          ['both', 'Client and address'],
+          ['client', 'Client'],
+          ['address', 'Address'],
+          ['agent', 'Full User-Agent'],
+        ],
+        default: 'both',
+        title: 'The client is a short name worked out from the User-Agent, such as Codex or curl.',
+      },
+    ],
   }
   let colValues = $state<Record<string, Record<string, string>>>(savedColValues())
   function savedColValues() {
@@ -330,6 +344,7 @@
   // The column whose settings are open in the Columns menu.
   let settingsFor = $state<Col | null>(null)
   const modelShow = $derived(colSetting('model', 'show') as ModelShow)
+  const sourceShow = $derived(colSetting('source', 'show'))
   function dragStart(e: DragEvent, k: Col) {
     dragging = k
     e.dataTransfer!.effectAllowed = 'move'
@@ -500,7 +515,13 @@
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
   {:else if k === 'model'}<td><span class="mr-1.5 inline-block size-2 rounded-full {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} style="background:{modelColor(r.model)}"></span><span title={modelTitle(r.model)}>{modelLabel(r.model, modelShow) || '–'}</span></td>
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
-  {:else if k === 'source'}<td class="max-w-[180px] overflow-hidden text-ellipsis text-muted" title={sourceTitle(r)}>{sourceLabel(r) || '–'}{#if r.client_ip}<span class="ml-1.5 font-mono text-dim">{r.client_ip}</span>{/if}</td>
+  {:else if k === 'source'}
+    <td class="overflow-hidden text-ellipsis text-muted {sourceShow === 'agent' ? 'max-w-[260px]' : 'max-w-[180px]'}" title={sourceTitle(r)}>
+      {#if sourceShow === 'address'}<span class="font-mono">{r.client_ip || '–'}</span>
+      {:else if sourceShow === 'agent'}{r.retry_of ? sourceLabel(r) : r.user_agent || '–'}
+      {:else}{sourceLabel(r) || '–'}{#if sourceShow === 'both' && r.client_ip}<span class="ml-1.5 font-mono text-dim">{r.client_ip}</span>{/if}
+      {/if}
+    </td>
   {:else if k === 'build'}<td class="font-mono text-muted" title={r.build ?? undefined}>{r.build ? shortBuild(r.build) : '–'}</td>
   {:else if k === 'prompt'}<td class="max-w-[140px] overflow-hidden text-ellipsis text-muted" title={r.preview}>{r.preview}</td>
   {:else if k === 'notable'}<td><NotableChips chips={rowChips(r, flight)} {colorful} /></td>
@@ -581,14 +602,18 @@
           {#each columnSettings[k] ?? [] as set (set.key)}
             <div class="mb-1 ml-5 rounded bg-panel px-1.5 py-1 text-xs" title={set.title}>
               <div class="mb-0.5 text-dim">{set.label}</div>
-              <div class="inline-flex overflow-hidden rounded border border-line">
-                {#each set.options as [v, label]}
-                  <button
-                    class="px-2 py-0.5 {colSetting(k, set.key) === v ? 'bg-panel2 text-text' : 'text-muted hover:text-text'}"
-                    onclick={() => setColSetting(k, set.key, v)}>{label}</button
-                  >
-                {/each}
-              </div>
+              {#each set.options as [v, label]}
+                <label class="flex cursor-pointer items-center gap-1.5 rounded px-1 py-px hover:bg-hover">
+                  <input
+                    type="radio"
+                    name="requests-col-{k}-{set.key}"
+                    class="accent-primary"
+                    checked={colSetting(k, set.key) === v}
+                    onchange={() => setColSetting(k, set.key, v)}
+                  />
+                  {label}
+                </label>
+              {/each}
             </div>
           {/each}
         {/if}
