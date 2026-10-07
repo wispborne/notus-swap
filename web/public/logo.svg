@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs><path id="w" d="M40 96 C28 90 26 74 34 62 C40 52 44 40 42 22 C56 34 62 48 60 60 C66 52 72 44 74 34 C88 48 94 70 84 86 C78 96 66 100 56 100 C50 100 44 99 40 96 Z"/></defs>
+  <rect width="120" height="120" rx="24" fill="#21242B"/>
+  <g transform="translate(43 43) scale(0.72) translate(-59 -69)">
+    <use href="#w" fill="#40D7A3"/>
+    <use href="#w" fill="#A6F5DA" transform="translate(59 69) scale(0.66) translate(-59 -69)"/>
+    <use href="#w" fill="#F0FFFA" transform="translate(59 69) scale(0.36) translate(-59 -69)"/>
+  </g>
+  <g transform="translate(77 77) rotate(180) scale(0.72) translate(-59 -69)">
+    <use href="#w" fill="#18FFFF" stroke="#21242B" stroke-width="9" paint-order="stroke"/>
+    <use href="#w" fill="#A8FFFF" transform="translate(59 69) scale(0.66) translate(-59 -69)"/>
+    <use href="#w" fill="#F0FFFF" transform="translate(59 69) scale(0.36) translate(-59 -69)"/>
+  </g>
+</svg>

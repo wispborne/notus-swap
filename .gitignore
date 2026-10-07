@@ -1,0 +1,12 @@
+/notus-swap
+/notus-swap.exe
+*.db
+*.db-shm
+*.db-wal
+env
+/web/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep
+CLAUDE.local.md
+*.zip
+.claude/

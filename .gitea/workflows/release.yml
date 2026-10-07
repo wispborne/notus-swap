@@ -1,0 +1,65 @@
+# Every push to main: test, build the Linux binary, and publish a Gitea
+# release. notus-swap's update button installs the newest of these releases.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run check
+          npm run build
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build
+        run: |
+          VERSION="$(date -u +%Y.%m.%d.%H%M)-${GITHUB_SHA::7}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir dist
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+            -o dist/notus-swap-linux-amd64 ./cmd/notus-swap
+          cd dist && sha256sum notus-swap-linux-amd64 > notus-swap-linux-amd64.sha256
+          cat notus-swap-linux-amd64.sha256
+
+      - name: Publish release
+        env:
+          TOKEN: ${{ gitea.token }}
+          API: ${{ gitea.server_url }}/api/v1/repos/${{ gitea.repository }}
+        run: |
+          set -euo pipefail
+          body=$(jq -n --arg tag "$VERSION" --arg sha "$GITHUB_SHA" --arg msg "$(git log -1 --format=%B)" \
+            '{tag_name: $tag, target_commitish: $sha, name: $tag, body: $msg}')
+          id=$(curl -sSf -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+            -d "$body" | jq -r .id)
+          for f in dist/*; do
+            curl -sSf -X POST "$API/releases/$id/assets?name=$(basename "$f")" \
+              -H "Authorization: token $TOKEN" -F "attachment=@$f" > /dev/null
+            echo "uploaded $(basename "$f")"
+          done
+          echo "released $VERSION"
