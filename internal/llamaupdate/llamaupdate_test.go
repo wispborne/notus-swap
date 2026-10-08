@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wispborne/notus-swap/internal/proc"
 )
 
 // entry is one file in a test archive. A link is set for a symlink.
@@ -156,7 +158,7 @@ func swapSetup(t *testing.T) (*LlamaSwap, *fakeGitHub, *string, *int) {
 		t.Skip("uses shell scripts as fake llama-swap binaries; CI runs this on Linux")
 	}
 	dir := t.TempDir()
-	s := &LlamaSwap{Bin: filepath.Join(dir, "llama-swap"), Config: filepath.Join(dir, "config.yaml"), Unit: "llama-swap.service"}
+	s := &LlamaSwap{Bin: filepath.Join(dir, "llama-swap"), Config: filepath.Join(dir, "config.yaml")}
 	write(t, s.Bin, fakeSwapBinary("v255"), 0o755)
 	write(t, s.Config, "models: {}\n", 0o644)
 
@@ -171,7 +173,7 @@ func swapSetup(t *testing.T) (*LlamaSwap, *fakeGitHub, *string, *int) {
 	}))
 	t.Cleanup(up.Close)
 	s.Upstream = up.URL
-	s.Restart = func(ctx context.Context, unit string) error {
+	s.Restart = func(ctx context.Context) error {
 		restarts++
 		running = s.Installed()
 		return nil
@@ -215,7 +217,7 @@ func TestSwapInstallRefusesAConfigTheNewVersionRejects(t *testing.T) {
 
 func TestSwapInstallPutsTheOldVersionBackWhenTheNewOneDoesNotAnswer(t *testing.T) {
 	s, gh, running, restarts := swapSetup(t)
-	s.Restart = func(ctx context.Context, unit string) error {
+	s.Restart = func(ctx context.Context) error {
 		*restarts++
 		*running = "v255" // the new version never comes up
 		return nil
@@ -274,7 +276,7 @@ func cppSetup(t *testing.T) (*LlamaCpp, *fakeGitHub) {
 func TestCppInstall(t *testing.T) {
 	c, gh := cppSetup(t)
 	inUse = func(string) bool { return false }
-	t.Cleanup(func() { inUse = procInUse })
+	t.Cleanup(func() { inUse = proc.InDir })
 
 	msg, err := c.Install(context.Background(), gh.client(), "b200", &steps{})
 	if err != nil {
@@ -315,7 +317,7 @@ func TestCppInstall(t *testing.T) {
 func TestCppInstallKeepsBuildsInUse(t *testing.T) {
 	c, gh := cppSetup(t)
 	inUse = func(dir string) bool { return strings.Contains(dir, "b50") }
-	t.Cleanup(func() { inUse = procInUse })
+	t.Cleanup(func() { inUse = proc.InDir })
 	msg, err := c.Install(context.Background(), gh.client(), "b200", &steps{})
 	if err != nil || !exists(c.folder("b50", flavor)) || !strings.Contains(msg, "Kept b50") {
 		t.Errorf("%q %v", msg, err)
@@ -363,7 +365,7 @@ func TestCheckAndStatus(t *testing.T) {
 func TestStartRunsOneJobAtATime(t *testing.T) {
 	c, gh := cppSetup(t)
 	inUse = func(string) bool { return false }
-	t.Cleanup(func() { inUse = procInUse })
+	t.Cleanup(func() { inUse = proc.InDir })
 	m := &Manager{GitHub: gh.client(), Cpp: c}
 	m.Check(context.Background())
 	if err := m.Start(ComponentLlamaCpp, "install", ""); err != nil {

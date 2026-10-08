@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +32,16 @@ const keepBackups = 20
 type Editor struct {
 	Path string // llama-swap's config.yaml; "" turns the editor off
 	Bin  string // llama-swap binary, for -validate; "" means next to Path
+}
+
+// DefaultBin is where llama-swap's binary is when only its config's path is
+// set: next to the config, with ".exe" on Windows.
+func DefaultBin(config string) string {
+	bin := filepath.Join(filepath.Dir(config), "llama-swap")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	return bin
 }
 
 // ErrOff means no config path was set.
@@ -101,7 +112,7 @@ func (e *Editor) Check(ctx context.Context, content string) Check {
 func (e *Editor) validate(ctx context.Context, content string) (ran, ok bool, note string) {
 	bin := e.Bin
 	if bin == "" && e.Path != "" {
-		bin = filepath.Join(filepath.Dir(e.Path), "llama-swap")
+		bin = DefaultBin(e.Path)
 	}
 	if _, err := os.Stat(bin); err != nil {
 		return false, false, "llama-swap binary not found at " + bin + " (set NOTUS_LLAMA_SWAP_BIN)"

@@ -2,12 +2,14 @@ package llamaupdate
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -105,9 +107,95 @@ func writeFile(target string, r io.Reader, perm os.FileMode) error {
 	return f.Close()
 }
 
+// isZip reports whether a release file is a .zip. The others are .tar.gz.
+func isZip(name string) bool { return strings.HasSuffix(name, ".zip") }
+
+// archiveExt is the extension of a release file: ".zip" or ".tar.gz".
+func archiveExt(name string) string {
+	if isZip(name) {
+		return ".zip"
+	}
+	return ".tar.gz"
+}
+
+// exeName adds ".exe" on Windows.
+func exeName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
+// unpack unpacks a .zip or .tar.gz into dir, creating dir.
+func unpack(archive, dir string) error {
+	if isZip(archive) {
+		return unzip(archive, dir)
+	}
+	return untar(archive, dir)
+}
+
+// unzip unpacks a .zip into dir, creating dir. It refuses an archive with
+// any path that leads outside. Links are skipped.
+func unzip(archive, dir string) error {
+	zr, err := zip.OpenReader(archive)
+	if err != nil {
+		return fmt.Errorf("%s is not a .zip file: %w", filepath.Base(archive), err)
+	}
+	defer zr.Close()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, f := range zr.File {
+		name, err := inside(f.Name)
+		if err != nil {
+			return err
+		}
+		if name == "." {
+			continue
+		}
+		target := filepath.Join(dir, filepath.FromSlash(name))
+		mode := f.Mode()
+		switch {
+		case mode.IsDir():
+			err = os.MkdirAll(target, 0o755)
+		case mode.IsRegular():
+			err = unzipFile(f, target, mode.Perm()|0o600)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unzipFile(f *zip.File, target string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	r, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return writeFile(target, r, perm)
+}
+
 // extractFile copies the first regular file named base (in any folder) out
-// of a .tar.gz, to dst.
+// of a .zip or .tar.gz, to dst.
 func extractFile(archive, base, dst string, perm os.FileMode) error {
+	if isZip(archive) {
+		zr, err := zip.OpenReader(archive)
+		if err != nil {
+			return fmt.Errorf("%s is not a .zip file: %w", filepath.Base(archive), err)
+		}
+		defer zr.Close()
+		for _, f := range zr.File {
+			if f.Mode().IsRegular() && path.Base(f.Name) == base {
+				return unzipFile(f, dst, perm)
+			}
+		}
+		return fmt.Errorf("%s has no file named %s", filepath.Base(archive), base)
+	}
 	tr, closer, err := openTar(archive)
 	if err != nil {
 		return err

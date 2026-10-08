@@ -23,6 +23,7 @@ import (
 	"github.com/wispborne/notus-swap/internal/metrics"
 	"github.com/wispborne/notus-swap/internal/restart"
 	"github.com/wispborne/notus-swap/internal/selfupdate"
+	"github.com/wispborne/notus-swap/internal/service"
 	"github.com/wispborne/notus-swap/internal/store"
 )
 
@@ -40,12 +41,15 @@ type API struct {
 	// Logs holds notus-swap's own recent log, for the Logs page.
 	Logs *logbuf.Buffer
 	// Restart shuts notus-swap down cleanly once no requests are in flight;
-	// systemd starts it again.
+	// systemd or notus-swap's own supervisor starts it again.
 	Restart *restart.Plan
 	// PruneNow runs body retention at once (after its setting changes).
 	PruneNow         func()
 	RetentionDefault Retention
-	LlamaSwapUnit    string
+	// LlamaSwapService starts and stops llama-swap. Nil turns those buttons off.
+	LlamaSwapService service.Controller
+	// SelfRestart is what starts notus-swap again: "systemd" or "supervisor".
+	SelfRestart string
 	// AutoLoad loads the default model after a while with nothing loaded.
 	AutoLoad *autoload.Loader
 	// Upstream is llama-swap's base URL, for loading and unloading models.

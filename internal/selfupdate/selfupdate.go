@@ -8,13 +8,13 @@
 // Installing: the release binary and its .sha256 are downloaded next to the
 // running binary and checked. The running binary is renamed to
 // "<exe>.prev", the new one takes its name, and a marker file records the
-// update. notus-swap then exits, and systemd (Restart=always) starts the new
-// binary.
+// update. notus-swap then exits, and systemd (Restart=always) or notus-swap's
+// own supervisor starts the new binary.
 //
 // Confirming: on start-up, CheckOnStart counts attempts in the marker. The
 // new version calls Confirm once it has served for 30 seconds, which removes
 // the marker. If it crashes before that three times in a row, the third
-// start swaps .prev back in and exits, so systemd starts the old version.
+// start swaps .prev back in and exits, so the old version is started.
 package selfupdate
 
 import (
@@ -117,8 +117,15 @@ func (u *Updater) downloadURL(tag, file string) string {
 	return base + "/" + repo + "/releases/download/" + url.PathEscape(tag) + "/" + file
 }
 
-// Asset is the release file for this machine.
-func Asset() string { return "notus-swap-" + runtime.GOOS + "-" + runtime.GOARCH }
+// Asset is the release file for this machine, such as
+// notus-swap-linux-amd64 or notus-swap-windows-amd64.exe.
+func Asset() string {
+	name := "notus-swap-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return name
+}
 
 type Release struct {
 	Tag       string    `json:"tag"`
@@ -326,6 +333,7 @@ func (u *Updater) Install(ctx context.Context, tag string) error {
 
 	// Swap: running binary becomes .prev, the download takes its name. The
 	// running process keeps its open file, so renaming under it is safe.
+	moveAside(u.prevPath())
 	if err := os.Rename(u.Exe, u.prevPath()); err != nil {
 		return fmt.Errorf("could not save the current binary: %w", err)
 	}
@@ -335,6 +343,30 @@ func (u *Updater) Install(ctx context.Context, tag string) error {
 	}
 	os.Remove(u.resultPath())
 	return writeJSON(u.markerPath(), Marker{From: u.Version, To: tag, At: time.Now()})
+}
+
+// moveAside gets an old file out of the way before another takes its name.
+// Windows won't replace or delete a program file that is running, but it
+// will rename one. The supervisor that restarts notus-swap keeps running
+// from the file it started as, which becomes .prev after an update. The
+// renamed file is deleted now if possible, or else by RemoveLeftovers on a
+// later start.
+func moveAside(path string) {
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+	old := fmt.Sprintf("%s.old-%d", path, time.Now().UnixNano())
+	if os.Rename(path, old) == nil {
+		os.Remove(old)
+	}
+}
+
+// RemoveLeftovers deletes files moveAside couldn't delete.
+func (u *Updater) RemoveLeftovers() {
+	old, _ := filepath.Glob(u.prevPath() + ".old-*")
+	for _, f := range old {
+		os.Remove(f)
+	}
 }
 
 // swap exchanges the binary and .prev.
@@ -400,13 +432,26 @@ func (u *Updater) CheckOnStart() (rolledBack bool, err error) {
 	if m.Attempts < MaxAttempts {
 		return false, writeJSON(u.markerPath(), m)
 	}
+	if err := u.RollBackFailed(fmt.Sprintf("new version stopped %d times before running for 30 seconds", MaxAttempts-1)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RollBackFailed puts the previous binary back because the update being
+// confirmed failed, and records why. The supervisor uses it when a new
+// version keeps stopping before it can run CheckOnStart.
+func (u *Updater) RollBackFailed(reason string) error {
+	var m Marker
+	if !readJSON(u.markerPath(), &m) {
+		return errors.New("no update is being confirmed")
+	}
 	if err := u.swap(); err != nil {
-		return false, fmt.Errorf("rolling back a failed update: %w", err)
+		return fmt.Errorf("rolling back a failed update: %w", err)
 	}
 	os.Remove(u.markerPath())
-	reason := fmt.Sprintf("new version stopped %d times before running for 30 seconds", MaxAttempts-1)
 	writeJSON(u.resultPath(), Result{From: m.From, To: m.To, Outcome: "rolled back", Reason: reason, At: time.Now()})
-	return true, nil
+	return nil
 }
 
 // Confirm marks the running version as good, ending an update.

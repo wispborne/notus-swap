@@ -21,7 +21,10 @@
     pending?: { from: string; to: string; attempts: number }
     last_result?: { from: string; to: string; outcome: string; reason?: string; at: string }
     retention: { days: number; gb: number }
-    llama_swap_unit: string
+    /** How llama-swap is run: "systemd", "process" (notus-swap runs it), or "" (no control). */
+    llama_swap_service: string
+    /** What starts notus-swap again after a restart: "systemd", "supervisor", or "". */
+    self_restart: string
     database?: { path: string; file_bytes: number; wal_bytes: number; free_bytes: number; bodies_bytes: number; requests: number; with_bodies: number }
     restarting?: Restarting
   }
@@ -135,7 +138,8 @@
     }
     busy = ''
     waiting = null
-    message = { kind: 'err', text: "notus-swap didn't come back within 90 seconds. Check its log: journalctl -u notus-swap.service -n 50" }
+    const where = info?.self_restart === 'systemd' ? 'journalctl -u notus-swap.service -n 50' : "the window or terminal it runs in"
+    message = { kind: 'err', text: `notus-swap didn't come back within 90 seconds. Check its log: ${where}` }
   }
 
   async function restartNow() {
@@ -354,7 +358,11 @@
   </div>
   <p class="mt-2 text-xs text-dim">
     {#if serviceState}llama-swap: {serviceState}.{/if}
-    Service controls use the polkit rule in the install guide.
+    {#if info?.llama_swap_service === 'systemd'}
+      Service controls use the polkit rule in the install guide.
+    {:else if info?.llama_swap_service === 'process'}
+      notus-swap runs llama-swap itself. Stopping notus-swap stops llama-swap too; restarting notus-swap leaves it running.
+    {/if}
   </p>
   {#if serviceError}<p class="mt-2 text-xs text-err">Could not read llama-swap's service state: {serviceError}</p>{/if}
 </section>

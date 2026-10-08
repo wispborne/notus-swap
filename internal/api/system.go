@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/wispborne/notus-swap/internal/idlewait"
-	"github.com/wispborne/notus-swap/internal/llamaupdate"
 	"github.com/wispborne/notus-swap/internal/restart"
 	"github.com/wispborne/notus-swap/internal/selfupdate"
+	"github.com/wispborne/notus-swap/internal/service"
 	"github.com/wispborne/notus-swap/internal/store"
 )
 
@@ -51,20 +51,25 @@ func (a *API) registerSystem(mux *http.ServeMux) {
 
 // SystemInfo is what the Settings page shows about updates and settings.
 type SystemInfo struct {
-	Version       string               `json:"version"`
-	Configured    bool                 `json:"update_configured"`
-	UpdateSource  string               `json:"update_source,omitempty"` // such as "GitHub (wispborne/notus-swap)"
-	Releases      []selfupdate.Release `json:"releases"`                // newest first, down to the running one
-	Changelog     []selfupdate.Release `json:"changelog"`               // the newest releases, whatever is running
-	CurrentKnown  bool                 `json:"current_known"`
-	ReleaseError  string               `json:"release_error,omitempty"`
-	HasPrevious   bool                 `json:"has_previous"`
-	Pending       *selfupdate.Marker   `json:"pending,omitempty"`
-	LastResult    *selfupdate.Result   `json:"last_result,omitempty"`
-	Retention     Retention            `json:"retention"`
-	LlamaSwapUnit string               `json:"llama_swap_unit"`
-	Database      *store.DiskUsage     `json:"database,omitempty"`
-	Restarting    *PendingRestart      `json:"restarting,omitempty"`
+	Version      string               `json:"version"`
+	Configured   bool                 `json:"update_configured"`
+	UpdateSource string               `json:"update_source,omitempty"` // such as "GitHub (wispborne/notus-swap)"
+	Releases     []selfupdate.Release `json:"releases"`                // newest first, down to the running one
+	Changelog    []selfupdate.Release `json:"changelog"`               // the newest releases, whatever is running
+	CurrentKnown bool                 `json:"current_known"`
+	ReleaseError string               `json:"release_error,omitempty"`
+	HasPrevious  bool                 `json:"has_previous"`
+	Pending      *selfupdate.Marker   `json:"pending,omitempty"`
+	LastResult   *selfupdate.Result   `json:"last_result,omitempty"`
+	Retention    Retention            `json:"retention"`
+	// LlamaSwapService is how llama-swap is run: "systemd", "process", or ""
+	// when notus-swap can't control it.
+	LlamaSwapService string `json:"llama_swap_service"`
+	// SelfRestart is what starts notus-swap again after a restart:
+	// "systemd" or "supervisor".
+	SelfRestart string           `json:"self_restart"`
+	Database    *store.DiskUsage `json:"database,omitempty"`
+	Restarting  *PendingRestart  `json:"restarting,omitempty"`
 }
 
 // system: GET /notus/api/system
@@ -72,9 +77,12 @@ func (a *API) system(w http.ResponseWriter, r *http.Request) {
 	info := SystemInfo{
 		Version: a.Version, Configured: a.Updater.Configured(), UpdateSource: a.Updater.Source(), HasPrevious: a.Updater.HasPrevious(),
 		Pending: a.Updater.Pending(), LastResult: a.Updater.LastResult(), Releases: []selfupdate.Release{},
-		Changelog: []selfupdate.Release{},
-		Retention: a.RetentionSetting(r.Context(), a.RetentionDefault), LlamaSwapUnit: a.LlamaSwapUnit,
-		Restarting: a.pendingRestart(),
+		Changelog:  []selfupdate.Release{},
+		Retention:  a.RetentionSetting(r.Context(), a.RetentionDefault),
+		Restarting: a.pendingRestart(), SelfRestart: a.SelfRestart,
+	}
+	if a.LlamaSwapService != nil {
+		info.LlamaSwapService = a.LlamaSwapService.Kind()
 	}
 	if u, err := a.Store.DiskUsage(r.Context()); err == nil {
 		info.Database = &u
@@ -194,7 +202,8 @@ func (a *API) restartSelfCancel(w http.ResponseWriter, r *http.Request) {
 
 // restartWhenIdle asks for a restart once no requests are in flight. The
 // server keeps answering until then, and the answer to this request still
-// goes out. systemd starts notus-swap again (Restart=always).
+// goes out. systemd (Restart=always) or notus-swap's own supervisor starts
+// notus-swap again.
 // Cancel calls undo to reverse changes made for the restart.
 func (a *API) restartWhenIdle(reason string, undo func() error) {
 	if a.Restart == nil {
@@ -236,44 +245,46 @@ func (a *API) pendingRestart() *PendingRestart {
 	return &PendingRestart{Pending: *p, InFlight: a.Hub.Count()}
 }
 
-// restartLlamaSwap: POST /notus/api/restart/llama-swap
-func (a *API) restartLlamaSwap(w http.ResponseWriter, r *http.Request) {
-	if err := llamaupdate.RestartUnit(r.Context(), a.LlamaSwapUnit); err != nil {
-		a.Log.Warn("restarting llama-swap failed", "err", err)
+// llamaSwapControl runs one of the service actions, answering 503 when
+// notus-swap has no way to control llama-swap.
+func (a *API) llamaSwapControl(w http.ResponseWriter, r *http.Request, verb, done string, act func(service.Controller) error) {
+	if a.LlamaSwapService == nil {
+		http.Error(w, "notus-swap isn't set up to control llama-swap", http.StatusServiceUnavailable)
+		return
+	}
+	if err := act(a.LlamaSwapService); err != nil {
+		a.Log.Warn(verb+" llama-swap failed", "err", err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	a.Log.Info("llama-swap restarted from the web UI")
+	a.Log.Info("llama-swap " + done + " from the web UI")
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// restartLlamaSwap: POST /notus/api/restart/llama-swap
+func (a *API) restartLlamaSwap(w http.ResponseWriter, r *http.Request) {
+	a.llamaSwapControl(w, r, "restarting", "restarted", func(s service.Controller) error { return s.Restart(r.Context()) })
+}
+
+func (a *API) startLlamaSwap(w http.ResponseWriter, r *http.Request) {
+	a.llamaSwapControl(w, r, "starting", "started", func(s service.Controller) error { return s.Start(r.Context()) })
+}
+
+func (a *API) stopLlamaSwap(w http.ResponseWriter, r *http.Request) {
+	a.llamaSwapControl(w, r, "stopping", "stopped", func(s service.Controller) error { return s.Stop(r.Context()) })
+}
+
 func (a *API) llamaSwapService(w http.ResponseWriter, r *http.Request) {
-	state, err := llamaupdate.UnitState(r.Context(), a.LlamaSwapUnit)
+	if a.LlamaSwapService == nil {
+		http.Error(w, "notus-swap isn't set up to control llama-swap", http.StatusServiceUnavailable)
+		return
+	}
+	state, err := a.LlamaSwapService.State(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, map[string]string{"state": state})
-}
-
-func (a *API) startLlamaSwap(w http.ResponseWriter, r *http.Request) {
-	if err := llamaupdate.StartUnit(r.Context(), a.LlamaSwapUnit); err != nil {
-		a.Log.Warn("starting llama-swap failed", "err", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	a.Log.Info("llama-swap started from the web UI")
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) stopLlamaSwap(w http.ResponseWriter, r *http.Request) {
-	if err := llamaupdate.StopUnit(r.Context(), a.LlamaSwapUnit); err != nil {
-		a.Log.Warn("stopping llama-swap failed", "err", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	a.Log.Info("llama-swap stopped from the web UI")
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func errText(err error) string {

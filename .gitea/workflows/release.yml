@@ -1,5 +1,6 @@
-# Every push to main: test, build the Linux binary, and publish a Gitea
-# release. notus-swap's update button installs the newest of these releases.
+# Every push to main: test, build binaries for Linux, Windows and macOS, and
+# publish a Gitea release. notus-swap's update button installs the newest of
+# these releases.
 name: release
 
 on:
@@ -40,11 +41,20 @@ jobs:
           VERSION="$(date -u +%Y.%m.%d.%H%M)-${GITHUB_SHA::7}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir dist
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-            go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
-            -o dist/notus-swap-linux-amd64 ./cmd/notus-swap
-          cd dist && sha256sum notus-swap-linux-amd64 > notus-swap-linux-amd64.sha256
-          cat notus-swap-linux-amd64.sha256
+          # One binary per system. Each has a .sha256 that the update button checks.
+          build_notus_swap() {
+            name="notus-swap-$1-$2"
+            if [ "$1" = windows ]; then name="$name.exe"; fi
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+              -o "dist/$name" ./cmd/notus-swap
+            (cd dist && sha256sum "$name" > "$name.sha256" && cat "$name.sha256")
+          }
+          build_notus_swap linux amd64
+          build_notus_swap linux arm64
+          build_notus_swap windows amd64
+          build_notus_swap darwin arm64
+          build_notus_swap darwin amd64
 
       - name: Publish release
         env:

@@ -10,6 +10,7 @@ package rapl
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,7 +56,11 @@ func NewMeter(root string) *Meter {
 		}
 		m.zones = append(m.zones, z)
 	}
-	if len(m.zones) == 0 {
+	switch {
+	case len(m.zones) > 0:
+	case runtime.GOOS != "linux":
+		m.problem = "CPU power is only read on Linux"
+	default:
 		m.problem = "no RAPL package zone found under " + root
 	}
 	return m

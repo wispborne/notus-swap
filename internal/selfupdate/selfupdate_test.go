@@ -124,6 +124,44 @@ func TestFailedStartsRollBack(t *testing.T) {
 	}
 }
 
+// The supervisor rolls back a new version that stops before it can count its
+// own starts.
+func TestRollBackFailed(t *testing.T) {
+	u := updater(t, fakeGitea(t, "broken binary", false))
+	if err := u.RollBackFailed("x"); err == nil {
+		t.Fatal("rolled back with no update pending")
+	}
+	if err := u.Install(context.Background(), "2026.09.25.1000-bbbbbbb"); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.RollBackFailed("kept stopping"); err != nil {
+		t.Fatal(err)
+	}
+	r := u.LastResult()
+	if read(t, u.Exe) != "old binary" || u.Pending() != nil || r.Outcome != "rolled back" || r.Reason != "kept stopping" {
+		t.Errorf("exe %q pending %+v result %+v", read(t, u.Exe), u.Pending(), r)
+	}
+}
+
+// A second update moves the old .prev aside first, because on Windows it can
+// be the file the supervisor is running from.
+func TestInstallMovesOldPrevAside(t *testing.T) {
+	u := updater(t, fakeGitea(t, "new binary", false))
+	if err := os.WriteFile(u.prevPath(), []byte("older binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.Install(context.Background(), "2026.09.25.1000-bbbbbbb"); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, u.prevPath()) != "old binary" {
+		t.Errorf(".prev is %q", read(t, u.prevPath()))
+	}
+	u.RemoveLeftovers()
+	if left, _ := filepath.Glob(u.prevPath() + ".old-*"); len(left) > 0 {
+		t.Errorf("left behind: %v", left)
+	}
+}
+
 func TestDamagedDownloadChangesNothing(t *testing.T) {
 	u := updater(t, fakeGitea(t, "new binary", true))
 	if err := u.Install(context.Background(), "2026.09.25.1000-bbbbbbb"); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {

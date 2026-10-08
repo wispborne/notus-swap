@@ -1,10 +1,12 @@
-// Package gpu reads AMD GPU sensors from sysfs. It handles any number of
-// cards. On machines without AMD cards (or without sysfs, like Windows) it
-// finds no cards and every reading is empty.
+// Package gpu reads GPU sensors: AMD cards from Linux's sysfs, and NVIDIA
+// cards through nvidia-smi on Linux and Windows. It handles any number of
+// cards. On a machine with neither, it finds no cards and every reading is
+// empty.
 package gpu
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -123,9 +125,13 @@ func (c card) temp() *float64 {
 // Sampler reads every card once a second and keeps the latest readings.
 type Sampler struct {
 	root string
+	// NvidiaSMI is the nvidia-smi program, looked up on PATH unless it is a
+	// path. "" reads no NVIDIA cards.
+	NvidiaSMI string
 
 	mu     sync.Mutex
 	cards  []card
+	smi    string // NvidiaSMI found on this machine, or ""
 	latest []Reading
 	at     time.Time
 }
@@ -145,11 +151,18 @@ func (s *Sampler) Sample() []Reading {
 	defer s.mu.Unlock()
 	if s.cards == nil || time.Since(s.at) > time.Minute {
 		s.cards = find(s.root)
+		s.smi = ""
+		if s.NvidiaSMI != "" {
+			s.smi, _ = exec.LookPath(s.NvidiaSMI)
+		}
 		s.at = time.Now()
 	}
 	out := make([]Reading, len(s.cards))
 	for i, c := range s.cards {
 		out[i] = c.read()
+	}
+	if s.smi != "" {
+		out = append(out, readNvidia(s.smi)...)
 	}
 	s.latest = out
 	return out

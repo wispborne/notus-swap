@@ -9,7 +9,7 @@ notus-swap is a proxy and web UI that sits in front of [llama-swap](https://gith
 
 llama-swap itself is not changed. notus-swap runs as its own service and passes every request through to it. So llama-swap can be updated as usual.
 
-It was built for one machine with AMD Radeon GPUs, but nothing in it is tied to that machine.
+It was built for one Linux machine with AMD Radeon GPUs, but nothing in it is tied to that machine. It also runs on Windows and macOS, and reads NVIDIA GPUs.
 
 ![The Dashboard: gauges for VRAM, temperature, RAM and power, a timeline of requests, power and GPU use, and per-model speed charts](docs/screenshots/dashboard.png)
 
@@ -56,13 +56,22 @@ clients → notus-swap (:8080) → llama-swap (127.0.0.1:8081) → model servers
 
 ## Requirements
 
-- Linux, for GPU and CPU power readings. It reads AMD GPUs from sysfs (`/sys/class/drm`) and CPU power from RAPL (`/sys/class/powercap`). Other GPUs are not measured yet, but the proxy and request viewer still work.
-- A running llama-swap. The config editor needs a llama-swap new enough to have the `-validate` flag.
+- Linux, Windows or macOS. What is measured depends on the system:
+  - NVIDIA GPUs are read through `nvidia-smi`, on Linux and Windows.
+  - AMD GPUs are read from sysfs (`/sys/class/drm`), on Linux only.
+  - CPU power comes from RAPL (`/sys/class/powercap`), on Linux only. Without it there is no whole-machine power estimate.
+  - RAM is read on Linux and Windows.
+  
+  The proxy, request viewer, config editor and updates work on all three.
+- llama-swap. The config editor needs a llama-swap new enough to have the `-validate` flag.
 - To build: Go (see `go.mod`) and Node.js 24.
 
 ## Installing
 
-Download `notus-swap-linux-amd64` from the [latest release](https://github.com/wispborne/notus-swap/releases/latest), or build it as shown below. Then follow [docs/install.md](docs/install.md). It covers the systemd units, moving llama-swap to another port, the polkit rule for the restart buttons, and the udev rule for reading CPU power.
+Download the binary for your system from the [latest release](https://github.com/wispborne/notus-swap/releases/latest), such as `notus-swap-linux-amd64` or `notus-swap-windows-amd64.exe`, or build it as shown below. Then:
+
+- **Linux with systemd:** follow [docs/install.md](docs/install.md). It covers the systemd units, moving llama-swap to another port, the polkit rule for the restart buttons, and the udev rule for reading CPU power.
+- **Windows, macOS, or Linux without systemd:** follow [docs/install-without-systemd.md](docs/install-without-systemd.md). There notus-swap starts llama-swap itself and restarts itself.
 
 ## Building
 
@@ -76,7 +85,7 @@ cd ..
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o notus-swap ./cmd/notus-swap
 ```
 
-`GOOS` and `GOARCH` set the system the binary runs on. With them, you can build on Windows or a Mac for a Linux server. Leave them out to build for the machine you are on. On Windows, run the commands in Git Bash or WSL.
+`GOOS` and `GOARCH` set the system the binary runs on, such as `linux`, `windows` or `darwin` (macOS). With them, you can build on one system for another. Leave them out to build for the machine you are on. On Windows, run the commands in Git Bash or WSL, or build in PowerShell with `go build -o notus-swap.exe ./cmd/notus-swap`.
 
 The SQLite driver is pure Go, so no C compiler is needed.
 
@@ -99,9 +108,12 @@ Each setting can be a flag or a line in an `env` file:
 | `-db` | `NOTUS_DB` | `notus-swap.db` | SQLite database file |
 | `-llama-swap-config` | `NOTUS_LLAMA_SWAP_CONFIG` | none | llama-swap's `config.yaml`. The config editor is off without it. |
 | `-llama-swap-bin` | `NOTUS_LLAMA_SWAP_BIN` | next to the config | llama-swap binary, used to check configs and for updates |
+| `-llama-swap-service` | `NOTUS_LLAMA_SWAP_SERVICE` | `systemd` on Linux, `process` elsewhere | How llama-swap is run: by systemd, by notus-swap itself (`process`), or `none`. See [docs/install-without-systemd.md](docs/install-without-systemd.md). |
 | `-llama-swap-unit` | `NOTUS_LLAMA_SWAP_UNIT` | `llama-swap.service` | systemd unit for the restart button and updates |
+| `-llama-swap-args` | `NOTUS_LLAMA_SWAP_ARGS` | `-watch-config` | With `process`: more arguments for llama-swap |
 | `-llama-cpp-dir` | `NOTUS_LLAMA_CPP_DIR` | none | Folder of llama.cpp builds, with a `current` link to the one in use. llama.cpp updates are off without it. |
-| `-llama-cpp-flavor` | `NOTUS_LLAMA_CPP_FLAVOR` | the flavor `current` uses | Which llama.cpp build to download, such as `ubuntu-rocm-10.0-x64` or `ubuntu-vulkan-x64` |
+| `-llama-cpp-flavor` | `NOTUS_LLAMA_CPP_FLAVOR` | the flavor `current` uses | Which llama.cpp build to download, such as `ubuntu-rocm-10.0-x64`, `ubuntu-vulkan-x64` or `win-cuda-12.4-x64` |
+| `-nvidia-smi` | `NOTUS_NVIDIA_SMI` | `nvidia-smi` | Program that reads NVIDIA cards. Set it to nothing to turn NVIDIA readings off. |
 | `-system-base-watts` | `NOTUS_SYSTEM_BASE_WATTS` | `35` | Estimated power of everything except the CPU and GPUs |
 | `-psu-efficiency` | `NOTUS_PSU_EFFICIENCY` | `0.90` | Power supply efficiency, for the wall power estimate |
 | `-keep-days` | | `90` | Days to keep request and response bodies |
@@ -109,6 +121,7 @@ Each setting can be a flag or a line in an `env` file:
 | | `NOTUS_GITHUB_REPO` | `wispborne/notus-swap` | Where notus-swap's own updates come from. Set it to nothing to turn them off. |
 | | `GITHUB_TOKEN` | none | Optional. Raises GitHub's limit of 60 API calls an hour, used by update checks. |
 | | `GITEA_URL`, `GITEA_REPO`, `GITEA_USER`, `GITEA_TOKEN` | none | Optional. Get notus-swap's updates from your own Gitea server instead of GitHub. See Updates below. |
+| | `NOTUS_SUPERVISE` | on without systemd | Set to `0` when something other than systemd restarts notus-swap. |
 
 Run `./notus-swap -h` for the full list.
 
@@ -120,7 +133,7 @@ Settings that belong to one machine, such as paths, service names, and tokens, g
 
 Every push to `main` is built and published as a [GitHub release](https://github.com/wispborne/notus-swap/releases), named by date and commit, such as `2026.10.06.1200-a28d7c2`.
 
-The update button on the Settings page downloads the newest release, checks its SHA-256, swaps the binary, and restarts through systemd. If the new version doesn't stay up for 30 seconds, it rolls back on its own. A Roll back button goes back to the previous version by hand. `scripts/update-notus-swap.sh` does the same from a shell, for when the web UI can't be reached.
+The update button on the Settings page downloads the newest release for this system, checks its SHA-256, swaps the binary, and restarts. systemd starts it again, or, without systemd, notus-swap's own supervisor does. If the new version doesn't stay up for 30 seconds, it rolls back on its own. A Roll back button goes back to the previous version by hand. `scripts/update-notus-swap.sh` does the same from a shell, for when the web UI can't be reached.
 
 If you build notus-swap on your own Gitea server, it can update from there instead. See "Getting updates from your own Gitea" in [docs/install.md](docs/install.md).
 
@@ -128,8 +141,8 @@ If you build notus-swap on your own Gitea server, it can update from there inste
 
 The Settings page checks GitHub for new releases of both every hour.
 
-- **llama-swap:** an update downloads the release for this machine, checks its SHA-256, and checks llama-swap's config with the new version. Then it swaps the binary, keeping the old one as `llama-swap.bak`, and restarts llama-swap's systemd unit. If the new version doesn't answer within a minute, the old one is put back. It needs `NOTUS_LLAMA_SWAP_BIN` or `NOTUS_LLAMA_SWAP_CONFIG`.
-- **llama.cpp:** builds sit side by side in `NOTUS_LLAMA_CPP_DIR`, each in its own folder, with a `current` link to the one in use. llama-swap's config should start models from `current`. An update unpacks the new build and moves the link, keeping the previous build for rolling back. Both the weekly release and the newest nightly build can be installed.
+- **llama-swap:** an update downloads the release for this machine, checks its SHA-256, and checks llama-swap's config with the new version. Then it swaps the binary, keeping the old one as `llama-swap.bak`, and restarts llama-swap. If the new version doesn't answer within a minute, the old one is put back. It needs `NOTUS_LLAMA_SWAP_BIN` or `NOTUS_LLAMA_SWAP_CONFIG`.
+- **llama.cpp:** builds sit side by side in `NOTUS_LLAMA_CPP_DIR`, each in its own folder, with a `current` link (a junction on Windows) to the one in use. llama-swap's config should start models from `current`. An update unpacks the new build and moves the link, keeping the previous build for rolling back. Both the weekly release and the newest nightly build can be installed.
 
 ## Development
 

@@ -66,7 +66,7 @@
       <button class="border-l border-line px-2 py-0.5 {split ? 'bg-primary/15 text-primary' : 'text-muted hover:text-text'}" onclick={() => save('logs-split', (split = true))}>Side by side</button>
     </div>
     <span class="hidden text-xs text-dim md:inline">
-      llama-swap keeps the newest 100 KB of each log, so older lines may be missing. notus-swap's full log is in <code>journalctl -u notus-swap</code>.
+      llama-swap keeps the newest 100 KB of each log, so older lines may be missing. notus-swap's full log is in its own output, or in <code>journalctl -u notus-swap</code> under systemd.
     </span>
   </div>
 

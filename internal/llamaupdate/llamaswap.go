@@ -27,16 +27,16 @@ var (
 var swapWait = time.Minute
 
 // LlamaSwap installs llama-swap releases from GitHub over the binary at Bin,
-// then restarts llama-swap's systemd unit. The binary it replaces is kept as
-// "<Bin>.bak", the same name llama-swap's own update script uses.
+// then restarts llama-swap. The binary it replaces is kept as "<Bin>.bak",
+// the same name llama-swap's own update script uses.
 type LlamaSwap struct {
 	Bin      string
 	Config   string // llama-swap's config, checked with the new binary before it goes in; "" skips the check
-	Unit     string // systemd unit to restart
 	Upstream string // llama-swap's address, asked for its version after a restart
 	Client   *http.Client
-	// Restart restarts Unit. Nil means RestartUnit. Tests replace it.
-	Restart func(ctx context.Context, unit string) error
+	// Restart restarts llama-swap, through systemd or by restarting the
+	// program notus-swap runs.
+	Restart func(ctx context.Context) error
 
 	mu       sync.Mutex
 	versions map[string]cachedVersion
@@ -85,9 +85,13 @@ func (s *LlamaSwap) version(path string) string {
 }
 
 // asset is the release file for this machine, such as
-// llama-swap_258_linux_amd64.tar.gz.
+// llama-swap_258_linux_amd64.tar.gz. Windows releases are .zip files.
 func swapAsset(tag string) string {
-	return fmt.Sprintf("llama-swap_%s_%s_%s.tar.gz", strings.TrimPrefix(tag, "v"), runtime.GOOS, runtime.GOARCH)
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("llama-swap_%s_%s_%s%s", strings.TrimPrefix(tag, "v"), runtime.GOOS, runtime.GOARCH, ext)
 }
 
 // Install downloads release tag, checks the config with it, swaps it in,
@@ -112,15 +116,15 @@ func (s *LlamaSwap) Install(ctx context.Context, gh *GitHub, tag string, r repor
 	}
 
 	dir := filepath.Dir(s.Bin)
-	tgz := filepath.Join(dir, ".llama-swap-download.tar.gz")
-	defer os.Remove(tgz)
+	archive := filepath.Join(dir, ".llama-swap-download"+archiveExt(a.Name))
+	defer os.Remove(archive)
 	r.Step("Downloading " + a.Name)
-	if err := gh.Download(ctx, a, tgz, func(n int64) { r.Bytes(n, a.Size) }); err != nil {
+	if err := gh.Download(ctx, a, archive, func(n int64) { r.Bytes(n, a.Size) }); err != nil {
 		return "", err
 	}
-	next := filepath.Join(dir, ".llama-swap-next")
+	next := filepath.Join(dir, exeName(".llama-swap-next"))
 	defer os.Remove(next) // no-op once renamed
-	if err := extractFile(tgz, "llama-swap", next, 0o755); err != nil {
+	if err := extractFile(archive, exeName("llama-swap"), next, 0o755); err != nil {
 		return "", err
 	}
 	if s.Config != "" {
@@ -200,10 +204,10 @@ func (s *LlamaSwap) swap() error {
 }
 
 func (s *LlamaSwap) restart(ctx context.Context) error {
-	if s.Restart != nil {
-		return s.Restart(ctx, s.Unit)
+	if s.Restart == nil {
+		return errors.New("notus-swap has no way to restart llama-swap")
 	}
-	return RestartUnit(ctx, s.Unit)
+	return s.Restart(ctx)
 }
 
 // waitFor asks llama-swap for its version every second until it answers
@@ -254,48 +258,6 @@ func (s *LlamaSwap) running(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	return v.Version, nil
-}
-
-// RestartUnit runs "systemctl restart unit". The polkit rule in the install
-// guide lets notus-swap's user do this without a password.
-func RestartUnit(ctx context.Context, unit string) error {
-	return controlUnit(ctx, "restart", unit)
-}
-
-func StartUnit(ctx context.Context, unit string) error {
-	return controlUnit(ctx, "start", unit)
-}
-
-func StopUnit(ctx context.Context, unit string) error {
-	return controlUnit(ctx, "stop", unit)
-}
-
-// UnitState reads systemd's state even when llama-swap's HTTP server is down.
-func UnitState(ctx context.Context, unit string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "systemctl", "show", "--property=ActiveState", "--value", unit).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("reading service state: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func controlUnit(ctx context.Context, action, unit string) error {
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "systemctl", action, unit).CombinedOutput()
-	if err == nil {
-		return nil
-	}
-	text := strings.TrimSpace(string(out))
-	if text == "" {
-		text = err.Error()
-	}
-	if strings.Contains(text, "Interactive authentication required") || strings.Contains(text, "Access denied") {
-		text += " (the polkit rule in docs/install.md lets notus-swap do this)"
-	}
-	return errors.New(text)
 }
 
 func orUnknown(version string) string {

@@ -1,4 +1,5 @@
-// Package memory reads system RAM use from Linux's meminfo.
+// Package memory reads system RAM use: from meminfo on Linux, and from the
+// system on Windows.
 package memory
 
 import (

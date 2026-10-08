@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/wispborne/notus-swap/internal/api"
+	"github.com/wispborne/notus-swap/internal/service"
 )
 
 // A copy of this test binary stands in for systemctl, including on Windows.
@@ -57,7 +58,7 @@ func TestLlamaSwapServiceControls(t *testing.T) {
 	t.Setenv("PATH", dir)
 	t.Setenv("NOTUS_TEST_SYSTEMCTL_ARGS", argsPath)
 	mux := http.NewServeMux()
-	(&api.API{LlamaSwapUnit: "custom-llama.service", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}).Register(mux)
+	(&api.API{LlamaSwapService: &service.Systemd{Unit: "custom-llama.service"}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}).Register(mux)
 
 	for _, tc := range []struct {
 		method, path string

@@ -6,14 +6,16 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -32,6 +34,7 @@ import (
 	"github.com/wispborne/notus-swap/internal/rapl"
 	"github.com/wispborne/notus-swap/internal/restart"
 	"github.com/wispborne/notus-swap/internal/selfupdate"
+	"github.com/wispborne/notus-swap/internal/service"
 	"github.com/wispborne/notus-swap/internal/store"
 	"github.com/wispborne/notus-swap/web"
 )
@@ -46,80 +49,162 @@ func main() {
 	keepDays := flag.Int("keep-days", 90, "keep request and response text for this many days (Settings page can override)")
 	keepGB := flag.Int64("keep-gb", 20, "maximum GB of request and response text; delete oldest first (Settings page can override)")
 	unit := flag.String("llama-swap-unit", env("NOTUS_LLAMA_SWAP_UNIT", "llama-swap.service"), "llama-swap's systemd unit, for the restart button")
+	svcKind := flag.String("llama-swap-service", env("NOTUS_LLAMA_SWAP_SERVICE", defaultService()), "how llama-swap is run: systemd (its unit is -llama-swap-unit), process (notus-swap runs it), or none")
+	swapArgs := flag.String("llama-swap-args", env("NOTUS_LLAMA_SWAP_ARGS", "-watch-config"), "with -llama-swap-service process: more arguments for llama-swap, after -config and -listen")
 	cfgPath := flag.String("llama-swap-config", env("NOTUS_LLAMA_SWAP_CONFIG", ""), "llama-swap's config.yaml, for the config editor (empty turns it off)")
 	cfgBin := flag.String("llama-swap-bin", env("NOTUS_LLAMA_SWAP_BIN", ""), "llama-swap binary, for checking configs and for updates (default: next to the config)")
 	cppDir := flag.String("llama-cpp-dir", env("NOTUS_LLAMA_CPP_DIR", ""), "folder holding llama.cpp builds and the \"current\" link, for updates (empty turns them off)")
-	cppFlavor := flag.String("llama-cpp-flavor", env("NOTUS_LLAMA_CPP_FLAVOR", ""), "llama.cpp build to download, such as ubuntu-vulkan-x64 (default: the one current points at)")
+	cppFlavor := flag.String("llama-cpp-flavor", env("NOTUS_LLAMA_CPP_FLAVOR", ""), "llama.cpp build to download, such as ubuntu-vulkan-x64 or win-cuda-12.4-x64 (default: the one current points at)")
 	drmRoot := flag.String("drm-root", "/sys/class/drm", "GPU sensor directory (use a fake tree for tests)")
+	nvidiaSMI := flag.String("nvidia-smi", env("NOTUS_NVIDIA_SMI", "nvidia-smi"), "nvidia-smi program, for reading NVIDIA cards (empty turns it off)")
 	powercapRoot := flag.String("powercap-root", "/sys/class/powercap", "where to find the CPU's RAPL energy counters")
 	baseWatts := flag.Float64("system-base-watts", envFloat("NOTUS_SYSTEM_BASE_WATTS", 35), "estimated power of everything except the CPU and GPUs (board, RAM, drives, fans)")
 	psuEff := flag.Float64("psu-efficiency", envFloat("NOTUS_PSU_EFFICIENCY", 0.90), "power supply efficiency for estimated wall power")
 	flag.Parse()
 
-	// The log goes to journald (stderr), and its newest 256 KB stay in memory
-	// for the Logs page.
+	// Without systemd, a small parent process starts notus-swap again when
+	// it restarts, as systemd's Restart=always would.
+	if wantSupervisor() {
+		os.Exit(supervise(slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	}
+
+	// The log goes to stderr (journald under systemd), and its newest 256 KB
+	// stay in memory for the Logs page.
 	logs := logbuf.New(256 << 10)
 	log := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, logs), nil))
 
 	// A freshly installed update counts its starts here, and gives way to the
 	// previous binary if it keeps failing before it can confirm itself.
 	updater := selfupdate.FromEnv(version)
+	updater.RemoveLeftovers()
 	if rolledBack, err := updater.CheckOnStart(); err != nil {
 		log.Error("checking a pending update", "err", err)
 	} else if rolledBack {
 		log.Error("new version stopped twice before 30 seconds; restored previous version; restarting")
-		os.Exit(1)
+		os.Exit(restartExitCode())
 	} else if m := updater.Pending(); m != nil {
 		log.Info("confirming an update", "from", m.From, "to", m.To, "attempt", m.Attempts)
 	}
 
+	bin := *cfgBin
+	if bin == "" && *cfgPath != "" {
+		bin = llamaconfig.DefaultBin(*cfgPath)
+	}
+	svc, err := llamaSwapService(*svcKind, *unit, bin, *cfgPath, *upstream, *swapArgs, log)
+	if err != nil {
+		log.Error("exiting", "err", err)
+		os.Exit(1)
+	}
+
 	// llama-swap and llama.cpp updates each turn on when their paths are set.
 	llamaUpdates := &llamaupdate.Manager{GitHub: &llamaupdate.GitHub{Token: os.Getenv("GITHUB_TOKEN")}, Log: log}
-	if bin := *cfgBin; bin != "" || *cfgPath != "" {
-		if bin == "" {
-			bin = filepath.Join(filepath.Dir(*cfgPath), "llama-swap")
+	if bin != "" {
+		llamaUpdates.Swap = &llamaupdate.LlamaSwap{Bin: bin, Config: *cfgPath, Upstream: *upstream}
+		if svc != nil {
+			llamaUpdates.Swap.Restart = svc.Restart
 		}
-		llamaUpdates.Swap = &llamaupdate.LlamaSwap{Bin: bin, Config: *cfgPath, Unit: *unit, Upstream: *upstream}
 	}
 	if *cppDir != "" {
 		llamaUpdates.Cpp = &llamaupdate.LlamaCpp{Dir: *cppDir, Flavor: *cppFlavor}
 	}
 
-	if err := run(log, logs, *listen, *upstream, *dbPath, api.Retention{Days: *keepDays, GB: *keepGB}, *unit,
-		sensors{*drmRoot, *powercapRoot, *baseWatts, *psuEff}, &llamaconfig.Editor{Path: *cfgPath, Bin: *cfgBin}, updater, llamaUpdates); err != nil {
+	restarting, err := run(log, logs, *listen, *upstream, *dbPath, api.Retention{Days: *keepDays, GB: *keepGB}, svc,
+		sensors{*drmRoot, *nvidiaSMI, *powercapRoot, *baseWatts, *psuEff}, &llamaconfig.Editor{Path: *cfgPath, Bin: *cfgBin}, updater, llamaUpdates)
+	if err != nil {
 		log.Error("exiting", "err", err)
 		os.Exit(1)
 	}
+	if restarting {
+		os.Exit(restartExitCode())
+	}
+}
+
+// defaultService is systemd on Linux. Elsewhere notus-swap runs llama-swap
+// itself.
+func defaultService() string {
+	if runtime.GOOS == "linux" {
+		return "systemd"
+	}
+	return "process"
+}
+
+// llamaSwapService makes the controller for -llama-swap-service. It is nil
+// for "none".
+func llamaSwapService(kind, unit, bin, cfg, upstream, args string, log *slog.Logger) (service.Controller, error) {
+	switch kind {
+	case "systemd":
+		return &service.Systemd{Unit: unit}, nil
+	case "process":
+		up, err := url.Parse(upstream)
+		if err != nil {
+			return nil, err
+		}
+		if up.Port() == "" {
+			return nil, fmt.Errorf("the upstream address %s needs a port, so notus-swap knows where to start llama-swap", upstream)
+		}
+		return &service.Process{
+			Bin: bin, Config: cfg, Listen: up.Host, Args: strings.Fields(args), Log: log,
+			Stdout: os.Stdout, Stderr: os.Stderr,
+		}, nil
+	case "none", "":
+		return nil, nil
+	}
+	return nil, fmt.Errorf("-llama-swap-service must be systemd, process or none, not %q", kind)
 }
 
 // sensors holds the settings for reading power.
 type sensors struct {
-	drmRoot, powercapRoot string
-	baseWatts, psuEff     float64
+	drmRoot, nvidiaSMI, powercapRoot string
+	baseWatts, psuEff                float64
 }
 
-func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string, keep api.Retention, unit string, sn sensors, cfg *llamaconfig.Editor, updater *selfupdate.Updater, llamaUpdates *llamaupdate.Manager) error {
+// run serves until notus-swap is stopped or restarts. restarting reports a
+// planned restart, after which notus-swap should be started again.
+func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string, keep api.Retention, svc service.Controller, sn sensors, cfg *llamaconfig.Editor, updater *selfupdate.Updater, llamaUpdates *llamaupdate.Manager) (restarting bool, err error) {
 	up, err := url.Parse(upstream)
 	if err != nil {
-		return err
+		return false, err
 	}
 	st, err := store.Open(dbPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer st.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// When notus-swap runs llama-swap itself, it starts it now, unless one is
+	// already running, such as one left running by the last restart.
+	if p, ok := svc.(*service.Process); ok {
+		runCtx, endRun := context.WithCancel(ctx)
+		defer endRun()
+		go p.Run(runCtx)
+		// Stopping notus-swap stops llama-swap too. A restart leaves it
+		// running, so models stay loaded.
+		defer func() {
+			if restarting {
+				return
+			}
+			sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			log.Info("stopping llama-swap")
+			if err := p.Stop(sctx); err != nil {
+				log.Error("stopping llama-swap", "err", err)
+			}
+		}()
+	}
+
 	if n, err := st.MarkInterrupted(ctx); err != nil {
-		return err
+		return false, err
 	} else if n > 0 {
 		log.Info("marked requests from the last run as interrupted", "count", n)
 	}
 	hub := capture.NewHub()
+	gpus := gpu.NewSampler(sn.drmRoot)
+	gpus.NvidiaSMI = sn.nvidiaSMI
 	rec := &metrics.Recorder{
-		Store: st, GPUs: gpu.NewSampler(sn.drmRoot), CPU: rapl.NewMeter(sn.powercapRoot),
+		Store: st, GPUs: gpus, CPU: rapl.NewMeter(sn.powercapRoot),
 		InFlight: hub.Works, Log: log, BaseWatts: sn.baseWatts, PSUEff: sn.psuEff,
 	}
 	go rec.Run(ctx)
@@ -162,7 +247,8 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	a := &api.API{
 		Store: st, Hub: hub, LlamaSwap: monitor, Metrics: rec, Config: cfg,
 		ConfigHeld: &llamaconfig.Held{Editor: cfg, Wait: &idlewait.Waiter{Idle: hub.Idle}, Log: log}, Upstream: up, Log: log, Version: version,
-		Updater: updater, LlamaUpdates: llamaUpdates, Logs: logs, Restart: plan, RetentionDefault: keep, LlamaSwapUnit: unit, AutoLoad: loader,
+		Updater: updater, LlamaUpdates: llamaUpdates, Logs: logs, Restart: plan, RetentionDefault: keep, AutoLoad: loader,
+		LlamaSwapService: svc, SelfRestart: selfRestart(),
 		PruneNow: func() {
 			select {
 			case pruneNow <- struct{}{}:
@@ -230,7 +316,7 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 
 	ln, fromSystemd, err := listener(listen)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if fromSystemd {
 		listen = "socket from systemd"
@@ -264,10 +350,11 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	drain := 10 * time.Second
 	select {
 	case err := <-errc:
-		return err
+		return false, err
 	case <-ctx.Done():
 		log.Info("shutting down")
 	case atOnce := <-planned:
+		restarting = true
 		p := plan.Pending()
 		if atOnce {
 			log.Info("restarting without waiting for requests", "reason", p.Reason, "in_flight", hub.Count())
@@ -283,9 +370,9 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	sctx, cancel := context.WithTimeout(context.Background(), drain)
 	defer cancel()
 	if err := srv.Shutdown(sctx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		return err
+		return restarting, err
 	}
-	return nil
+	return restarting, nil
 }
 
 // endOnShutdown ends GET requests once shuttingDown is done. GETs are page

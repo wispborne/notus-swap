@@ -51,7 +51,7 @@ type Recorder struct {
 	Log         *slog.Logger
 	BaseWatts   float64
 	PSUEff      float64
-	MemInfoPath string // defaults to /proc/meminfo
+	MemInfoPath string // a meminfo file to read; "" asks the system (/proc/meminfo on Linux)
 
 	mu       sync.Mutex
 	latest   Snapshot
@@ -90,11 +90,11 @@ func (r *Recorder) Run(ctx context.Context) {
 // Sample reads every sensor once, stores the readings, and updates Latest.
 func (r *Recorder) Sample(ctx context.Context, now time.Time) Snapshot {
 	s := Snapshot{At: now, GPUs: r.GPUs.Sample()}
-	memInfoPath := r.MemInfoPath
-	if memInfoPath == "" {
-		memInfoPath = "/proc/meminfo"
+	if r.MemInfoPath != "" {
+		s.RAMUsed, s.RAMTotal = memory.Read(r.MemInfoPath)
+	} else {
+		s.RAMUsed, s.RAMTotal = memory.System("/proc/meminfo")
 	}
-	s.RAMUsed, s.RAMTotal = memory.Read(memInfoPath)
 	if r.CPU != nil {
 		r.CPU.Sample()
 		s.CPUWatts, s.CPUProblem = r.CPU.Watts()

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/wispborne/notus-swap/internal/proc"
 )
 
 const cppRepo = "ggml-org/llama.cpp"
@@ -131,7 +133,7 @@ func (c *LlamaCpp) Install(ctx context.Context, gh *GitHub, build string, r repo
 		return "", fmt.Errorf("%s is already in use", build)
 	}
 	target := c.folder(build, flavor)
-	if !exists(filepath.Join(target, "llama-server")) {
+	if !exists(filepath.Join(target, exeName("llama-server"))) {
 		if err := c.download(ctx, gh, build, flavor, target, r); err != nil {
 			return "", err
 		}
@@ -162,55 +164,102 @@ func (c *LlamaCpp) download(ctx context.Context, gh *GitHub, build, flavor, targ
 	if err != nil {
 		return err
 	}
-	name := filepath.Base(target) + ".tar.gz"
-	a, ok := rel.asset(name)
+	// Linux and macOS builds are .tar.gz files, Windows builds .zip files.
+	a, ok := rel.asset(filepath.Base(target) + ".tar.gz")
+	if !ok {
+		a, ok = rel.asset(filepath.Base(target) + ".zip")
+	}
 	if !ok {
 		var others []string
 		for _, a := range rel.Assets {
-			if m := cppFolder.FindStringSubmatch(strings.TrimSuffix(a.Name, ".tar.gz")); m != nil && strings.HasSuffix(a.Name, ".tar.gz") {
+			if m := cppFolder.FindStringSubmatch(strings.TrimSuffix(a.Name, archiveExt(a.Name))); m != nil && (strings.HasSuffix(a.Name, ".tar.gz") || isZip(a.Name)) {
 				others = append(others, m[2])
 			}
 		}
 		return fmt.Errorf("build %s has no %s download. It has: %s", build, flavor, strings.Join(others, ", "))
 	}
 
-	tgz := filepath.Join(c.Dir, "."+name)
-	defer os.Remove(tgz)
-	r.Step("Downloading " + name)
-	if err := gh.Download(ctx, a, tgz, func(n int64) { r.Bytes(n, a.Size) }); err != nil {
-		return err
-	}
-	r.Step("Unpacking")
 	partial := filepath.Join(c.Dir, "."+filepath.Base(target)+".partial")
 	os.RemoveAll(partial) // left over from an install that was cut off
 	defer os.RemoveAll(partial)
-	if err := untar(tgz, partial); err != nil {
+	if err := c.fetch(ctx, gh, a, partial, r); err != nil {
 		return err
 	}
 	root := onlyFolder(partial)
-	if !exists(filepath.Join(root, "llama-server")) {
-		return fmt.Errorf("%s has no llama-server in it", name)
+	server := exeName("llama-server")
+	if !exists(filepath.Join(root, server)) {
+		return fmt.Errorf("%s has no %s in it", a.Name, server)
+	}
+	// CUDA builds need the CUDA runtime, which comes as its own download.
+	if rt, ok := cudaRuntime(rel, build, flavor); ok {
+		extra := partial + "-cudart"
+		os.RemoveAll(extra)
+		defer os.RemoveAll(extra)
+		if err := c.fetch(ctx, gh, rt, extra, r); err != nil {
+			return err
+		}
+		if err := moveInto(onlyFolder(extra), root); err != nil {
+			return err
+		}
 	}
 	os.RemoveAll(target) // an earlier folder without llama-server
 	return os.Rename(root, target)
 }
 
-// point makes current a link to target, replacing the old link in one step.
-func (c *LlamaCpp) point(target string) error {
-	if fi, err := os.Lstat(c.link()); err == nil && fi.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("%s is a real folder, not a link, so it was left alone", c.link())
-	}
-	tmp := c.link() + ".next"
-	os.Remove(tmp)
-	// A relative link keeps working if the whole folder moves.
-	if err := os.Symlink(filepath.Base(target), tmp); err != nil {
+// fetch downloads a release file and unpacks it into dir.
+func (c *LlamaCpp) fetch(ctx context.Context, gh *GitHub, a Asset, dir string, r report) error {
+	file := filepath.Join(c.Dir, "."+a.Name)
+	defer os.Remove(file)
+	r.Step("Downloading " + a.Name)
+	if err := gh.Download(ctx, a, file, func(n int64) { r.Bytes(n, a.Size) }); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, c.link()); err != nil {
-		os.Remove(tmp)
+	r.Step("Unpacking " + a.Name)
+	return unpack(file, dir)
+}
+
+// cudaRuntime finds the CUDA runtime download for a CUDA flavor. Windows
+// names it cudart-llama-bin-<flavor>.zip, Linux
+// cudart-llama-<build>-bin-<flavor>.tar.gz.
+func cudaRuntime(rel *Release, build, flavor string) (Asset, bool) {
+	for _, name := range []string{
+		"cudart-llama-bin-" + flavor + ".zip",
+		"cudart-llama-bin-" + flavor + ".tar.gz",
+		"cudart-llama-" + build + "-bin-" + flavor + ".zip",
+		"cudart-llama-" + build + "-bin-" + flavor + ".tar.gz",
+	} {
+		if a, ok := rel.asset(name); ok {
+			return a, true
+		}
+	}
+	return Asset{}, false
+}
+
+// moveInto moves everything in src into dst, replacing files of the same
+// name.
+func moveInto(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
 		return err
+	}
+	for _, e := range entries {
+		to := filepath.Join(dst, e.Name())
+		os.RemoveAll(to)
+		if err := os.Rename(filepath.Join(src, e.Name()), to); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// point makes current a link to target, replacing the old link.
+func (c *LlamaCpp) point(target string) error {
+	if _, err := os.Lstat(c.link()); err == nil {
+		if _, err := os.Readlink(c.link()); err != nil {
+			return fmt.Errorf("%s is a real folder, not a link, so it was left alone", c.link())
+		}
+	}
+	return replaceLink(c.link(), target)
 }
 
 // clean deletes builds of flavor other than keep, unless a program is
@@ -265,18 +314,4 @@ func contains(list []string, s string) bool {
 
 // inUse reports whether a running program was started from inside dir.
 // Tests replace it.
-var inUse = procInUse
-
-// procInUse reads /proc, so on systems without /proc it always answers false.
-func procInUse(dir string) bool {
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = real
-	}
-	exes, _ := filepath.Glob("/proc/[0-9]*/exe")
-	for _, p := range exes {
-		if exe, err := os.Readlink(p); err == nil && strings.HasPrefix(exe, dir+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
-}
+var inUse = proc.InDir
