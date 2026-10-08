@@ -10,6 +10,7 @@
   import { status } from './lib/status.svelte'
   import { installTooltip } from './lib/tooltip'
   import { prefetchDashboard } from './lib/dashboard/data'
+  import { prefetchRequests } from './lib/api'
 
   // Pages other than Requests and System load their code only when opened,
   // which keeps the first load small.
@@ -33,11 +34,13 @@
   }
   const first = current()
   let page = $state(first)
-  // The first page starts loading its code, and the Dashboard its data, at
-  // once. Otherwise they would wait for the privacy settings to load first.
+  // The first page starts loading its code, and the Dashboard and Requests
+  // their data, at once. Otherwise they would wait for the privacy settings
+  // to load first.
   const loaders: Record<string, (() => Promise<unknown>) | undefined> = { dashboard: loadDashboard, config: loadConfig, models: loadModels, logs: loadLogs }
   loaders[first]?.()
   if (first === 'dashboard') prefetchDashboard()
+  if (first === 'requests') prefetchRequests({ model: new URLSearchParams(location.search).get('model') ?? '' })
 
   // The pages in the order the user arranged them.
   const ordered = $derived(navOrder.list.map((id) => pages.find((p) => p.path === id)!))

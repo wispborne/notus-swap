@@ -175,17 +175,19 @@ func TestLiveFeedListAndDetail(t *testing.T) {
 	}
 	// Sent gzipped when the client accepts it. Setting the header by hand
 	// stops Go's client from unzipping the answer itself.
-	gzReq, _ := http.NewRequest("GET", srv.URL+"/notus/api/dashboard?range=15m", nil)
-	gzReq.Header.Set("Accept-Encoding", "gzip")
-	if resp, err := http.DefaultClient.Do(gzReq); err != nil {
-		t.Fatal(err)
-	} else {
-		defer resp.Body.Close()
-		zr, err := gzip.NewReader(resp.Body)
-		var unzipped api.Dashboard
-		if resp.Header.Get("Content-Encoding") != "gzip" || err != nil || json.NewDecoder(zr).Decode(&unzipped) != nil || len(unzipped.Requests) != 1 {
-			t.Errorf("gzipped dashboard: %v %v %+v", resp.Header, err, unzipped)
+	for _, path := range []string{"/notus/api/dashboard?range=15m", "/notus/api/requests"} {
+		gzReq, _ := http.NewRequest("GET", srv.URL+path, nil)
+		gzReq.Header.Set("Accept-Encoding", "gzip")
+		resp, err := http.DefaultClient.Do(gzReq)
+		if err != nil {
+			t.Fatal(err)
 		}
+		zr, err := gzip.NewReader(resp.Body)
+		var unzipped struct{ Requests []json.RawMessage }
+		if resp.Header.Get("Content-Encoding") != "gzip" || err != nil || json.NewDecoder(zr).Decode(&unzipped) != nil || len(unzipped.Requests) != 1 {
+			t.Errorf("gzipped %s: %v %v %d", path, resp.Header, err, len(unzipped.Requests))
+		}
+		resp.Body.Close()
 	}
 
 	// Settings: unset is null; a PUT is read back.

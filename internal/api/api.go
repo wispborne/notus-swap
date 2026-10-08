@@ -189,7 +189,7 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, out)
+	writeJSONGzip(w, r, out)
 }
 
 // Detail is one request with its bodies.
@@ -380,8 +380,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 // writeJSONGzip is writeJSON, compressed when the client accepts gzip. The
-// Dashboard's answer is up to several MB of JSON, which shrinks about
-// tenfold. Only for answers sent whole: never for streams.
+// Dashboard's answer is up to several MB of JSON, and the Requests list
+// about 100 kB; both shrink about tenfold. Only for answers sent whole:
+// never for streams.
 func writeJSONGzip(w http.ResponseWriter, r *http.Request, v any) {
 	w.Header().Set("Vary", "Accept-Encoding")
 	if !compress.AcceptsGzip(r) {

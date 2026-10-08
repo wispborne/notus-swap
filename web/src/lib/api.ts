@@ -161,7 +161,9 @@ async function getJSON<T>(url: string): Promise<T> {
   return res.json()
 }
 
-export function listRequests(f: ListFilter, before?: number, limit = 100) {
+type RequestList = { requests: Summary[]; models?: string[] }
+
+function listURL(f: ListFilter, before?: number, limit = 100) {
   const p = new URLSearchParams()
   if (f.q) p.set('q', f.q)
   if (f.model) p.set('model', f.model)
@@ -169,7 +171,30 @@ export function listRequests(f: ListFilter, before?: number, limit = 100) {
   if (f.issue) p.set('issue', f.issue)
   if (before) p.set('before', String(before))
   p.set('limit', String(limit))
-  return getJSON<{ requests: Summary[]; models?: string[] }>(`/notus/api/requests?${p}`)
+  return `/notus/api/requests?${p}`
+}
+
+// Started by prefetchRequests, and used once by the first listRequests that
+// asks for the same list within 10 s.
+let early: { url: string; at: number; list: Promise<RequestList> } | null = null
+
+/**
+ * Starts loading the Requests page's first list while the privacy settings
+ * are still loading.
+ */
+export function prefetchRequests(f: ListFilter, limit?: number) {
+  const url = listURL(f, undefined, limit)
+  const list = getJSON<RequestList>(url)
+  list.catch(() => {}) // the page sees the error when it takes this
+  early = { url, at: Date.now(), list }
+}
+
+export function listRequests(f: ListFilter, before?: number, limit = 100) {
+  const url = listURL(f, before, limit)
+  const e = early
+  early = null
+  if (e?.url === url && Date.now() - e.at <= 10_000) return e.list
+  return getJSON<RequestList>(url)
 }
 
 export function getRequest(id: number) {

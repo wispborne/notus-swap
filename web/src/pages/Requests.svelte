@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { listRequests, getRequest, summaryFromStart, type ListFilter, type Summary } from '../lib/api'
   import { modelColor, shortBuild, when } from '../lib/format'
   import { issueKinds, issueMutes } from '../lib/issues.svelte'
@@ -44,12 +44,17 @@
   const shown = $derived([...visibleRows.filter((r) => r.state === 'in_flight'), ...visibleRows.filter((r) => r.state !== 'in_flight')])
   const visibleModels = $derived(models.filter(privacy.visible))
 
+  // Only the newest load's answer is used, so a slower, older one can't
+  // replace it.
+  let loadSeq = 0
   async function load(reset: boolean) {
+    const seq = ++loadSeq
     loading = true
     error = ''
     try {
       const before = reset ? undefined : rows.at(-1)?.id
       const res = await listRequests(filter, before, PAGE)
+      if (seq !== loadSeq) return
       rows = reset ? res.requests : [...rows, ...res.requests]
       if (res.models) {
         models = res.models
@@ -57,18 +62,24 @@
       }
       more = res.requests.length === PAGE
     } catch (e) {
+      if (seq !== loadSeq) return
       error = String(e)
     }
     loading = false
   }
 
-  // Reload when the filters change, waiting a moment while typing.
+  // Reload when the filters change: at once, or after a moment when the
+  // search text changed, so typing doesn't send a request per key.
   let timer: ReturnType<typeof setTimeout>
+  let lastQ: string | undefined
   $effect(() => {
-    void filter
+    const f = filter
     void issueMutes.version
     clearTimeout(timer)
-    timer = setTimeout(() => load(true), 200)
+    const typing = lastQ !== undefined && f.q !== lastQ
+    lastQ = f.q
+    if (typing) timer = setTimeout(() => load(true), 200)
+    else untrack(() => load(true))
   })
 
   function matches(r: Summary) {
