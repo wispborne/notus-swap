@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte'
   import { duration, joules, modelColor, num, pct, when } from '../lib/format'
   import ModelDetail from '../lib/models/ModelDetail.svelte'
+  import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status, type RunningModel } from '../lib/status.svelte'
 
@@ -96,7 +97,7 @@
       const res = await fetch(`/notus/api/models/${encodeURIComponent(model)}/${action}`, { method: 'POST' })
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
     } catch (e) {
-      actionError = `Couldn't ${action} ${model}: ${e instanceof Error ? e.message : e}`
+      actionError = `Couldn't ${action} ${modelLabel(model)}: ${e instanceof Error ? e.message : e}`
       delete busy[model]
     }
     setTimeout(() => delete busy[model], 30_000) // give up waiting for a state change
@@ -177,10 +178,10 @@
             <div class="flex items-center gap-1.5">
               <span class="text-dim">{open === m.model ? '▾' : '▸'}</span>
               <span class="inline-block size-2 flex-none rounded-full" style="background:{modelColor(m.model)}"></span>
-              <b class="truncate font-semibold">{m.name || m.model}</b>
+              <b class="truncate font-semibold" title={modelTitle(m.model)}>{modelLabel(m.model)}</b>
               {#if m.unlisted}<span class="rounded bg-line px-1 text-[10px] text-muted uppercase">unlisted</span>{/if}
             </div>
-            {#if m.name && m.name !== m.model}<div class="truncate pl-7 text-[11px] text-dim">{m.model}</div>{/if}
+            {#if m.name && m.name !== m.model}<div class="truncate pl-7 text-[11px] text-dim">{modelShow.show === 'name' ? m.model : m.name}</div>{/if}
           </td>
           <td>
             <span class="inline-flex items-center gap-1.5">
@@ -220,7 +221,7 @@
               <div class="flex items-center gap-1.5">
                 <span class="text-dim">{open === s.model ? '▾' : '▸'}</span>
                 <span class="inline-block size-2 flex-none rounded-full" style="background:{modelColor(s.model)}"></span>
-                <span class="truncate">{s.model}</span>
+                <span class="truncate" title={modelTitle(s.model)}>{modelLabel(s.model)}</span>
               </div>
             </td>
             <td class="text-dim">removed</td>

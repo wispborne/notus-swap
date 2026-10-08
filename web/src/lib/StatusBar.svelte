@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { modelColor } from './format'
+  import { modelLabel, modelTitle } from './modelNames.svelte'
   import { live } from './live.svelte'
   import { privacy } from './privacy.svelte'
   import { isSocketSensor, status, type GPU } from './status.svelte'
@@ -141,9 +142,10 @@
       {:else}
         Loaded
         {#each loaded as m}
-          <span class="flex items-center gap-1 {m.state === 'stopping' ? 'opacity-50' : ''}" title="{m.model}: {m.state}">
+          <span class="flex items-center gap-1 {m.state === 'stopping' ? 'opacity-50' : ''}" title="{modelTitle(m.model)}
+State: {m.state}">
             <span class="relative top-px inline-block size-2 rounded-full {m.state === 'starting' ? 'pulse' : ''}" style="background:{modelColor(m.model)}"></span>
-            <b class="font-semibold text-text">{m.model}</b>
+            <b class="font-semibold text-text">{modelLabel(m.model)}</b>
             {#if m.state !== 'ready'}<span class="text-dim">({m.state === 'starting' ? 'loading' : 'unloading'})</span>{/if}
           </span>
         {/each}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import LogPanel from '../lib/logs/LogPanel.svelte'
+  import { modelLabel, modelTitle } from '../lib/modelNames.svelte'
   import type { LogSource } from '../lib/logs/stream.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status } from '../lib/status.svelte'
@@ -48,7 +49,7 @@
     {/each}
     {#if models.length}
       <optgroup label="One model">
-        {#each models as m}<option value="model:{m}">{m}</option>{/each}
+        {#each models as m}<option value="model:{m}" title={modelTitle(m)}>{modelLabel(m)}</option>{/each}
       </optgroup>
     {/if}
     {#if sources[i].startsWith('model:') && !models.includes(sources[i].slice(6))}

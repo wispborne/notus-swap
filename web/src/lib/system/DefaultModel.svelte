@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
   import { duration } from '../format'
+  import { modelLabel } from '../modelNames.svelte'
   import { privacy } from '../privacy.svelte'
   import { status } from '../status.svelte'
 
@@ -71,7 +72,7 @@
       .filter((m) => privacy.visible(m) || m === model)
       .sort(),
   )
-  const label = (m: string) => (privacy.visible(m) ? m : 'a hidden model')
+  const label = (m: string) => (privacy.visible(m) ? modelLabel(m) : 'a hidden model')
 
   const ttl = $derived(saved?.ttls?.[model] ?? 0)
   const left = $derived(saved?.loads_at ? Math.max(0, saved.loads_at - now) : 0)

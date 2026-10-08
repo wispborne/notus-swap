@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import type uPlot from 'uplot'
   import { modelColor, when } from '../format'
+  import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { base, C, cardColors, dots, line, xAxis, yAxis, type Window } from './charts'
   import { align, type DashboardData } from './data'
   import UChart from './UChart.svelte'
@@ -45,7 +46,7 @@
     })
     return out.map((l, i) => (out.indexOf(l) !== out.lastIndexOf(l) ? names[i] : l))
   }
-  const labels = $derived(laneLabels(models))
+  const labels = $derived(laneLabels(models.map((m) => modelLabel(m))))
 
   // Model loads as [model, start ms, end ms].
   const loads = $derived.by(() => {
@@ -216,7 +217,7 @@
       const bits = [busy != null ? `${Math.round(busy)}%` : '', vram != null ? `${(vram / 1024 ** 3).toFixed(1)} GB` : '', temp != null ? `${Math.round(temp)} °C` : '']
       parts.push(name + bits.filter(Boolean).join(' '))
     }
-    parts.push(active.length ? `active: ${active.map((r) => `#${r.id} ${r.model}`).join(', ')}` : 'idle')
+    parts.push(active.length ? `active: ${active.map((r) => `#${r.id} ${modelLabel(r.model)}`).join(', ')}` : 'idle')
     return parts.join(' · ')
   })
 
@@ -233,7 +234,7 @@
     <UChart options={laneOpts} data={laneData} {onCursor} zoomY={false} />
     <div class="absolute left-0 z-10 flex flex-col pr-1.5" style="top:{LABEL_H}px;bottom:0;width:{AXIS}px">
       {#each models as m, i}
-        <div class="min-h-0 flex-1 truncate text-right text-[10px] leading-[14px] text-muted" title={m}>{labels[i]}</div>
+        <div class="min-h-0 flex-1 truncate text-right text-[10px] leading-[14px] text-muted" title={modelTitle(m)}>{labels[i]}</div>
       {/each}
     </div>
   </div>

@@ -10,7 +10,7 @@
   import { rowChips } from '../lib/notable'
   import { noteModels } from '../lib/modelColors.svelte'
   import { privacy } from '../lib/privacy.svelte'
-  import { modelLabel, modelTitle, type ModelShow } from '../lib/modelNames'
+  import { modelLabel, modelTitle } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
   import { sourceLabel, sourceTitle } from '../lib/source'
   import StatusPill from '../lib/StatusPill.svelte'
@@ -303,18 +303,6 @@
   // between a few options; a column with no saved value uses its default.
   type ColumnSetting = { key: string; label: string; options: [string, string][]; default: string; title?: string }
   const columnSettings: Partial<Record<Col, ColumnSetting[]>> = {
-    model: [
-      {
-        key: 'show',
-        label: 'Show',
-        options: [
-          ['name', 'Name'],
-          ['id', 'ID'],
-        ],
-        default: 'name',
-        title: "The name from llama-swap's config, or the model's ID. A model without a name shows its ID either way.",
-      },
-    ],
     source: [
       {
         key: 'show',
@@ -354,7 +342,6 @@
   }
   // The column whose settings are open in the Columns menu.
   let settingsFor = $state<Col | null>(null)
-  const modelShow = $derived(colSetting('model', 'show') as ModelShow)
   const sourceShow = $derived(colSetting('source', 'show'))
   function dragStart(e: DragEvent, k: Col) {
     dragging = k
@@ -524,7 +511,7 @@
   {@const progress = flight?.progress}
   {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
-  {:else if k === 'model'}<td><span class="mr-1.5 inline-block size-2 rounded-full {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} style="background:{modelColor(r.model)}"></span><span title={modelTitle(r.model)}>{modelLabel(r.model, modelShow) || '–'}</span></td>
+  {:else if k === 'model'}<td><span class="mr-1.5 inline-block size-2 rounded-full {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} style="background:{modelColor(r.model)}"></span><span title={modelTitle(r.model)}>{modelLabel(r.model) || '–'}</span></td>
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
   {:else if k === 'source'}
     <td class="overflow-hidden text-ellipsis text-muted {sourceShow === 'agent' ? 'max-w-[260px]' : 'max-w-[180px]'}" title={sourceTitle(r)}>
@@ -559,7 +546,7 @@
   />
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={model}>
     <option value="">All models</option>
-    {#each visibleModels as m}<option value={m}>{modelLabel(m, modelShow)}</option>{/each}
+    {#each visibleModels as m}<option value={m}>{modelLabel(m)}</option>{/each}
   </select>
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={issue} title="Problems found in the output">
     <option value="">All requests</option>

@@ -2,6 +2,7 @@
   import { listRequests, type Summary } from '../api'
   import { duration, num, pct, shortBuild, when } from '../format'
   import LogPanel from '../logs/LogPanel.svelte'
+  import { modelLabel, modelShow } from '../modelNames.svelte'
   import type { RunningModel } from '../status.svelte'
   import StatusPill from '../StatusPill.svelte'
   import { cmdDiff, cmdLine } from './cmdDiff'
@@ -85,7 +86,7 @@
 <div class="border-t border-line-soft bg-surface px-3 pt-1 pb-3">
   {#if known && (known.aliases?.length || known.description || known.name)}
     <div class="py-1 text-xs text-muted">
-      {#if known.name && known.name !== model}<span>ID <code class="text-text">{model}</code>. </span>{/if}
+      {#if known.name && known.name !== model}<span>{#if modelShow.show === 'name'}ID <code class="text-text">{model}</code>{:else}Name <span class="text-text">{known.name}</span>{/if}. </span>{/if}
       {#if known.aliases?.length}<span>Aliases: {known.aliases.join(', ')}. </span>{/if}
       {#if known.description}<em>{known.description}</em>{/if}
     </div>
@@ -103,7 +104,7 @@
   {#if tab === 'log' && known}
     <div class="h-[380px]">
       <LogPanel source="model:{model}" id="model">
-        {#snippet title()}<span class="text-xs font-semibold">{model}'s output</span>{/snippet}
+        {#snippet title()}<span class="text-xs font-semibold">{modelLabel(model)}'s output</span>{/snippet}
       </LogPanel>
     </div>
     <p class="mt-1 text-[11px] text-dim">llama-swap keeps the newest 100 KB of each model's output. This log is empty until the model runs after llama-swap starts.</p>

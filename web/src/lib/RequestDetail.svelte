@@ -5,6 +5,7 @@
   import CopyButton from './CopyButton.svelte'
   import { live, liveOutSpeed } from './live.svelte'
   import Markdown from './Markdown.svelte'
+  import { modelLabel, modelTitle } from './modelNames.svelte'
   import RequestMessages from './RequestMessages.svelte'
   import StatusPill from './StatusPill.svelte'
   import { sourceLabel, sourceTitle } from './source'
@@ -161,7 +162,7 @@
     <span class="font-mono text-[15px] font-semibold">#{row.id}</span>
     <StatusPill {row} waiting={inFlight && !firstToken} />
     <span class="inline-block size-2 rounded-full" style="background:{modelColor(row.model)}"></span>
-    <span>{row.model || '(no model)'}</span>
+    <span title={modelTitle(row.model)}>{modelLabel(row.model) || '(no model)'}</span>
     {#if row.build}<span class="font-mono text-xs text-muted" title="Server build {row.build}">{shortBuild(row.build)}</span>{/if}
     <span class="text-muted">{when(row.started_at)}</span>
     <span class="font-mono text-xs text-dim">{row.method} {row.path}</span>

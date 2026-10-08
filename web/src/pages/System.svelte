@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { listRequests } from '../lib/api'
   import { modelColor } from '../lib/format'
+  import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status } from '../lib/status.svelte'
   import DefaultModel from '../lib/system/DefaultModel.svelte'
@@ -53,6 +54,25 @@
     </div>
   </section>
 
+  <section class="mb-4 rounded-lg border border-line bg-panel p-4">
+    <h2 class="text-sm font-semibold">Model labels</h2>
+    <p class="mt-1 text-[12.5px] text-muted">
+      Show models by the name in llama-swap's config, or by their ID. A model without a name shows its ID either way. Hovering a model shows both. Saved in this browser only.
+    </p>
+    <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Model labels">
+      {#each [['name', 'Name'], ['id', 'ID']] as const as [v, text] (v)}
+        <button
+          role="radio"
+          aria-checked={modelShow.show === v}
+          class="rounded-md border bg-panel2 px-2.5 py-1 text-[12.5px] {modelShow.show === v ? 'border-primary text-text' : 'border-line text-muted hover:border-dim hover:text-text'}"
+          onclick={() => modelShow.set(v)}
+        >
+          {text}
+        </button>
+      {/each}
+    </div>
+  </section>
+
   <section class="rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Hidden models</h2>
     <p class="mt-1 text-[12.5px] text-muted">
@@ -90,7 +110,7 @@
         {#each hiddenModels as m (m)}
           <li class="flex items-center gap-2 px-3 py-1.5">
             <span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>
-            <span class="flex-1 truncate">{m}</span>
+            <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
             <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, false)}>Unhide</button>
           </li>
         {/each}
@@ -105,7 +125,7 @@
       {#each shownModels as m (m)}
         <li class="flex items-center gap-2 px-3 py-1.5">
           <span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>
-          <span class="flex-1 truncate">{m}</span>
+          <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
           <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, true)}>Hide</button>
         </li>
       {:else}

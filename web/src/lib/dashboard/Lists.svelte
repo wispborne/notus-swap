@@ -1,6 +1,7 @@
 <script lang="ts">
   import { duration, modelColor, when } from '../format'
   import { live } from '../live.svelte'
+  import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { privacy } from '../privacy.svelte'
   import type { DashboardData } from './data'
 
@@ -31,7 +32,7 @@
         <div class="flex items-center gap-1.5">
           <span class="inline-block size-2 rounded-full" style={dot(f.start.model)}></span>
           <span class="font-mono">#{f.start.id}</span>
-          <span class="truncate text-muted">{f.start.model}</span>
+          <span class="truncate text-muted" title={modelTitle(f.start.model)}>{modelLabel(f.start.model)}</span>
           <span class="flex-1"></span>
           <span class="num">{f.chunks} tok</span>
           <span class="rounded-full bg-secondary/12 px-1.5 text-[11px] font-semibold text-secondary pulse">{f.firstTokenAt ? 'streaming' : 'waiting'}</span>
@@ -46,7 +47,7 @@
       <div class="flex items-center gap-2 py-0.5">
         <span class="num text-dim">{when(e.at)}</span>
         <span class="inline-block size-2 rounded-full" style={dot(e.model)}></span>
-        <span class="truncate">{e.model}</span>
+        <span class="truncate" title={modelTitle(e.model)}>{modelLabel(e.model)}</span>
         {#if e.auto}<span class="text-[11px] text-dim" title="notus-swap started this load after the idle timeout">auto</span>{/if}
         <span class="flex-1"></span>
         <span class="num">{e.load_ms != null ? duration(e.load_ms) : ''}</span>
@@ -58,7 +59,7 @@
     {#each perToken as p}
       <div class="my-1.5 flex items-center gap-2">
         <span class="inline-block size-2 flex-none rounded-full" style={dot(p.model)}></span>
-        <span class="max-w-[60%] flex-none truncate" title={p.model}>{p.model}</span>
+        <span class="max-w-[60%] flex-none truncate" title={modelTitle(p.model)}>{modelLabel(p.model)}</span>
         <div class="h-2.5 min-w-10 flex-1 overflow-hidden rounded bg-panel2">
           <div class="h-full rounded" style="width:{(p.jpt / maxJpt) * 100}%;{dot(p.model)}"></div>
         </div>

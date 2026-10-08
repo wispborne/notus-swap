@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import type uPlot from 'uplot'
   import { modelColor, when } from '../format'
+  import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { base, dots, logRange, xAxis, yAxis, zeroToMax, type Window } from './charts'
   import type { DashboardData, DashRequest } from './data'
   import { shortNames } from './shortNames'
@@ -45,7 +46,7 @@
       .sort((a, b) => a.finished_at! - b.finished_at!),
   )
   const models = $derived([...new Set(pts.map((r) => r.model))].sort())
-  const short = $derived(shortNames(models))
+  const short = $derived(shortNames(models.map((m) => modelLabel(m))))
   const key = $derived(models.join(','))
   // Rebuilt only when the models shown change; untrack keeps other reads from rebuilding it.
   const options = $derived.by(() => {
@@ -79,7 +80,7 @@
     <div class="flex-none text-[11px] leading-4 text-dim">No finished requests in this range.</div>
   {:else if legend === 'names'}
     <div class="flex flex-none flex-wrap gap-x-2.5 text-[11px] leading-4 text-muted">
-      {#each models as m}<span class="flex items-center gap-1" title={short.get(m) === m ? undefined : m}><span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>{short.get(m)}</span>{/each}
+      {#each models as m}<span class="flex items-center gap-1" title={modelTitle(m)}><span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>{short.get(modelLabel(m))}</span>{/each}
       {#if log}<span class="text-muted">· log scale</span>{/if}
     </div>
   {/if}
@@ -87,12 +88,12 @@
     <!-- Dots only: drawn over the chart's top right corner, so they take no room of their own. -->
     {#if legend === 'dots' && models.length}
       <div class="absolute top-0.5 right-0 z-[5] flex max-w-[60%] flex-wrap justify-end gap-1.5 rounded border border-line bg-panel/90 px-1.5 py-1">
-        {#each models as m}<span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}" title={m}></span>{/each}
+        {#each models as m}<span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}" title={modelTitle(m)}></span>{/each}
       </div>
     {/if}
     {#if hovered}
       <div class="num pointer-events-none absolute top-0 right-0 left-0 z-10 truncate bg-panel/90 text-[11px] text-text">
-        #{hovered.id} {hovered.model} · {format(value(hovered)!)}{unit} · {when(hovered.finished_at!)}
+        #{hovered.id} {modelLabel(hovered.model)} · {format(value(hovered)!)}{unit} · {when(hovered.finished_at!)}
       </div>
     {/if}
     <UChart {options} data={chartData} {onCursor} />
