@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { appTitle, defaultTitle } from '../lib/appTitle.svelte'
   import { listRequests } from '../lib/api'
   import { modelColor } from '../lib/format'
   import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
@@ -25,6 +26,20 @@
   // asked for, so this page can be screenshotted too. Not saved anywhere.
   let reveal = $state(false)
   const namesVisible = $derived(privacy.showHidden || reveal)
+
+  // The title field starts from the saved title, and follows it until edited.
+  let titleDraft = $state<string | null>(null)
+  const titleValue = $derived(titleDraft ?? appTitle.saved)
+  let titleError = $state('')
+  async function saveTitle(t: string) {
+    titleError = ''
+    try {
+      await appTitle.set(t)
+      titleDraft = null
+    } catch (e) {
+      titleError = `Couldn't save: ${e instanceof Error ? e.message : e}`
+    }
+  }
 </script>
 
 <div class="max-w-[760px]">
@@ -33,6 +48,38 @@
   <Manage />
 
   <DefaultModel />
+
+  <section class="mb-4 rounded-lg border border-line bg-panel p-4">
+    <h2 class="text-sm font-semibold">App title</h2>
+    <p class="mt-1 text-[12.5px] text-muted">Shown in the top left corner and on the browser tab. Leave it empty for "{defaultTitle}". Saved on the server, for every browser.</p>
+    <form
+      class="mt-3 flex flex-wrap items-center gap-2"
+      onsubmit={(e) => {
+        e.preventDefault()
+        saveTitle(titleValue)
+      }}
+    >
+      <input
+        type="text"
+        maxlength="60"
+        placeholder={defaultTitle}
+        class="w-64 rounded-md border border-line bg-panel2 px-2 py-1 text-[12.5px] text-text outline-none focus:border-primary"
+        value={titleValue}
+        oninput={(e) => (titleDraft = e.currentTarget.value)}
+      />
+      <button
+        type="submit"
+        class="rounded-md border border-line bg-panel2 px-2.5 py-1 text-[12.5px] text-muted hover:border-dim hover:text-text disabled:opacity-50"
+        disabled={titleValue.trim() === appTitle.saved}
+      >
+        Save
+      </button>
+      {#if appTitle.saved}
+        <button type="button" class="rounded-md px-2 py-1 text-[12.5px] text-muted hover:text-text" onclick={() => saveTitle('')}>Reset to default</button>
+      {/if}
+    </form>
+    {#if titleError}<p class="mt-2 text-[12.5px] text-err">{titleError}</p>{/if}
+  </section>
 
   <section class="mb-4 rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Theme</h2>

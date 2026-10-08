@@ -216,7 +216,7 @@ notus-swap is a **separate layer**, not a fork. This is decided.
   - **Models.**
   - **Logs.**
   - **Model Config** (the llama-swap config editor; its route is still `/notus/config`).
-  - **Settings** (route `/notus/system`, file `pages/System.svelte`). Restart llama-swap, update or roll back notus-swap, llama-swap and llama.cpp, and settings such as retention limits, the default model, hidden models and the theme.
+  - **Settings** (route `/notus/system`, file `pages/System.svelte`). Restart llama-swap, update or roll back notus-swap, llama-swap and llama.cpp, and settings such as retention limits, the default model, hidden models, the app title and the theme.
 - Navigation is a collapsible left sidebar. Its pages can be dragged into another order, saved per browser (`sidebar_order`, `lib/navOrder.svelte.ts`). The collapse button is at the bottom. The current page has a green bar on the sidebar's left edge. The sidebar stays in view while the page scrolls. A thin status bar across the top of every page shows, by default in this order:
   - whether llama-swap is up
   - how many requests are in flight
@@ -225,6 +225,7 @@ notus-swap is a **separate layer**, not a fork. This is decided.
   - which models are loaded. This is last because its width changes as models load and unload.
 
   Items can be dragged on the bar, or moved and hidden from the "⋯" menu at its right end (`lib/statusItems.svelte.ts`). The choice is saved per browser (`statusbar_items`).
+- App title: the name in the status bar's corner and on the browser tab. It is the server-side `app_title` setting (empty means "notus-swap"), sent with every `/notus/api/status` poll, so every browser shows the same one. `lib/appTitle.svelte.ts` keeps a copy in `localStorage`, which the inline script in `index.html` uses to set the tab title before the page draws.
 - Model labels: every page shows a model by its name (the `name` in llama-swap's config) or by its ID, picked on the Settings page and saved per browser (`model_labels`, `lib/modelNames.svelte.ts`). The default is the name. A model without a name shows its ID either way. Use `modelLabel(model)` for any model shown, and `modelTitle(model)` for its tooltip, which gives both the name and the ID (and the alias a request used). `lib/modelNames.svelte.ts` also finds a model by ID or alias.
 - Scrollbars are styled to the theme in `app.css`.
 - Icons must look crisp. Draw them as inline SVG, not text characters or emoji, which render differently on each system. Icons are filled, solid shapes, not hollow outlines. Put straight lines on whole pixels: a viewBox whose units are pixels at the drawn size, whole-pixel stroke widths, and pixel sizes around the icon so it doesn't sit on a half pixel. Where an icon can't avoid half pixels, `shape-rendering="crispEdges"` snaps straight edges. The sidebar icons are in `lib/NavIcon.svelte`, and the chip icons in `lib/NotableChips.svelte`.

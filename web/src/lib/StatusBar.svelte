@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { appTitle } from './appTitle.svelte'
   import { modelColor } from './format'
   import { modelLabel, modelTitle } from './modelNames.svelte'
   import { live } from './live.svelte'
@@ -183,7 +184,7 @@ State: {m.state}">
 {/snippet}
 
 <header class="sticky top-0 z-20 flex h-[34px] items-center gap-[18px] overflow-x-auto border-b border-line bg-sunken px-3 text-xs whitespace-nowrap">
-  <span class="font-bold tracking-wide text-primary">notus-swap</span>
+  <span class="font-bold tracking-wide text-primary">{appTitle.text}</span>
 
   {#if !status.reachable}
     <span class="flex items-center gap-1.5 text-err"><span class="relative top-px inline-block size-2 rounded-full bg-err"></span><b>notus-swap unavailable</b></span>

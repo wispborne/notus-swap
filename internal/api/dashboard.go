@@ -33,6 +33,9 @@ type Status struct {
 	RAMTotal        *int64   `json:"ram_total"`
 	// Privacy rides along so every open page learns of changes within 2 s.
 	Privacy Privacy `json:"privacy"`
+	// AppTitle is the name shown in the status bar and the browser tab. Empty
+	// means the default, "notus-swap". It rides along like Privacy.
+	AppTitle string `json:"app_title"`
 	// UpdateAvailable is true when the last check found a newer release of
 	// notus-swap, llama-swap, or llama.cpp. The sidebar puts a dot on System.
 	UpdateAvailable bool `json:"update_available"`
@@ -46,7 +49,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 		Version: a.Version, LlamaSwap: a.LlamaSwap.Status(), GPUs: snap.GPUs, InFlight: a.Hub.Count(),
 		CPUWatts: snap.CPUWatts, CPUSource: snap.CPUSource, CPUProblem: snap.CPUProblem, SystemWatts: snap.SystemWatts,
 		SystemBaseWatts: a.Metrics.BaseWatts, PSUEfficiency: a.Metrics.PSUEff, Privacy: a.privacy(r.Context()),
-		RAMUsed: snap.RAMUsed, RAMTotal: snap.RAMTotal, UpdateAvailable: a.Updater != nil && a.Updater.UpdateAvailable() || a.LlamaUpdates != nil && a.LlamaUpdates.UpdateAvailable(),
+		AppTitle: a.appTitle(r.Context()), RAMUsed: snap.RAMUsed, RAMTotal: snap.RAMTotal, UpdateAvailable: a.Updater != nil && a.Updater.UpdateAvailable() || a.LlamaUpdates != nil && a.LlamaUpdates.UpdateAvailable(),
 	}
 	if s.GPUs == nil {
 		s.GPUs = []gpu.Reading{}
@@ -163,7 +166,7 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 // Settings the UI may read and write. Values are JSON.
-var settingKeys = map[string]bool{"dashboard_layout": true, "hidden_models": true, "show_hidden": true, "retention": true, "issue_mutes": true}
+var settingKeys = map[string]bool{"dashboard_layout": true, "hidden_models": true, "show_hidden": true, "retention": true, "issue_mutes": true, "app_title": true}
 
 // Privacy is which models the UI keeps off screen. See CLAUDE.md, "Hidden
 // models". Everything is still captured; only the UI filters.
@@ -184,6 +187,15 @@ func (a *API) privacy(ctx context.Context) Privacy {
 		p.HiddenModels = []string{}
 	}
 	return p
+}
+
+// appTitle reads the app_title setting, or "" when it isn't set.
+func (a *API) appTitle(ctx context.Context) string {
+	var t string
+	if v, err := a.Store.Setting(ctx, "app_title"); err == nil && v != "" {
+		json.Unmarshal([]byte(v), &t)
+	}
+	return t
 }
 
 // getSetting: GET /notus/api/settings/{key}. Returns null when unset.

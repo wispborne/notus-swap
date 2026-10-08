@@ -1,3 +1,4 @@
+import { appTitle } from './appTitle.svelte'
 import { privacy } from './privacy.svelte'
 import { setModelOrder } from './modelColors.svelte'
 
@@ -43,6 +44,8 @@ export interface Status {
   ram_used: number | null
   ram_total: number | null
   privacy: { hidden_models: string[]; show_hidden: boolean }
+  /** The app's name, or '' for the default. See appTitle.svelte.ts. */
+  app_title: string
   /** A newer release was seen on the server's last check (every 15 minutes). */
   update_available: boolean
 }
@@ -67,6 +70,7 @@ class StatusPoller {
         if (!res.ok) throw new Error(String(res.status))
         const next: Status = await res.json()
         privacy.apply(next.privacy)
+        appTitle.apply(next.app_title)
         setModelOrder(next.llama_swap.known.map((m) => m.model))
         this.current = next
         this.reachable = true
