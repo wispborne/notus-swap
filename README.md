@@ -35,7 +35,7 @@ It was built for one machine with AMD Radeon GPUs, but nothing in it is tied to 
 - **Models.** Load and unload models, with per-model totals, speeds, load times, logs, and recent requests. Each model also shows its speed on each llama.cpp build and each launch command it has run with, and which flags changed between commands.
 - **Logs.** llama-swap's logs and notus-swap's own log, one or two side by side.
 - **Model Config.** A YAML editor for llama-swap's `config.yaml`. It checks the file as you type, using the installed llama-swap's own `-validate`. It shows a diff before saving and keeps the last 20 backups.
-- **System.** Start, stop, or restart llama-swap, or restart notus-swap. Update notus-swap, llama-swap, or llama.cpp, or roll any of them back. Set how long request bodies are kept.
+- **Settings.** Start, stop, or restart llama-swap, or restart notus-swap. Update notus-swap, llama-swap, or llama.cpp, or roll any of them back. Set how long request bodies are kept.
 - **Default model.** When llama-swap has had no model loaded for a set number of minutes (15 by default), notus-swap loads the model you choose. The next request then doesn't wait for a load.
 - **Hidden models.** Hide chosen model names everywhere in the UI, for taking screenshots. Hidden models are still recorded.
 - **Status bar.** Shows whether llama-swap is up, how many requests are running, VRAM and RAM in use, GPU watts, an estimate of the whole machine's watts, and which models are loaded. Its items can be reordered or hidden.

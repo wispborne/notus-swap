@@ -37,8 +37,8 @@ export function sourceLabel(r: Pick<Summary, 'user_agent' | 'retry_of'>): string
 /** The tooltip: the full User-Agent and the address. */
 export function sourceTitle(r: Pick<Summary, 'user_agent' | 'client_ip' | 'retry_of'>): string {
   const lines = []
-  if (r.retry_of) lines.push(`Sent again from the web UI, from request #${r.retry_of}`)
+  if (r.retry_of) lines.push(`Retried from request #${r.retry_of} in the web UI`)
   if (r.user_agent) lines.push(`User-Agent: ${r.user_agent}`)
   if (r.client_ip) lines.push(`Address: ${r.client_ip}`)
-  return lines.join('\n') || 'Not recorded. Requests from before this column existed have no source.'
+  return lines.join('\n') || 'No source details were recorded for this request.'
 }

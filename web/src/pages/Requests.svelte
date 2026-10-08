@@ -191,10 +191,8 @@
           v = v.map((k: string) => (k === 'cache' ? 'cache_pct' : k))
           v.push('notable')
         }
-        // Version 3: Status is added, because failed and cancelled requests
-        // have no chip and looked like any other row without it.
+        // Version 3: Status distinguishes failed and cancelled requests, which have no chip.
         if (version < 3 && !v.includes('status')) v.push('status')
-        // Version 4: Source is added.
         if (version < 4 && !v.includes('source')) v.push('source')
         if (version < COLS_VERSION) {
           localStorage.setItem('requests_columns', JSON.stringify(v))
@@ -298,9 +296,7 @@
   // drag ends.
   let dragging = $state<Col | null>(null)
 
-  // Settings for single columns, chosen from a gear in the Columns menu and
-  // saved per browser (requests_column_settings). Each setting is a choice
-  // between a few options; a column with no saved value uses its default.
+  // Per-column display choices, saved per browser.
   type ColumnSetting = { key: string; label: string; options: [string, string][]; default: string; title?: string }
   const columnSettings: Partial<Record<Col, ColumnSetting[]>> = {
     source: [
@@ -328,9 +324,9 @@
     }
   }
   function colSetting(k: Col, key: string): string {
-    const def = columnSettings[k]?.find((x) => x.key === key)
-    const v = colValues[k]?.[key]
-    return def && def.options.some(([o]) => o === v) ? v! : (def?.default ?? '')
+    const setting = columnSettings[k]?.find((x) => x.key === key)
+    const savedValue = colValues[k]?.[key]
+    return setting && setting.options.some(([o]) => o === savedValue) ? savedValue! : (setting?.default ?? '')
   }
   function setColSetting(k: Col, key: string, v: string) {
     colValues = { ...colValues, [k]: { ...colValues[k], [key]: v } }
@@ -340,7 +336,6 @@
       // Not saved; it still applies until the page reloads.
     }
   }
-  // The column whose settings are open in the Columns menu.
   let settingsFor = $state<Col | null>(null)
   const sourceShow = $derived(colSetting('source', 'show'))
   function dragStart(e: DragEvent, k: Col) {

@@ -52,7 +52,7 @@ func Handler() http.Handler {
 	}))
 }
 
-// gzipped holds each compressed asset, made the first time it is asked for.
+// gzipped caches each asset's compressed bytes by path.
 var gzipped sync.Map // path -> []byte, or nil when not worth compressing
 
 // zipped returns an asset's gzip bytes, or nil for files that don't

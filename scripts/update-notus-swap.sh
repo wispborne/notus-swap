@@ -25,7 +25,7 @@ PORT="${NOTUS_LISTEN##*:}"
 HEALTH="http://127.0.0.1:${PORT:-8080}/notus/api/health"
 ASSET=notus-swap-linux-amd64
 
-# json_field prints the first "name":"value" string in the JSON on stdin.
+# Extract a string field from JSON on stdin. Escaped quotes are not supported.
 json_field() {
   sed -n "s/.*\"$1\" *: *\"\([^\"]*\)\".*/\1/p" | head -n 1
 }

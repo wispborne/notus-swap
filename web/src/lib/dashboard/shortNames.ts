@@ -1,8 +1,6 @@
-// Shorter model names for a chart's legend. Models whose names start with the
-// same word (the text before the first "-") are grouped, and each group drops
-// the start its names share, cut at a "-". So `qwen3.8-27b-dev-swift` and
-// `qwen3.8-27b-swift-1.0-radiance` become `dev-swift` and `swift-1.0-radiance`.
-// A model alone in its group keeps its full name, and no name is cut to nothing.
+// Shorten legend names within groups that share their first hyphenated segment.
+// Remove the common prefix, keeping at least one segment in every name.
+// A model alone in its group keeps its full name.
 export function shortNames(models: string[]): Map<string, string> {
   const out = new Map<string, string>()
   const groups = new Map<string, string[]>()
@@ -12,13 +10,12 @@ export function shortNames(models: string[]): Map<string, string> {
   }
   for (const group of groups.values()) {
     const parts = group.map((m) => m.split('-'))
-    // How many leading words every name shares, leaving at least one word in each.
-    let n = 0
+    let prefixLength = 0
     if (group.length > 1) {
-      const most = Math.min(...parts.map((p) => p.length)) - 1
-      while (n < most && parts.every((p) => p[n] === parts[0][n])) n++
+      const prefixLimit = Math.min(...parts.map((p) => p.length)) - 1
+      while (prefixLength < prefixLimit && parts.every((p) => p[prefixLength] === parts[0][prefixLength])) prefixLength++
     }
-    group.forEach((m, i) => out.set(m, parts[i].slice(n).join('-')))
+    group.forEach((m, i) => out.set(m, parts[i].slice(prefixLength).join('-')))
   }
   return out
 }

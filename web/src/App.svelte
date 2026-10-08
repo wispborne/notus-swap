@@ -34,15 +34,13 @@
   }
   const first = current()
   let page = $state(first)
-  // The first page starts loading its code, and the Dashboard and Requests
-  // their data, at once. Otherwise they would wait for the privacy settings
-  // to load first.
+  // Start loading page code and Dashboard or Requests data before the privacy
+  // settings finish loading.
   const loaders: Record<string, (() => Promise<unknown>) | undefined> = { dashboard: loadDashboard, config: loadConfig, models: loadModels, logs: loadLogs }
   loaders[first]?.()
   if (first === 'dashboard') prefetchDashboard()
   if (first === 'requests') prefetchRequests({ model: new URLSearchParams(location.search).get('model') ?? '' })
 
-  // The pages in the order the user arranged them.
   const ordered = $derived(navOrder.list.map((id) => pages.find((p) => p.path === id)!))
 
   // Dragging a page moves it as the pointer passes the middle of another.
@@ -119,7 +117,6 @@
   >
     <div class="flex flex-col gap-[2px]">
       {#each ordered as p (p.path)}
-        <!-- The current page gets a bar along the sidebar's left edge. Pages can be dragged into another order. -->
         <button
           draggable="true"
           ondragstart={(e) => dragStart(e, p.path as PageId)}
