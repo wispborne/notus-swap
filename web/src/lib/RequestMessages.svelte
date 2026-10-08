@@ -9,7 +9,11 @@
 
   // Shows a request body: chat messages, a Responses API input, a completion
   // prompt, or embedding input, plus the tools offered and the other settings sent.
-  let { request, cached = null }: { request: unknown; cached?: { tokens: number; total: number } | null } = $props()
+  let {
+    request,
+    cached = null,
+    promptTokens = null,
+  }: { request: unknown; cached?: { tokens: number; total: number } | null; promptTokens?: number | null } = $props()
 
   const req = $derived(typeof request === 'object' && request !== null ? (request as Record<string, unknown>) : null)
   const fromResponses = $derived(req ? responsesMessages(req) : null)
@@ -124,7 +128,17 @@
       return part >= 0.9 ? 1 : part <= 0.1 ? 0 : part
     })
   })
-  const cachedCount = $derived(cacheShare ? cacheShare.filter((p) => p === 1).length : 0)
+  // The server only counts tokens for the whole prompt, so each message's
+  // count is its share of the prompt's characters. Images take tokens that
+  // have no characters, so requests with images get no estimate.
+  const perChar = $derived.by(() => {
+    if (!promptTokens || !messages.length || images.length) return null
+    const toolSize = tools.length ? JSON.stringify(tools).length : 0
+    const all = toolSize + messages.reduce((a, m) => a + plain(m).length + PER_MESSAGE, 0)
+    return all > 0 ? promptTokens / all : null
+  })
+  const msgTokens = (m: Msg) => Math.round((plain(m).length + PER_MESSAGE) * (perChar ?? 0))
+  const cachedCount =$derived(cacheShare ? cacheShare.filter((p) => p === 1).length : 0)
   const cacheEnd = $derived(cacheShare ? cacheShare.findIndex((p) => p < 1) : -1)
 </script>
 
@@ -214,7 +228,10 @@
                 {cacheShare[i] === 1 ? 'cached' : `≈${Math.round(cacheShare[i] * 100)}% cached`}
               </span>
             {/if}
-            <span class="{cacheShare && cacheShare[i] > 0 ? '' : 'ml-auto'} shrink-0 normal-case tracking-normal">{shown(m).length.toLocaleString()} chars</span>
+            <span class="{cacheShare && cacheShare[i] > 0 ? '' : 'ml-auto'} shrink-0 normal-case tracking-normal"
+              title={perChar ? 'Tokens are estimated from this message’s share of the prompt’s characters' : undefined}
+              >{shown(m).length.toLocaleString()} chars{#if perChar}, ≈{msgTokens(m).toLocaleString()}t{/if}</span
+            >
           </button>
           <CopyButton title="Copy this message" text={() => shown(m)} />
         </div>
@@ -233,7 +250,11 @@
         {:else}
           {#if m.reasoning_content}
             <details class="mb-1 text-muted">
-              <summary class="cursor-pointer text-xs">Reasoning <CopyButton class="align-middle" title="Copy reasoning" text={() => m.reasoning_content ?? ''} /></summary>
+              <summary class="cursor-pointer text-xs"
+                >Reasoning ({m.reasoning_content.length.toLocaleString()} chars{#if perChar}, <span
+                    title="Estimated from the prompt's tokens per character. Many chat templates drop earlier reasoning from the prompt."
+                    >≈{Math.round(m.reasoning_content.length * perChar).toLocaleString()}t</span
+                  >{/if}) <CopyButton class="align-middle" title="Copy reasoning" text={() => m.reasoning_content ?? ''} /></summary>
               <div class="text-xs whitespace-pre-wrap">{m.reasoning_content}</div>
             </details>
           {/if}

@@ -40,7 +40,14 @@
 
   const content = $derived(flight ? flight.content : (detail?.response.content ?? ''))
   const reasoning = $derived(flight ? flight.reasoning : (detail?.response.reasoning ?? ''))
-  const firstToken = $derived(flight?.firstTokenAt ?? row.first_token_at ?? detail?.first_token_at ?? null)
+  // From the thinking tag once finished. While in flight, the chunks that
+  // carried thinking, which is close to one token each.
+  const reasoningTokens = $derived.by(() => {
+    if (flight) return flight.reasoningChunks ? { n: flight.reasoningChunks, est: true } : null
+    const t = row.tags?.find((t) => t.kind === 'thinking')
+    return t?.tokens ? { n: t.tokens, est: !!t.est } : null
+  })
+  const firstToken =$derived(flight?.firstTokenAt ?? row.first_token_at ?? detail?.first_token_at ?? null)
   const end = $derived(row.finished_at ?? now)
   const ttft = $derived(firstToken ? firstToken - row.started_at : null)
   const outTokens = $derived(flight ? flight.chunks : row.completion_tokens)
@@ -268,6 +275,7 @@
         <RequestMessages
           request={detail.request}
           cached={row.cached_tokens != null && row.prompt_tokens ? { tokens: row.cached_tokens, total: row.prompt_tokens } : null}
+          promptTokens={row.prompt_tokens}
         />
       </div>
       <div class="min-w-0">
@@ -278,7 +286,10 @@
         {#if reasoning}
           <details class="mb-2 rounded-md border border-dashed border-line px-2 py-1 text-muted" open={inFlight && !content}>
             <summary class="cursor-pointer text-xs">
-              Reasoning ({reasoning.length.toLocaleString()} characters)
+              Reasoning ({reasoning.length.toLocaleString()} chars{#if reasoningTokens}, <span
+                  title={reasoningTokens.est ? 'Estimated: the server did not report thinking tokens separately' : undefined}
+                  >{reasoningTokens.est ? '≈' : ''}{reasoningTokens.n.toLocaleString()}t</span
+                >{/if})
               <CopyButton class="align-middle" title="Copy reasoning" text={() => reasoning} />
             </summary>
             <div class="mt-1 text-xs whitespace-pre-wrap">{reasoning}</div>
