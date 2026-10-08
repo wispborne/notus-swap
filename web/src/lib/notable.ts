@@ -4,7 +4,7 @@ import type { Summary, Tag } from './api'
 import { issueKinds } from './issues.svelte'
 import type { LiveOutput } from './live.svelte'
 
-export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'warn'
+export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'warn' | 'nostream'
 
 export interface Chip {
   kind: string
@@ -133,7 +133,7 @@ function baseChip(t: Tag, inFlight: boolean): Chip {
         lines: [t.text ? `JSON schema "${t.text}"` : 'The request gave a JSON schema'],
       }
     case 'not_streamed':
-      return { kind: t.kind, label: 'NS', bright: false, title: 'Not streamed', lines: ['Streaming was disabled for this request'] }
+      return { kind: t.kind, icon: 'nostream', label: '', bright: false, title: 'Not streamed', lines: ['Streaming was disabled for this request'] }
     case 'cache_miss':
       return {
         kind: t.kind,

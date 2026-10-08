@@ -35,6 +35,12 @@
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
       <path d="M3 12.5 6.5 7.5l3 3.5 1.8-1.8 2.2 3.3z" fill="currentColor" stroke-width="1" />
       <circle cx="11" cy="5.8" r="1.4" fill="currentColor" stroke="none" />
+    {:else if name === 'nostream'}
+      <!-- Lines of text arriving one by one, crossed out like "nothink". The first is solid and the rest dim, so they read as a stream. -->
+      <rect x="1" y="2" width="9" height="3" fill="currentColor" stroke="none" />
+      <rect x="1" y="7" width="13" height="3" fill="currentColor" stroke="none" opacity=".35" />
+      <rect x="1" y="12" width="6" height="2" fill="currentColor" stroke="none" opacity=".35" />
+      <path d="M2 15 15 2" />
     {/if}
   </svg>
 {/snippet}
