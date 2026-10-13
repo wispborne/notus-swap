@@ -645,12 +645,16 @@
 
 {#if error}<div class="mb-2 text-err">{error}</div>{/if}
 
-<div class="overflow-x-auto rounded-lg border border-line bg-panel">
+<!-- The table scrolls inside its box so the header can stay pinned. A box that
+     scrolls sideways can't also let the header stick to the page. The height
+     leaves room for the status bar (34px) and the page's bottom padding (4rem),
+     so the whole box fits on screen. -->
+<div class="max-h-[calc(100dvh-34px-4.5rem)] overflow-auto rounded-lg border border-line bg-panel">
   <table class="w-full border-collapse">
     <colgroup>
       {#each visibleCols as c}<col class={edges.has(c.key) ? 'border-l border-line-soft' : ''} />{/each}
     </colgroup>
-    <thead>
+    <thead class="sticky top-0 z-10 bg-panel shadow-[inset_0_-1px_0_var(--color-line)]">
       {#if groupRow.some((g) => g.label)}
         <tr class="text-[11px] text-dim [&>th]:px-2 [&>th]:pt-1.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
           {#each groupRow as g}
@@ -692,14 +696,14 @@
       {/each}
     </tbody>
   </table>
+  {#if more && rows.length}
+    <div class="my-3 text-center">
+      <button class="rounded-md border border-line bg-panel2 px-3 py-1 hover:border-primary" disabled={loading} onclick={() => load(false)}>
+        {loading ? 'Loading…' : 'Load older'}
+      </button>
+    </div>
+  {/if}
 </div>
 
 <ChipPopover />
 
-{#if more && rows.length}
-  <div class="mt-3 text-center">
-    <button class="rounded-md border border-line bg-panel2 px-3 py-1 hover:border-primary" disabled={loading} onclick={() => load(false)}>
-      {loading ? 'Loading…' : 'Load older'}
-    </button>
-  </div>
-{/if}
