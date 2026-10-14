@@ -59,6 +59,8 @@ type API struct {
 	// Capture is the capturing proxy that inference requests go through.
 	// Retried requests are sent through it.
 	Capture http.Handler
+
+	colors modelColors
 }
 
 func (a *API) Register(mux *http.ServeMux) {
@@ -192,6 +194,7 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
+		a.assignColors(r.Context(), nil, out.Models)
 	}
 	writeJSONGzip(w, r, out)
 }

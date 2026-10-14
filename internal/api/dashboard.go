@@ -36,6 +36,9 @@ type Status struct {
 	// AppTitle is the name shown in the status bar and the browser tab. Empty
 	// means the default, "notus-swap". It rides along like Privacy.
 	AppTitle string `json:"app_title"`
+	// ModelColors is each model's palette index, kept for good once given.
+	// See modelColors. Hidden models are left out while hidden.
+	ModelColors map[string]int `json:"model_colors"`
 	// UpdateAvailable is true when the last check found a newer release of
 	// notus-swap, llama-swap, or llama.cpp. The sidebar puts a dot on System.
 	UpdateAvailable bool `json:"update_available"`
@@ -54,6 +57,11 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	if s.GPUs == nil {
 		s.GPUs = []gpu.Reading{}
 	}
+	known := make([]string, len(s.LlamaSwap.Known))
+	for i, m := range s.LlamaSwap.Known {
+		known[i] = m.Model
+	}
+	s.ModelColors = a.statusColors(r.Context(), known, s.Privacy)
 	for _, g := range s.GPUs {
 		if g.Watts != nil && !g.SocketPower() {
 			t := *g.Watts
@@ -148,6 +156,14 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	seen := make([]string, 0, len(d.ModelEvents))
+	for _, e := range d.ModelEvents {
+		seen = append(seen, e.Model)
+	}
+	for _, q := range d.Requests {
+		seen = append(seen, q.Model)
+	}
+	a.assignColors(ctx, nil, seen)
 
 	y, m, day := now.Date()
 	midnight := time.Date(y, m, day, 0, 0, 0, 0, now.Location())

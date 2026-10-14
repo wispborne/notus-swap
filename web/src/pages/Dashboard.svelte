@@ -13,7 +13,6 @@
   import RequestsPerBucket from '../lib/dashboard/RequestsPerBucket.svelte'
   import Timeline from '../lib/dashboard/Timeline.svelte'
   import { zoom } from '../lib/dashboard/zoom.svelte'
-  import { noteModels } from '../lib/modelColors.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { isSocketSensor, status } from '../lib/status.svelte'
 
@@ -115,11 +114,6 @@
     void range
     untrack(() => zoom.reset())
   })
-  // Models no longer in the config still need colours of their own.
-  $effect.pre(() => {
-    if (raw) noteModels([...raw.requests.map((r) => r.model), ...raw.model_events.map((e) => e.model)])
-  })
-
   async function refresh() {
     try {
       raw = await fetchDashboard(range)

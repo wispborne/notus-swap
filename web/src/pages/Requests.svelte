@@ -8,7 +8,6 @@
   import NotableChips from '../lib/NotableChips.svelte'
   import { heatColor, heatMap, type HeatColumn } from '../lib/heat'
   import { rowChips } from '../lib/notable'
-  import { noteModels } from '../lib/modelColors.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { modelLabel, modelTitle } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
@@ -58,7 +57,6 @@
       rows = reset ? res.requests : [...rows, ...res.requests]
       if (res.models) {
         models = res.models
-        noteModels(res.models)
       }
       more = res.requests.length === PAGE
     } catch (e) {

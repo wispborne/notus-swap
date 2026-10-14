@@ -1,6 +1,6 @@
 import { appTitle } from './appTitle.svelte'
 import { privacy } from './privacy.svelte'
-import { setModelOrder } from './modelColors.svelte'
+import { setModelColors } from './modelColors.svelte'
 
 // Polls /notus/api/status every 2 seconds for the status bar. The server
 // answers from values its own monitors keep, so polling is cheap.
@@ -46,6 +46,8 @@ export interface Status {
   privacy: { hidden_models: string[]; show_hidden: boolean }
   /** The app's name, or '' for the default. See appTitle.svelte.ts. */
   app_title: string
+  /** Each model's palette index, kept for good once given. See modelColors.svelte.ts. */
+  model_colors: Record<string, number>
   /** A newer release was seen on the server's last check (every 15 minutes). */
   update_available: boolean
 }
@@ -71,7 +73,7 @@ class StatusPoller {
         const next: Status = await res.json()
         privacy.apply(next.privacy)
         appTitle.apply(next.app_title)
-        setModelOrder(next.llama_swap.known.map((m) => m.model))
+        setModelColors(next.model_colors ?? {})
         this.current = next
         this.reachable = true
       } catch {
