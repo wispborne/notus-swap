@@ -134,6 +134,9 @@
     return tag === cpp.release?.tag && cpp.newer
   }
 
+  /** The weekly release was made from an older build than the one in use, such as after installing a nightly. */
+  const releaseOlder = $derived(!!cpp?.installed && !!cpp.release_build && num(cpp.release_build) < num(cpp.installed))
+
   const btn = 'rounded-md border border-line bg-panel2 px-2.5 py-1 hover:border-primary disabled:opacity-50 disabled:hover:border-line'
   const primary = 'rounded-md border border-primary bg-primary px-3 py-1 font-semibold text-sunken disabled:opacity-40'
   const section = 'mb-4 rounded-lg border border-line bg-panel p-4'
@@ -275,11 +278,14 @@
 
     <div class="mt-3 flex flex-wrap gap-2">
       <button
-        class={primary}
+        class={cpp.newer || !cpp.installed ? primary : btn}
         disabled={busy || !!cpp.problem || !cpp.release_build || cpp.release_build === cpp.installed}
+        title={releaseOlder ? `${cpp.release_build} is older than ${cpp.installed}, the build in use` : ''}
         onclick={() => start('llama.cpp', 'install', cpp!.release_build)}
       >
-        {cpp.release && cpp.release_build ? `Install ${cpp.release.tag} (${cpp.release_build})` : 'Install the newest release'}
+        {cpp.release && cpp.release_build
+          ? `${releaseOlder ? 'Go back to' : 'Install'} ${cpp.release.tag} (${cpp.release_build})`
+          : 'Install the newest release'}
       </button>
       <button
         class={btn}
