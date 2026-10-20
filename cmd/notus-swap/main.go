@@ -60,6 +60,7 @@ func main() {
 	powercapRoot := flag.String("powercap-root", "/sys/class/powercap", "where to find the CPU's RAPL energy counters")
 	baseWatts := flag.Float64("system-base-watts", envFloat("NOTUS_SYSTEM_BASE_WATTS", 35), "estimated power of everything except the CPU and GPUs (board, RAM, drives, fans)")
 	psuEff := flag.Float64("psu-efficiency", envFloat("NOTUS_PSU_EFFICIENCY", 0.90), "power supply efficiency for estimated wall power")
+	sqlAPI := flag.Bool("sql-api", envBool("NOTUS_SQL_API"), "answer read-only SQL queries at POST /notus/api/query")
 	flag.Parse()
 
 	// Without systemd, a small parent process starts notus-swap again when
@@ -109,7 +110,7 @@ func main() {
 	}
 
 	restarting, err := run(log, logs, *listen, *upstream, *dbPath, api.Retention{Days: *keepDays, GB: *keepGB}, svc,
-		sensors{*drmRoot, *nvidiaSMI, *powercapRoot, *baseWatts, *psuEff}, &llamaconfig.Editor{Path: *cfgPath, Bin: *cfgBin}, updater, llamaUpdates)
+		sensors{*drmRoot, *nvidiaSMI, *powercapRoot, *baseWatts, *psuEff}, &llamaconfig.Editor{Path: *cfgPath, Bin: *cfgBin}, updater, llamaUpdates, *sqlAPI)
 	if err != nil {
 		log.Error("exiting", "err", err)
 		os.Exit(1)
@@ -160,7 +161,7 @@ type sensors struct {
 
 // run serves until notus-swap is stopped or restarts. restarting reports a
 // planned restart, after which notus-swap should be started again.
-func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string, keep api.Retention, svc service.Controller, sn sensors, cfg *llamaconfig.Editor, updater *selfupdate.Updater, llamaUpdates *llamaupdate.Manager) (restarting bool, err error) {
+func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string, keep api.Retention, svc service.Controller, sn sensors, cfg *llamaconfig.Editor, updater *selfupdate.Updater, llamaUpdates *llamaupdate.Manager, sqlAPI bool) (restarting bool, err error) {
 	up, err := url.Parse(upstream)
 	if err != nil {
 		return false, err
@@ -170,6 +171,14 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 		return false, err
 	}
 	defer st.Close()
+	var ro *store.ReadOnly
+	if sqlAPI {
+		if ro, err = store.OpenReadOnly(dbPath); err != nil {
+			return false, err
+		}
+		defer ro.Close()
+		log.Info("the SQL endpoint is on", "path", "/notus/api/query")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -248,7 +257,7 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 		Store: st, Hub: hub, LlamaSwap: monitor, Metrics: rec, Config: cfg,
 		ConfigHeld: &llamaconfig.Held{Editor: cfg, Wait: &idlewait.Waiter{Idle: hub.Idle}, Log: log}, Upstream: up, Log: log, Version: version,
 		Updater: updater, LlamaUpdates: llamaUpdates, Logs: logs, Restart: plan, RetentionDefault: keep, AutoLoad: loader,
-		LlamaSwapService: svc, SelfRestart: selfRestart(),
+		LlamaSwapService: svc, SelfRestart: selfRestart(), ReadOnly: ro,
 		PruneNow: func() {
 			select {
 			case pruneNow <- struct{}{}:
@@ -482,6 +491,12 @@ func envFloat(key string, fallback float64) float64 {
 		return v
 	}
 	return fallback
+}
+
+// envBool is true when key is set to 1 or true.
+func envBool(key string) bool {
+	v, _ := strconv.ParseBool(os.Getenv(key))
+	return v
 }
 
 func env(key, fallback string) string {

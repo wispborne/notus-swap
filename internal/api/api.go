@@ -59,6 +59,9 @@ type API struct {
 	// Capture is the capturing proxy that inference requests go through.
 	// Retried requests are sent through it.
 	Capture http.Handler
+	// ReadOnly runs queries sent to POST /notus/api/query. Nil turns that
+	// endpoint off.
+	ReadOnly *store.ReadOnly
 
 	colors modelColors
 }
@@ -76,6 +79,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /notus/api/settings/{key}", a.putSetting)
 	mux.HandleFunc("POST /notus/api/models/{model}/load", a.loadModel)
 	mux.HandleFunc("POST /notus/api/models/{model}/unload", a.unloadModel)
+	mux.HandleFunc("POST /notus/api/query", a.query)
 	a.registerConfig(mux)
 	a.registerSystem(mux)
 	a.registerLlamaUpdates(mux)

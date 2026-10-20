@@ -49,6 +49,8 @@ The last two lines turn on the Model Config page and llama-swap updates on the S
 
 Once the socket unit from step 4 is running, it sets the port instead, and `NOTUS_LISTEN` is ignored. Keep the line anyway, for running notus-swap by hand.
 
+To look at the database from another machine without a shell on the server, add `NOTUS_SQL_API=1`. notus-swap then answers read-only SQL at `POST /notus/api/query`, sent as `{"sql": "SELECT ..."}`. It opens the database read-only, stops each query after 10 seconds, and returns at most 5,000 rows. It shows nothing the Requests page doesn't, but leave it off unless you need it.
+
 The README lists every setting `env` can hold.
 
 ## 2. Get the binary

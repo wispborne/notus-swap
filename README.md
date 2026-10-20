@@ -116,6 +116,7 @@ Each setting can be a flag or a line in an `env` file:
 | `-nvidia-smi` | `NOTUS_NVIDIA_SMI` | `nvidia-smi` | Program that reads NVIDIA cards. Set it to nothing to turn NVIDIA readings off. |
 | `-system-base-watts` | `NOTUS_SYSTEM_BASE_WATTS` | `35` | Estimated power of everything except the CPU and GPUs |
 | `-psu-efficiency` | `NOTUS_PSU_EFFICIENCY` | `0.90` | Power supply efficiency, for the wall power estimate |
+| `-sql-api` | `NOTUS_SQL_API` | off | Set to `1` to answer read-only SQL at `POST /notus/api/query`, sent as `{"sql": "..."}`. For looking at the database without a shell on the server. |
 | `-keep-days` | | `90` | Days to keep request and response bodies |
 | `-keep-gb` | | `20` | Most GB of bodies to keep |
 | | `NOTUS_GITHUB_REPO` | `wispborne/notus-swap` | Where notus-swap's own updates come from. Set it to nothing to turn them off. |
