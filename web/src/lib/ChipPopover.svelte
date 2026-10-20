@@ -32,6 +32,7 @@
         {#each c.lines as line}
           <div class="text-muted {c.mono ? 'font-mono text-[11px] break-all' : ''}">{line}</div>
         {/each}
+        {#if c.sample}<div class="mt-1.5 break-words text-muted italic">{c.sample}</div>{/if}
       </div>
     {/each}
   </div>

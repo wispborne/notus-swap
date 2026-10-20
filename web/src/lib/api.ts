@@ -61,6 +61,8 @@ export interface Tag {
   tokens?: number
   /** Whether tokens is an estimate, made from the share of the output's text that is thinking. */
   est?: boolean
+  /** For thinking: the start of the thinking text, cut to about 200 characters. */
+  sample?: string
 }
 
 /** How far llama-server has got through a prompt, while it waits for the first token. */

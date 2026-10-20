@@ -27,6 +27,8 @@ export interface Chip {
   title: string
   lines: string[]
   mono?: boolean
+  /** Thinking: the start of the thinking text, shown after the lines. */
+  sample?: string
 }
 
 const n = (v: number) => v.toLocaleString('en-US')
@@ -116,7 +118,7 @@ function baseChip(t: Tag, inFlight: boolean): Chip {
       if (t.tokens) lines.push(`${t.est ? 'About ' : ''}${plural(t.tokens, 'token')} of thinking${suffix}`)
       if (t.n) lines.push(`About ${plural(t.n, 'word')}${suffix}`)
       else lines.push(inFlight ? 'No thinking output yet' : 'No thinking output')
-      return { kind: t.kind, icon: 'think', label: t.tokens ? shortTokens(t.tokens) : '', unit: t.tokens ? 't' : undefined, bright: true, title: 'Thinking', lines }
+      return { kind: t.kind, icon: 'think', label: t.tokens ? shortTokens(t.tokens) : '', unit: t.tokens ? 't' : undefined, bright: true, title: 'Thinking', lines, sample: t.sample }
     }
     case 'no_thinking':
       return { kind: t.kind, icon: 'nothink', label: '', bright: false, title: 'Thinking off', lines: [`Turned off by the request: ${t.text ?? ''}`] }
@@ -186,9 +188,16 @@ export function liveTags(tags: Tag[], f: LiveOutput | undefined): Tag[] {
   if (f.tools.length) out.push({ kind: 'tool_calls', n: f.tools.length, items: f.tools })
   const asked = tags.find((t) => t.kind === 'thinking' || t.kind === 'no_thinking')
   // Each streamed chunk is about one token.
-  if (f.reasoning) out.push({ kind: 'thinking', n: words(f.reasoning), tokens: f.reasoningChunks, est: true, text: asked?.text })
+  if (f.reasoning) out.push({ kind: 'thinking', n: words(f.reasoning), tokens: f.reasoningChunks, est: true, text: asked?.text, sample: sample(f.reasoning) })
   for (const t of tags) if (!(f.reasoning && t === asked)) out.push(t)
   return out
+}
+
+/** The start of the thinking text, with runs of spaces made one, like Tag.Sample in notable.go. */
+function sample(s: string) {
+  const flat = s.slice(0, 1000).trim().split(/\s+/).join(' ')
+  const chars = [...flat]
+  return chars.length > 200 ? chars.slice(0, 200).join('') + '…' : flat
 }
 
 function words(s: string) {

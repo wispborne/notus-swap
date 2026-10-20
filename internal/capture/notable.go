@@ -30,7 +30,7 @@ const (
 
 // TagsVersion goes up whenever the tags change. At startup, stored requests
 // get their tags worked out again if the last run used an older version.
-const TagsVersion = 3
+const TagsVersion = 4
 
 // A prompt this big with under a tenth of it cached is a cache miss.
 const (
@@ -50,7 +50,13 @@ type Tag struct {
 	// number is an estimate (see Parsed.ReasoningTokens).
 	Tokens int64 `json:"tokens,omitempty"`
 	Est    bool  `json:"est,omitempty"`
+	// Sample is the start of the thinking text, with runs of spaces and
+	// line breaks made one space, cut to sampleChars.
+	Sample string `json:"sample,omitempty"`
 }
+
+// sampleChars is how much of the thinking text the thinking tag keeps.
+const sampleChars = 200
 
 // RequestTags reads the tags that are known as soon as a request arrives.
 func RequestTags(path string, body []byte, streaming bool) []Tag {
@@ -92,7 +98,7 @@ func Tags(path string, body []byte, streaming bool, resp *Parsed, prompt, cached
 			out = append(out, Tag{Kind: TagToolCalls, N: int64(n), Items: items})
 		}
 		if words := len(strings.Fields(resp.Reasoning)); words > 0 {
-			t := Tag{Kind: TagThinking, N: int64(words)}
+			t := Tag{Kind: TagThinking, N: int64(words), Sample: clip(strings.Join(strings.Fields(resp.Reasoning), " "), sampleChars)}
 			t.Tokens, t.Est = resp.ReasoningTokens()
 			for _, r := range req {
 				if r.Kind == TagThinking || r.Kind == TagNoThinking {

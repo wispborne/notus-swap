@@ -92,7 +92,7 @@ func TestTagsFromAnswer(t *testing.T) {
 	if tc.N != 2 || tc.Items[0] != `shell({"command": ["ls", "-la"]})` || tc.Items[1] != "apply_patch({})" {
 		t.Errorf("tool calls: %+v", tc)
 	}
-	if th := tags[1]; th.N != 7 || th.Text != "effort high" {
+	if th := tags[1]; th.N != 7 || th.Text != "effort high" || th.Sample != "Let me look at the files first." {
 		t.Errorf("thinking: %+v", th)
 	}
 
