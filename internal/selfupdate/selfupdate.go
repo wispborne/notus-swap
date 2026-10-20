@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"fmt"
 	"io"
 	"net/http"
@@ -133,8 +134,13 @@ type Release struct {
 	Published time.Time `json:"published"`
 }
 
-// Releases lists recent releases, newest first. Answers are cached for a
-// minute.
+// Releases lists recent releases, newest published first. Answers are cached
+// for a minute.
+//
+// Gitea and GitHub list releases by the time of the commit each was built
+// from, not by when it was published. Commit times can be set to anything,
+// so a release published later can come lower in their list, and installing
+// the first one would install an older build. So they are sorted here.
 func (u *Updater) Releases(ctx context.Context) ([]Release, error) {
 	u.mu.Lock()
 	if time.Since(u.cachedAt) < time.Minute && u.cache != nil {
@@ -159,6 +165,7 @@ func (u *Updater) Releases(ctx context.Context) ([]Release, error) {
 			out = append(out, Release{Tag: r.TagName, Notes: strings.TrimSpace(r.Body), Published: r.PublishedAt})
 		}
 	}
+	slices.SortStableFunc(out, func(a, b Release) int { return b.Published.Compare(a.Published) })
 	u.mu.Lock()
 	u.cache, u.cachedAt = out, time.Now()
 	u.mu.Unlock()

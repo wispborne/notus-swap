@@ -68,6 +68,22 @@ func TestReleases(t *testing.T) {
 	}
 }
 
+// A release can come lower in the server's list than an older one, when its
+// commit is stamped earlier. The newest published comes first anyway.
+func TestReleasesByPublishTime(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[{"tag_name":"2026.10.20.1648-6fd14bb","published_at":"2026-10-20T16:49:09Z"},
+			{"tag_name":"2026.10.20.1656-1aca9e8","published_at":"2026-10-20T16:57:17Z"},
+			{"tag_name":"2026.10.19.1437-93c6a69","published_at":"2026-10-19T14:38:06Z"}]`)
+	}))
+	t.Cleanup(srv.Close)
+	u := updater(t, srv)
+	rs, err := u.Releases(context.Background())
+	if err != nil || len(rs) != 3 || rs[0].Tag != "2026.10.20.1656-1aca9e8" || rs[1].Tag != "2026.10.20.1648-6fd14bb" {
+		t.Errorf("releases %+v err %v", rs, err)
+	}
+}
+
 func TestUpdateAvailable(t *testing.T) {
 	u := updater(t, fakeGitea(t, "x", false))
 	if u.UpdateAvailable() {

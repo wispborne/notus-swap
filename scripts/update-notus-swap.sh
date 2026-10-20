@@ -30,13 +30,21 @@ json_field() {
   sed -n "s/.*\"$1\" *: *\"\([^\"]*\)\".*/\1/p" | head -n 1
 }
 
+# The newest tag among the release list on stdin. Tags are named by build
+# time (YYYY.MM.DD.HHMM-sha), so the highest name is the newest. Gitea's and
+# GitHub's "latest" go by the commit's time, which can be stamped earlier than
+# an older release's.
+newest_tag() {
+  grep -o '"tag_name" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' | sort -r | head -n 1
+}
+
 running_version() {
   curl -sf --max-time 3 "$HEALTH" | json_field version || true
 }
 
 if [ -n "${GITEA_URL:-}" ] && [ -n "${GITEA_REPO:-}" ] && [ -n "${GITEA_USER:-}" ] && [ -n "${GITEA_TOKEN:-}" ]; then
   latest_tag() {
-    curl -sSf -u "$GITEA_USER:$GITEA_TOKEN" "$GITEA_URL/api/v1/repos/$GITEA_REPO/releases/latest" | json_field tag_name
+    curl -sSf -u "$GITEA_USER:$GITEA_TOKEN" "$GITEA_URL/api/v1/repos/$GITEA_REPO/releases?limit=30" | newest_tag
   }
   download() { # file tag destination
     curl -sSfL -u "$GITEA_USER:$GITEA_TOKEN" -o "$3" "$GITEA_URL/$GITEA_REPO/releases/download/$2/$1"
@@ -54,7 +62,7 @@ else
       curl -sSf "https://api.github.com/repos/$GITHUB_REPO/$1"
     fi
   }
-  latest_tag() { github_api releases/latest | json_field tag_name; }
+  latest_tag() { github_api "releases?per_page=30" | newest_tag; }
   download() { # file tag destination
     curl -sSfL -o "$3" "https://github.com/$GITHUB_REPO/releases/download/$2/$1"
   }
