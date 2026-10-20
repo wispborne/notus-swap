@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import { listRequests, getRequest, summaryFromStart, type ListFilter, type Summary } from '../lib/api'
-  import { modelColor, shortBuild, when } from '../lib/format'
+  import { shortBuild, when } from '../lib/format'
+  import ModelMark from '../lib/ModelMark.svelte'
   import { issueKinds, issueMutes } from '../lib/issues.svelte'
   import { live, liveOutSpeed } from '../lib/live.svelte'
   import ChipPopover from '../lib/ChipPopover.svelte'
@@ -504,7 +505,7 @@
   {@const progress = flight?.progress}
   {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
-  {:else if k === 'model'}<td><span class="mr-1.5 inline-block size-2 rounded-full {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} style="background:{modelColor(r.model)}"></span><span title={modelTitle(r.model)}>{modelLabel(r.model) || '–'}</span></td>
+  {:else if k === 'model'}<td><ModelMark model={r.model} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} /><span title={modelTitle(r.model)}>{modelLabel(r.model) || '–'}</span></td>
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
   {:else if k === 'source'}
     <td class="overflow-hidden text-ellipsis text-muted {sourceShow === 'agent' ? 'max-w-[260px]' : 'max-w-[180px]'}" title={sourceTitle(r)}>

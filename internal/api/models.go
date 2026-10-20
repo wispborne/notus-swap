@@ -14,6 +14,7 @@ func (a *API) registerModels(mux *http.ServeMux) {
 	mux.HandleFunc("GET /notus/api/models/{model}/events", a.modelEvents)
 	mux.HandleFunc("GET /notus/api/models/{model}/builds", a.modelBuilds)
 	mux.HandleFunc("POST /notus/api/models/unload", a.unloadAll)
+	mux.HandleFunc("PUT /notus/api/models/{model}/mark", a.putMark)
 	mux.HandleFunc("GET /notus/api/logs/stream", a.logStream)
 }
 

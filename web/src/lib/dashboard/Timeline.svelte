@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import type uPlot from 'uplot'
   import { modelColor, when } from '../format'
+  import { marksKey, modelShape } from '../modelColors.svelte'
   import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { base, C, cardColors, dots, line, xAxis, yAxis, type Window } from './charts'
   import { align, type DashboardData } from './data'
@@ -27,7 +28,7 @@
   const models = $derived(
     [...new Set([...data.requests.map((r) => r.model), ...data.model_events.map((e) => e.model)].filter(Boolean))].sort(),
   )
-  const modelKey = $derived(models.join(','))
+  const modelKey = $derived(models.join(',') + marksKey())
 
   // Lane labels have room for about 13 characters, and show the full name
   // on hover. Use each name's first part, such as "gemma4". When other names
@@ -181,7 +182,7 @@
 
   // Generation speed: one dot per finished request, one series per model.
   const speedPoints = $derived(data.requests.filter((r) => r.predicted_per_second && r.finished_at))
-  const speedOpts = $derived.by(() => (void modelKey, untrack(() => strip(models.map((m) => dots(m, modelColor(m))), (v) => `${Math.round(v)}`, true))))
+  const speedOpts = $derived.by(() => (void modelKey, untrack(() => strip(models.map((m) => dots(m, modelColor(m), modelShape(m))), (v) => `${Math.round(v)}`, true))))
   const speedData = $derived.by<uPlot.AlignedData>(() => {
     const pts = [...speedPoints].sort((x, y) => x.finished_at! - y.finished_at!)
     const xs = pts.map((r) => r.finished_at! / 1000)

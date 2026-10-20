@@ -60,3 +60,52 @@ func TestModelColorsStayPut(t *testing.T) {
 		}
 	}
 }
+
+func TestSetMark(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	a := &API{Store: st, Log: log}
+	a.assignColors(ctx, []string{"a", "b"}, nil)
+
+	five := 5
+	if err := a.setMark(ctx, "a", MarkChange{Palette: &five, Shape: "square"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.setMark(ctx, "b", MarkChange{Color: "#123abc"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []MarkChange{{Color: "red"}, {Shape: "blob"}, {Palette: new(int)}} {
+		if bad.Palette != nil {
+			*bad.Palette = paletteSize
+		}
+		if err := a.setMark(ctx, "a", bad); err == nil {
+			t.Errorf("%+v was accepted", bad)
+		}
+	}
+
+	// The choices survive a restart, and hidden models are left out.
+	b := &API{Store: st, Log: log}
+	if got := b.assignColors(ctx, nil, nil); got["a"] != 5 {
+		t.Errorf("a = %d, want 5", got["a"])
+	}
+	marks := b.statusMarks(ctx, Privacy{HiddenModels: []string{"b"}})
+	if marks["a"] != (Mark{Shape: "square"}) || len(marks) != 1 {
+		t.Errorf("marks = %v", marks)
+	}
+	if marks := b.statusMarks(ctx, Privacy{HiddenModels: []string{"b"}, ShowHidden: true}); marks["b"].Color != "#123abc" {
+		t.Errorf("marks with hidden shown = %v", marks)
+	}
+
+	// Choosing a palette colour clears the other colour, and a circle is the default.
+	if err := b.setMark(ctx, "b", MarkChange{Palette: &five, Shape: "circle"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.statusMarks(ctx, Privacy{})["b"]; ok {
+		t.Error("b still has a mark")
+	}
+}

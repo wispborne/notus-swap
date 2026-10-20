@@ -1,5 +1,6 @@
 <script lang="ts">
   import { duration, modelColor, num, pct, when } from '../format'
+  import ModelMark from '../ModelMark.svelte'
   import { modelLabel, modelTitle } from '../modelNames.svelte'
   import type { RunningModel } from '../status.svelte'
   import { modelStats, type DashboardData } from './data'
@@ -66,7 +67,7 @@
     <tbody>
       {#each shown as r (r.model)}
         <tr class="border-b border-line-soft [&>td]:px-2 [&>td]:py-1 [&>td]:whitespace-nowrap">
-          <td><span class="mr-1.5 inline-block size-2 rounded-full" style="background:{modelColor(r.model)}"></span><b class="font-semibold" title={modelTitle(r.model)}>{modelLabel(r.model)}</b></td>
+          <td><ModelMark model={r.model} class="mr-1.5" /><b class="font-semibold" title={modelTitle(r.model)}>{modelLabel(r.model)}</b></td>
           <td><span class="rounded-full px-1.5 text-[11px] font-semibold {pill[r.state] ?? 'text-dim'}">{r.state === 'stopped' ? 'idle' : r.state}</span></td>
           <td class="num text-right">{r.s?.requests ?? 0}</td>
           <td>

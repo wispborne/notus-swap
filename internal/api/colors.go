@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"regexp"
 	"slices"
 	"sync"
 )
@@ -24,6 +27,10 @@ type modelColors struct {
 	mu     sync.Mutex
 	loaded bool
 	colors map[string]int
+	// marks are the colours outside the palette and the shapes the user
+	// chose, in the model_marks setting. Models not in it use their palette
+	// colour and a circle.
+	marks  map[string]Mark
 	config []string // llama-swap's model order, from the last status poll
 	// seeded is set once every model in stored requests has a colour.
 	seeded bool
@@ -36,15 +43,8 @@ func (a *API) assignColors(ctx context.Context, config []string, others []string
 	c := &a.colors
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.loaded {
-		c.colors = map[string]int{}
-		if v, err := a.Store.Setting(ctx, "model_colors"); err != nil {
-			a.Log.Error("read model colours", "err", err)
-			return nil
-		} else if v != "" {
-			json.Unmarshal([]byte(v), &c.colors)
-		}
-		c.loaded = true
+	if !a.loadColors(ctx) {
+		return nil
 	}
 	if len(config) > 0 {
 		c.config = config
@@ -90,6 +90,29 @@ func (a *API) assignColors(ctx context.Context, config []string, others []string
 		out[m] = i
 	}
 	return out
+}
+
+// loadColors reads the model_colors and model_marks settings the first time.
+// It reports false if they couldn't be read. c.mu must be held.
+func (a *API) loadColors(ctx context.Context) bool {
+	c := &a.colors
+	if c.loaded {
+		return true
+	}
+	c.colors = map[string]int{}
+	c.marks = map[string]Mark{}
+	for key, v := range map[string]any{"model_colors": &c.colors, "model_marks": &c.marks} {
+		s, err := a.Store.Setting(ctx, key)
+		if err != nil {
+			a.Log.Error("read model colours", "setting", key, "err", err)
+			return false
+		}
+		if s != "" {
+			json.Unmarshal([]byte(s), v)
+		}
+	}
+	c.loaded = true
+	return true
 }
 
 // pick chooses a colour for a model that has none: not a colour of its
@@ -146,4 +169,96 @@ func (a *API) statusColors(ctx context.Context, known []string, p Privacy) map[s
 		colors = map[string]int{}
 	}
 	return colors
+}
+
+// statusMarks is the model_marks for the status poll, without hidden models
+// while they are hidden.
+func (a *API) statusMarks(ctx context.Context, p Privacy) map[string]Mark {
+	c := &a.colors
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[string]Mark{}
+	if !a.loadColors(ctx) {
+		return out
+	}
+	for m, k := range c.marks {
+		if p.ShowHidden || !slices.Contains(p.HiddenModels, m) {
+			out[m] = k
+		}
+	}
+	return out
+}
+
+// Mark is how the user chose to show a model, beyond its palette colour.
+type Mark struct {
+	// Color is a colour outside the palette, as "#rrggbb". Empty means the
+	// model's palette colour.
+	Color string `json:"color,omitempty"`
+	// Shape is the shape of the model's dot. Empty means a circle. The
+	// shapes are drawn by web/src/lib/modelColors.svelte.ts.
+	Shape string `json:"shape,omitempty"`
+}
+
+var shapes = []string{"circle", "square", "diamond", "triangle", "triangle_down", "plus"}
+
+var hexColor = regexp.MustCompile(`^#[0-9a-f]{6}$`)
+
+// MarkChange is the body of PUT /notus/api/models/{model}/mark.
+type MarkChange struct {
+	// Palette, when set, is the palette colour to use. It also clears Color.
+	Palette *int `json:"palette"`
+	// Color is a colour outside the palette, "#rrggbb", or empty for none.
+	Color string `json:"color"`
+	Shape string `json:"shape"`
+}
+
+var errBadMark = errors.New("bad mark")
+
+// setMark saves a model's colour and shape.
+func (a *API) setMark(ctx context.Context, model string, ch MarkChange) error {
+	if model == "" || ch.Palette != nil && (*ch.Palette < 0 || *ch.Palette >= paletteSize) ||
+		ch.Color != "" && !hexColor.MatchString(ch.Color) || ch.Shape != "" && !slices.Contains(shapes, ch.Shape) {
+		return errBadMark
+	}
+	c := &a.colors
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !a.loadColors(ctx) {
+		return errors.New("couldn't read model colours")
+	}
+	if ch.Palette != nil {
+		c.colors[model] = *ch.Palette
+		ch.Color = ""
+		b, _ := json.Marshal(c.colors)
+		if err := a.Store.SetSetting(ctx, "model_colors", string(b)); err != nil {
+			return err
+		}
+	}
+	if ch.Shape == "circle" {
+		ch.Shape = ""
+	}
+	if k := (Mark{Color: ch.Color, Shape: ch.Shape}); k == (Mark{}) {
+		delete(c.marks, model)
+	} else {
+		c.marks[model] = k
+	}
+	b, _ := json.Marshal(c.marks)
+	return a.Store.SetSetting(ctx, "model_marks", string(b))
+}
+
+// putMark: PUT /notus/api/models/{model}/mark.
+func (a *API) putMark(w http.ResponseWriter, r *http.Request) {
+	var ch MarkChange
+	if err := json.NewDecoder(r.Body).Decode(&ch); err != nil {
+		http.Error(w, "Expected a JSON request body", http.StatusBadRequest)
+		return
+	}
+	if err := a.setMark(r.Context(), r.PathValue("model"), ch); errors.Is(err, errBadMark) {
+		http.Error(w, "Expected a palette index from 0 to 8, a colour like #40d7a3, and one of the shapes", http.StatusBadRequest)
+		return
+	} else if err != nil {
+		a.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

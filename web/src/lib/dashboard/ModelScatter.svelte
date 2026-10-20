@@ -2,6 +2,8 @@
   import { untrack } from 'svelte'
   import type uPlot from 'uplot'
   import { modelColor, when } from '../format'
+  import { marksKey, modelShape } from '../modelColors.svelte'
+  import ModelMark from '../ModelMark.svelte'
   import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { base, dots, logRange, xAxis, yAxis, zeroToMax, type Window } from './charts'
   import type { DashboardData, DashRequest } from './data'
@@ -50,7 +52,7 @@
   const key = $derived(models.join(','))
   // Rebuilt only when the models shown change; untrack keeps other reads from rebuilding it.
   const options = $derived.by(() => {
-    void key, log, max
+    void key, log, max, marksKey()
     return untrack(() => buildOptions())
   })
   function buildOptions() {
@@ -59,7 +61,7 @@
       ...base(win),
       scales: { ...base(win).scales, y },
       axes: [xAxis(), yAxis(undefined, 3, { log })],
-      series: [{}, ...models.map((m) => dots(m, modelColor(m)))],
+      series: [{}, ...models.map((m) => dots(m, modelColor(m), modelShape(m)))],
     } as Omit<uPlot.Options, 'width' | 'height'>
   }
   const chartData = $derived<uPlot.AlignedData>([
@@ -80,7 +82,7 @@
     <div class="flex-none text-[11px] leading-4 text-dim">No finished requests in this range.</div>
   {:else if legend === 'names'}
     <div class="flex flex-none flex-wrap gap-x-2.5 text-[11px] leading-4 text-muted">
-      {#each models as m}<span class="flex items-center gap-1" title={modelTitle(m)}><span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>{short.get(modelLabel(m))}</span>{/each}
+      {#each models as m}<span class="flex items-center gap-1" title={modelTitle(m)}><ModelMark model={m} />{short.get(modelLabel(m))}</span>{/each}
       {#if log}<span class="text-muted">· log scale</span>{/if}
     </div>
   {/if}
@@ -88,7 +90,7 @@
     <!-- Dots only: drawn over the chart's top right corner, so they take no room of their own. -->
     {#if legend === 'dots' && models.length}
       <div class="absolute top-0.5 right-0 z-[5] flex max-w-[60%] flex-wrap justify-end gap-1.5 rounded border border-line bg-panel/90 px-1.5 py-1">
-        {#each models as m}<span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}" title={modelTitle(m)}></span>{/each}
+        {#each models as m}<span class="flex" title={modelTitle(m)}><ModelMark model={m} /></span>{/each}
       </div>
     {/if}
     {#if hovered}

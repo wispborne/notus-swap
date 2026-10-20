@@ -39,6 +39,9 @@ type Status struct {
 	// ModelColors is each model's palette index, kept for good once given.
 	// See modelColors. Hidden models are left out while hidden.
 	ModelColors map[string]int `json:"model_colors"`
+	// ModelMarks is each model's chosen colour outside the palette and its
+	// shape, for models that have one. Hidden models are left out while hidden.
+	ModelMarks map[string]Mark `json:"model_marks"`
 	// UpdateAvailable is true when the last check found a newer release of
 	// notus-swap, llama-swap, or llama.cpp. The sidebar puts a dot on System.
 	UpdateAvailable bool `json:"update_available"`
@@ -62,6 +65,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 		known[i] = m.Model
 	}
 	s.ModelColors = a.statusColors(r.Context(), known, s.Privacy)
+	s.ModelMarks = a.statusMarks(r.Context(), s.Privacy)
 	for _, g := range s.GPUs {
 		if g.Watts != nil && !g.SocketPower() {
 			t := *g.Watts

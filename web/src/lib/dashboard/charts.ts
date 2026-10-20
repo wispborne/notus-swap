@@ -1,6 +1,7 @@
 // Shared uPlot settings. Grid, axis text and primary follow the colour theme;
 // the series colours stay the same in every theme.
 import uPlot from 'uplot'
+import { shapes, type Shape } from '../modelColors.svelte'
 import { cssColor } from '../theme.svelte'
 import { zoom } from './zoom.svelte'
 
@@ -157,13 +158,41 @@ export function line(label: string, stroke: string, fill = false, extra: Partial
   }
 }
 
-export function dots(label: string, stroke: string): uPlot.Series {
+/** One dot per value. A shape other than a circle is drawn by `shapePoints`. */
+export function dots(label: string, stroke: string, shape: Shape = 'circle'): uPlot.Series {
   return {
     label,
     stroke,
     width: 0,
     paths: () => null,
-    points: { show: true, size: 5, fill: stroke, stroke },
+    points: { show: true, size: 5, fill: stroke, stroke, ...(shape !== 'circle' && { width: 0, paths: shapePoints(shape) }) },
+  }
+}
+
+// The size other shapes are drawn at, in CSS pixels: their 8 pixel grid at
+// one canvas pixel per grid pixel, so straight edges stay crisp. Larger than
+// the 5 px circle, because corners and points leave less of their box filled.
+const SHAPE_PX = 8
+
+/** Draws a series' points as one of the model shapes instead of circles. */
+function shapePoints(shape: Shape): uPlot.Series.Points.PathBuilder {
+  const base = new Path2D(shapes[shape].d)
+  return (u, si, i0, i1) => {
+    const px = SHAPE_PX * uPlot.pxRatio
+    const half = px / 2
+    const k = px / 8
+    const xs = u.data[0]
+    const ys = u.data[si]
+    const scale = u.series[si].scale!
+    const out = new Path2D()
+    for (let i = i0; i <= i1; i++) {
+      const y = ys[i]
+      if (y == null) continue
+      const cx = u.valToPos(xs[i], 'x', true)
+      const cy = u.valToPos(y, scale, true)
+      out.addPath(base, new DOMMatrix([k, 0, 0, k, Math.round(cx - half), Math.round(cy - half)]))
+    }
+    return { fill: out, stroke: null }
   }
 }
 

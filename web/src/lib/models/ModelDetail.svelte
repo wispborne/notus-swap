@@ -2,6 +2,7 @@
   import { listRequests, type Summary } from '../api'
   import { duration, num, pct, shortBuild, when } from '../format'
   import LogPanel from '../logs/LogPanel.svelte'
+  import MarkPicker from '../MarkPicker.svelte'
   import { modelLabel, modelShow } from '../modelNames.svelte'
   import type { RunningModel } from '../status.svelte'
   import StatusPill from '../StatusPill.svelte'
@@ -91,6 +92,11 @@
       {#if known.description}<em>{known.description}</em>{/if}
     </div>
   {/if}
+
+  <div class="flex items-center gap-2 py-1 text-xs text-muted">
+    <span>Colour and shape</span>
+    <MarkPicker {model} />
+  </div>
 
   <div class="mb-2 flex border-b border-line">
     {#if known}<button class={tabBtn('log')} onclick={() => (picked = 'log')}>Log</button>{/if}

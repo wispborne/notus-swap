@@ -1,6 +1,6 @@
 import { appTitle } from './appTitle.svelte'
 import { privacy } from './privacy.svelte'
-import { setModelColors } from './modelColors.svelte'
+import { setModelColors, setModelMarks, type Mark } from './modelColors.svelte'
 
 // Polls /notus/api/status every 2 seconds for the status bar. The server
 // answers from values its own monitors keep, so polling is cheap.
@@ -48,6 +48,8 @@ export interface Status {
   app_title: string
   /** Each model's palette index, kept for good once given. See modelColors.svelte.ts. */
   model_colors: Record<string, number>
+  /** Each model's chosen colour outside the palette and its shape, if any. */
+  model_marks: Record<string, Mark>
   /** A newer release was seen on the server's last check (every 15 minutes). */
   update_available: boolean
 }
@@ -74,6 +76,7 @@ class StatusPoller {
         privacy.apply(next.privacy)
         appTitle.apply(next.app_title)
         setModelColors(next.model_colors ?? {})
+        setModelMarks(next.model_marks ?? {})
         this.current = next
         this.reachable = true
       } catch {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cancelRequest, getRequest, retryRequest, type Detail, type Summary } from './api'
-  import { bytes, duration, joules, modelColor, num, pct, shortBuild, when } from './format'
+  import { bytes, duration, joules, num, pct, shortBuild, when } from './format'
+  import ModelMark from './ModelMark.svelte'
   import { describe, issueMutes } from './issues.svelte'
   import CopyButton from './CopyButton.svelte'
   import { live, liveOutSpeed } from './live.svelte'
@@ -168,7 +169,7 @@
   <div class="mb-2 flex flex-wrap items-center gap-2">
     <span class="font-mono text-[15px] font-semibold">#{row.id}</span>
     <StatusPill {row} waiting={inFlight && !firstToken} />
-    <span class="inline-block size-2 rounded-full" style="background:{modelColor(row.model)}"></span>
+    <ModelMark model={row.model} />
     <span title={modelTitle(row.model)}>{modelLabel(row.model) || '(no model)'}</span>
     {#if row.build}<span class="font-mono text-xs text-muted" title="Server build {row.build}">{shortBuild(row.build)}</span>{/if}
     <span class="text-muted">{when(row.started_at)}</span>

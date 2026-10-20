@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { appTitle } from './appTitle.svelte'
-  import { modelColor } from './format'
+  import ModelMark from './ModelMark.svelte'
   import { modelLabel, modelTitle } from './modelNames.svelte'
   import { live } from './live.svelte'
   import { privacy } from './privacy.svelte'
@@ -145,7 +145,7 @@
         {#each loaded as m}
           <span class="flex items-center gap-1 {m.state === 'stopping' ? 'opacity-50' : ''}" title="{modelTitle(m.model)}
 State: {m.state}">
-            <span class="relative top-px inline-block size-2 rounded-full {m.state === 'starting' ? 'pulse' : ''}" style="background:{modelColor(m.model)}"></span>
+            <ModelMark model={m.model} class="relative top-px {m.state === 'starting' ? 'pulse' : ''}" />
             <b class="font-semibold text-text">{modelLabel(m.model)}</b>
             {#if m.state !== 'ready'}<span class="text-dim">({m.state === 'starting' ? 'loading' : 'unloading'})</span>{/if}
           </span>

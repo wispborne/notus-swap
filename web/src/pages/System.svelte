@@ -2,7 +2,8 @@
   import { onMount } from 'svelte'
   import { appTitle, defaultTitle } from '../lib/appTitle.svelte'
   import { listRequests } from '../lib/api'
-  import { modelColor } from '../lib/format'
+  import MarkPicker from '../lib/MarkPicker.svelte'
+  import ModelMark from '../lib/ModelMark.svelte'
   import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status } from '../lib/status.svelte'
@@ -26,6 +27,9 @@
   // asked for, so this page can be screenshotted too. Not saved anywhere.
   let reveal = $state(false)
   const namesVisible = $derived(privacy.showHidden || reveal)
+
+  // The model whose colour and shape picker is open.
+  let picking = $state<string | null>(null)
 
   // The title field starts from the saved title, and follows it until edited.
   let titleDraft = $state<string | null>(null)
@@ -121,7 +125,10 @@
   </section>
 
   <section class="rounded-lg border border-line bg-panel p-4">
-    <h2 class="text-sm font-semibold">Hidden models</h2>
+    <h2 class="text-sm font-semibold">Models</h2>
+    <p class="mt-1 text-[12.5px] text-muted">
+      Click a model's dot to choose its colour and shape. They are used on every page, and saved on the server for every browser.
+    </p>
     <p class="mt-1 text-[12.5px] text-muted">
       Hidden models are still recorded. When hidden, they're omitted from requests and charts; totals such as power still include them.
     </p>
@@ -155,10 +162,13 @@
     {:else}
       <ul class="divide-y divide-line-soft rounded-md border border-line">
         {#each hiddenModels as m (m)}
-          <li class="flex items-center gap-2 px-3 py-1.5">
-            <span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>
-            <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
-            <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, false)}>Unhide</button>
+          <li class="px-3 py-1.5">
+            <div class="flex items-center gap-2">
+              {@render mark(m)}
+              <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
+              <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, false)}>Unhide</button>
+            </div>
+            {#if picking === m && privacy.visible(m)}<div class="mt-1.5 mb-0.5"><MarkPicker model={m} /></div>{/if}
           </li>
         {/each}
       </ul>
@@ -170,10 +180,13 @@
     <h3 class="mt-4 mb-1.5 text-xs font-semibold tracking-wider text-dim uppercase">Shown ({shownModels.length})</h3>
     <ul class="divide-y divide-line-soft rounded-md border border-line">
       {#each shownModels as m (m)}
-        <li class="flex items-center gap-2 px-3 py-1.5">
-          <span class="inline-block size-2 rounded-full" style="background:{modelColor(m)}"></span>
-          <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
-          <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, true)}>Hide</button>
+        <li class="px-3 py-1.5">
+          <div class="flex items-center gap-2">
+            {@render mark(m)}
+            <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
+            <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, true)}>Hide</button>
+          </div>
+          {#if picking === m}<div class="mt-1.5 mb-0.5"><MarkPicker model={m} /></div>{/if}
         </li>
       {:else}
         <li class="px-3 py-2 text-[12.5px] text-muted">No visible models.</li>
@@ -182,3 +195,20 @@
     <p class="mt-3 text-xs text-dim">Hidden model names remain visible in llama-swap's UI at /ui.</p>
   </section>
 </div>
+
+<!-- A model's dot, which opens its colour and shape picker. A hidden model's
+     colour and shape aren't sent while hidden models are off, so it has no picker then. -->
+{#snippet mark(m: string)}
+  {#if privacy.visible(m)}
+    <button
+      class="grid size-5 place-items-center rounded border {picking === m ? 'border-primary' : 'border-transparent hover:border-line'}"
+      title="Choose colour and shape"
+      aria-expanded={picking === m}
+      onclick={() => (picking = picking === m ? null : m)}
+    >
+      <ModelMark model={m} />
+    </button>
+  {:else}
+    <span class="grid size-5 place-items-center"><ModelMark model={m} /></span>
+  {/if}
+{/snippet}
