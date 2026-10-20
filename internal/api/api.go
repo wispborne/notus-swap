@@ -56,6 +56,8 @@ type API struct {
 	Upstream *url.URL
 	Log      *slog.Logger
 	Version  string
+	// Flags is every flag in effect, for /notus/api/debug/settings.
+	Flags []Setting
 	// Capture is the capturing proxy that inference requests go through.
 	// Retried requests are sent through it.
 	Capture http.Handler
@@ -81,6 +83,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerLlamaUpdates(mux)
 	a.registerModels(mux)
 	a.registerAutoLoad(mux)
+	a.registerDebug(mux)
 }
 
 // Summary is one request without its bodies. Times are unix milliseconds.

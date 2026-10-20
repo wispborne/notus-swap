@@ -109,7 +109,8 @@ func main() {
 	}
 
 	restarting, err := run(log, logs, *listen, *upstream, *dbPath, api.Retention{Days: *keepDays, GB: *keepGB}, svc,
-		sensors{*drmRoot, *nvidiaSMI, *powercapRoot, *baseWatts, *psuEff}, &llamaconfig.Editor{Path: *cfgPath, Bin: *cfgBin}, updater, llamaUpdates)
+		sensors{*drmRoot, *nvidiaSMI, *powercapRoot, *baseWatts, *psuEff}, &llamaconfig.Editor{Path: *cfgPath, Bin: *cfgBin}, updater, llamaUpdates,
+		api.FlagSettings(flag.CommandLine, flagEnv, os.Getenv))
 	if err != nil {
 		log.Error("exiting", "err", err)
 		os.Exit(1)
@@ -117,6 +118,17 @@ func main() {
 	if restarting {
 		os.Exit(restartExitCode())
 	}
+}
+
+// flagEnv names the env setting each flag reads its default from. Keep it
+// the same as the env calls in main.
+var flagEnv = map[string]string{
+	"listen": "NOTUS_LISTEN", "upstream": "NOTUS_UPSTREAM", "db": "NOTUS_DB",
+	"llama-swap-unit": "NOTUS_LLAMA_SWAP_UNIT", "llama-swap-service": "NOTUS_LLAMA_SWAP_SERVICE",
+	"llama-swap-args": "NOTUS_LLAMA_SWAP_ARGS", "llama-swap-config": "NOTUS_LLAMA_SWAP_CONFIG",
+	"llama-swap-bin": "NOTUS_LLAMA_SWAP_BIN", "llama-cpp-dir": "NOTUS_LLAMA_CPP_DIR",
+	"llama-cpp-flavor": "NOTUS_LLAMA_CPP_FLAVOR", "nvidia-smi": "NOTUS_NVIDIA_SMI",
+	"system-base-watts": "NOTUS_SYSTEM_BASE_WATTS", "psu-efficiency": "NOTUS_PSU_EFFICIENCY",
 }
 
 // defaultService is systemd on Linux. Elsewhere notus-swap runs llama-swap
@@ -160,7 +172,7 @@ type sensors struct {
 
 // run serves until notus-swap is stopped or restarts. restarting reports a
 // planned restart, after which notus-swap should be started again.
-func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string, keep api.Retention, svc service.Controller, sn sensors, cfg *llamaconfig.Editor, updater *selfupdate.Updater, llamaUpdates *llamaupdate.Manager) (restarting bool, err error) {
+func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string, keep api.Retention, svc service.Controller, sn sensors, cfg *llamaconfig.Editor, updater *selfupdate.Updater, llamaUpdates *llamaupdate.Manager, flags []api.Setting) (restarting bool, err error) {
 	up, err := url.Parse(upstream)
 	if err != nil {
 		return false, err
@@ -248,7 +260,7 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 		Store: st, Hub: hub, LlamaSwap: monitor, Metrics: rec, Config: cfg,
 		ConfigHeld: &llamaconfig.Held{Editor: cfg, Wait: &idlewait.Waiter{Idle: hub.Idle}, Log: log}, Upstream: up, Log: log, Version: version,
 		Updater: updater, LlamaUpdates: llamaUpdates, Logs: logs, Restart: plan, RetentionDefault: keep, AutoLoad: loader,
-		LlamaSwapService: svc, SelfRestart: selfRestart(),
+		LlamaSwapService: svc, SelfRestart: selfRestart(), Flags: flags,
 		PruneNow: func() {
 			select {
 			case pruneNow <- struct{}{}:

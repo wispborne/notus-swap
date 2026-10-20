@@ -17,3 +17,11 @@ func TestKeepsNewestWholeLines(t *testing.T) {
 		t.Errorf("subscriber got %q", got)
 	}
 }
+
+func TestBytes(t *testing.T) {
+	b := New(100)
+	b.Write([]byte("one\ntwo\n"))
+	if got := string(b.Bytes()); got != "one\ntwo\n" {
+		t.Errorf("got %q", got)
+	}
+}
