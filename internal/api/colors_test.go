@@ -30,8 +30,8 @@ func TestModelColorsStayPut(t *testing.T) {
 	a.assignColors(ctx, config, nil)
 	got := a.assignColors(ctx, nil, []string{"y", "x"})
 	for i, m := range config {
-		if got[m] != i%paletteSize {
-			t.Errorf("%s = %d, want %d", m, got[m], i%paletteSize)
+		if got[m] != i%autoColors {
+			t.Errorf("%s = %d, want %d", m, got[m], i%autoColors)
 		}
 	}
 	if got["x"] != 2 || got["y"] != 3 {

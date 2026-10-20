@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { customColor, modelColor, modelShape, palette, paletteIndex, saveMark, shapes, type Shape } from './modelColors.svelte'
+  import { autoColors, customColor, modelColor, modelShape, palette, paletteIndex, saveMark, shapes, type Shape } from './modelColors.svelte'
   import ModelMark from './ModelMark.svelte'
 
   // Picks a model's colour (a palette colour or one of the user's own) and the
@@ -26,12 +26,14 @@
 </script>
 
 <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted">
-  <span class="flex items-center gap-0.5" role="group" aria-label="Colour">
-    {#each palette as c, i}
+  <span class="grid grid-cols-[repeat(10,auto)] gap-0.5" role="group" aria-label="Colour">
+    {#snippet swatch(c: string, i: number)}
       <button class={box(!own && index === i)} title="Colour {i + 1}" aria-label="Colour {i + 1}" onclick={() => save({ palette: i, shape })}>
         <ModelMark {shape} color={c} size={16} />
       </button>
-    {/each}
+    {/snippet}
+    <!-- The colours given out automatically, then your own, then the rest in a second row. -->
+    {#each palette.slice(0, autoColors) as c, i}{@render swatch(c, i)}{/each}
     <label class="{box(!!own)} cursor-pointer" title="Your own colour">
       <span class="sr-only">Your own colour</span>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -40,6 +42,7 @@
       </svg>
       <input type="color" class="sr-only" value={modelColor(model)} onchange={(e) => save({ color: e.currentTarget.value, shape })} />
     </label>
+    {#each palette.slice(autoColors) as c, i}{@render swatch(c, i + autoColors)}{/each}
   </span>
   <span class="flex items-center gap-0.5" role="group" aria-label="Shape">
     {#each Object.entries(shapes) as [k, s]}

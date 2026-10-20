@@ -137,6 +137,10 @@ var migrations = []string{
 	// the first address in X-Forwarded-For when a reverse proxy set one.
 	`ALTER TABLE requests ADD COLUMN client_ip TEXT;
 	ALTER TABLE requests ADD COLUMN user_agent TEXT;`,
+	// overlap_ms is how long the server worked on this request while it
+	// also worked on another, on any model. Speeds leave out requests with
+	// much overlap, because sharing the GPU slows both.
+	`ALTER TABLE requests ADD COLUMN overlap_ms INTEGER;`,
 }
 
 func Open(path string) (*Store, error) {
@@ -216,6 +220,7 @@ type Finish struct {
 	PredictedPerSecond *float64
 	EnergyJ            *float64 // GPU energy used, in joules
 	QueuedMs           *int64   // time spent waiting behind other requests
+	OverlapMs          *int64   // time worked on alongside other requests
 	ResponseBody       []byte   // may be cut short; see Truncated
 	ResponseBytes      int64
 	Truncated          bool
@@ -263,12 +268,12 @@ func (s *Store) Finish(ctx context.Context, id int64, f Finish) error {
 		`UPDATE requests SET first_byte_at = ?, first_token_at = ?, finished_at = ?, state = ?,
 		   status_code = ?, error = ?, prompt_tokens = ?, completion_tokens = ?, prompt_ms = ?,
 		   predicted_ms = ?, prompt_per_second = ?, predicted_per_second = ?, response_bytes = ?,
-		   energy_j = ?, queued_ms = ?, cached_tokens = ?, finish_reason = ?, n_ctx = ?, build = ?, cmd_hash = ?,
+		   energy_j = ?, queued_ms = ?, overlap_ms = ?, cached_tokens = ?, finish_reason = ?, n_ctx = ?, build = ?, cmd_hash = ?,
 		   tags = COALESCE(?, tags)
 		 WHERE id = ?`,
 		msOrNil(f.FirstByteAt), msOrNil(f.FirstTokenAt), f.FinishedAt.UnixMilli(), f.State,
 		f.StatusCode, nilIfEmpty(f.Error), f.PromptTokens, f.CompletionTokens, f.PromptMs,
-		f.PredictedMs, f.PromptPerSecond, f.PredictedPerSecond, f.ResponseBytes, f.EnergyJ, f.QueuedMs, f.CachedTokens,
+		f.PredictedMs, f.PromptPerSecond, f.PredictedPerSecond, f.ResponseBytes, f.EnergyJ, f.QueuedMs, f.OverlapMs, f.CachedTokens,
 		nilIfEmpty(f.FinishReason), f.NCtx, nilIfEmpty(f.Build), nilIfEmpty(f.CmdHash), nilIfEmpty(f.Tags), id); err != nil {
 		return err
 	}
@@ -379,6 +384,7 @@ type Record struct {
 	PredictedPerSecond *float64
 	EnergyJ            *float64
 	QueuedMs           *int64
+	OverlapMs          *int64 // time worked on alongside other requests
 	RequestBytes       int64
 	ResponseBytes      int64
 	Preview            string
@@ -408,7 +414,7 @@ var ErrNotFound = errors.New("request not found")
 const metaCols = `r.id, r.started_at, r.first_byte_at, r.first_token_at, r.finished_at, r.method, r.path,
 	r.model, r.streaming, r.state, r.status_code, r.error, r.prompt_tokens, r.completion_tokens,
 	r.prompt_ms, r.predicted_ms, r.prompt_per_second, r.predicted_per_second, r.request_bytes,
-	r.response_bytes, r.prompt_preview, r.energy_j, r.cached_tokens, r.finish_reason, r.n_ctx, r.build, r.cmd_hash, r.tags, r.queued_ms, r.retry_of,
+	r.response_bytes, r.prompt_preview, r.energy_j, r.cached_tokens, r.finish_reason, r.n_ctx, r.build, r.cmd_hash, r.tags, r.queued_ms, r.overlap_ms, r.retry_of,
 	r.client_ip, r.user_agent`
 
 type scanner interface{ Scan(dest ...any) error }
@@ -420,7 +426,7 @@ func scanMeta(row scanner, r *Record, extra ...any) error {
 	dest := append([]any{&r.ID, &started, &firstByte, &firstToken, &finished, &r.Method, &r.Path,
 		&r.Model, &r.Streaming, &r.State, &r.StatusCode, &r.Error, &r.PromptTokens, &r.CompletionTokens,
 		&r.PromptMs, &r.PredictedMs, &r.PromptPerSecond, &r.PredictedPerSecond, &r.RequestBytes,
-		&r.ResponseBytes, &r.Preview, &r.EnergyJ, &r.CachedTokens, &r.FinishReason, &r.NCtx, &r.Build, &r.CmdHash, &r.Tags, &r.QueuedMs, &r.RetryOf,
+		&r.ResponseBytes, &r.Preview, &r.EnergyJ, &r.CachedTokens, &r.FinishReason, &r.NCtx, &r.Build, &r.CmdHash, &r.Tags, &r.QueuedMs, &r.OverlapMs, &r.RetryOf,
 		&r.ClientIP, &r.UserAgent}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return err

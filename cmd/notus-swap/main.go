@@ -230,6 +230,7 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	}
 	go rec.Run(ctx)
 	hub.Account = rec.Account
+	hub.Overlap = rec.Overlap
 	go func() {
 		time.Sleep(3 * time.Second)
 		if p := rec.Latest().CPUProblem; p != "" {
@@ -304,6 +305,12 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 			log.Error("could not recount energy for older requests", "err", err)
 		} else if n > 0 {
 			log.Info("recounted energy for older requests that overlapped others", "count", n)
+		}
+		n, err = metrics.FillOverlap(ctx, st, time.Now())
+		if err != nil {
+			log.Error("could not work out overlap for older requests", "err", err)
+		} else if n > 0 {
+			log.Info("worked out overlap for older requests", "count", n)
 		}
 		n, err = capture.Remeasure(ctx, st)
 		if err != nil {

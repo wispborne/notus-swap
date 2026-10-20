@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { listRequests, type Summary } from '../api'
   import { duration, num, pct, shortBuild, when } from '../format'
   import LogPanel from '../logs/LogPanel.svelte'
@@ -7,8 +8,12 @@
   import type { RunningModel } from '../status.svelte'
   import StatusPill from '../StatusPill.svelte'
   import { cmdDiff, cmdLine } from './cmdDiff'
+  import SpeedFilterPanel from './SpeedFilterPanel.svelte'
+  import { loadSpeedFilter, sameFilter, type SpeedFilter } from './speedFilter'
+  import { detailTabs, type DetailTab } from './tabs'
 
-  let { model, known }: { model: string; known?: RunningModel } = $props()
+  // The parent owns the tab, so its row buttons can open a chosen tab.
+  let { model, known, picked = $bindable('log') }: { model: string; known?: RunningModel; picked?: DetailTab } = $props()
 
   interface ModelEvent {
     at: number
@@ -18,23 +23,36 @@
     auto?: boolean
   }
 
+  // One build and command, from store.BuildStat.
   interface BuildStat {
     build: string
     cmd_hash: string
     requests: number
     first_used: number
     last_used: number
+    current: boolean
     gen_per_second: number | null
+    gen_counted: number
     prompt_per_second: number | null
-    ttft_ms: number | null
+    prompt_counted: number
+    gen_change: number | null
+    gen_compared: number
+    prompt_change: number | null
+    prompt_compared: number
+  }
+  interface Builds {
+    rows: BuildStat[]
+    clients: { name: string; requests: number }[]
+    requests: number
+    gen_counted: number
+    prompt_counted: number
   }
 
-  let picked = $state<'log' | 'loads' | 'builds' | 'requests'>('log')
   // A model no longer in the config has no log to show.
   const tab = $derived(picked === 'log' && !known ? 'requests' : picked)
   let events = $state<ModelEvent[] | null>(null)
   let requests = $state<Summary[] | null>(null)
-  let builds = $state<BuildStat[] | null>(null)
+  let builds = $state<Builds | null>(null)
   let cmds = $state<Record<string, string[]>>({})
   let error = $state('')
 
@@ -45,21 +63,54 @@
     fetch(`/notus/api/models/${encodeURIComponent(m)}/events?limit=30`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((e) => (events = e), (e) => (error = String(e)))
-    fetch(`/notus/api/models/${encodeURIComponent(m)}/builds`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then(
-        (b: { rows: BuildStat[]; cmds: Record<string, string[]> }) => {
-          builds = b.rows
-          cmds = b.cmds
-        },
-        (e) => (error = String(e)),
-      )
     listRequests({ model: m }, undefined, 15).then((r) => (requests = r.requests), (e) => (error = String(e)))
   })
 
+  // Which requests count toward speeds. While the draft differs from the
+  // saved filter, the table shows the draft as a preview.
+  let saved = $state<SpeedFilter | null>(null)
+  let draft = $state<SpeedFilter | null>(null)
+  let defaults = $state<SpeedFilter | null>(null)
+  let showFilter = $state(false)
+  loadSpeedFilter().then(
+    (f) => {
+      saved = f.filter
+      draft = structuredClone(f.filter)
+      defaults = f.default
+    },
+    (e) => (error = `Couldn't load speed filters: ${e}`),
+  )
+  const preview = $derived(draft && saved && !sameFilter(draft, saved) ? JSON.stringify(draft) : '')
+
+  // Refetches when the model or the previewed filter changes, a moment
+  // after the last change. Answers to older fetches are dropped.
+  let asked = 0
+  $effect(() => {
+    const m = name
+    const q = preview ? `?filter=${encodeURIComponent(preview)}` : ''
+    const n = ++asked
+    const t = setTimeout(
+      () =>
+        fetch(`/notus/api/models/${encodeURIComponent(m)}/builds${q}`)
+          .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(t.trim() || r.statusText))))
+          .then(
+            (b: { builds: Builds; cmds: Record<string, string[]> }) => {
+              if (n !== asked) return
+              builds = b.builds
+              cmds = b.cmds
+            },
+            (e) => n === asked && (error = String(e)),
+          ),
+      untrack(() => builds) ? 300 : 0,
+    )
+    return () => clearTimeout(t)
+  })
+  const rows = $derived(builds?.rows ?? [])
+  const count = (n: number) => n.toLocaleString('en-US')
+
   // Commands are numbered 1, 2, 3 in the order the model first used them.
   const cmdNumber = $derived.by(() => {
-    const order = [...(builds ?? [])].filter((b) => b.cmd_hash).sort((a, b) => a.first_used - b.first_used)
+    const order = [...rows].filter((b) => b.cmd_hash).sort((a, b) => a.first_used - b.first_used)
     const n = new Map<string, number>()
     for (const b of order) if (!n.has(b.cmd_hash)) n.set(b.cmd_hash, n.size + 1)
     return n
@@ -67,19 +118,16 @@
 
   // The flags that changed from the row below to row i, when both commands are known.
   function changed(i: number) {
-    const now = builds?.[i]?.cmd_hash
-    const before = builds?.[i + 1]?.cmd_hash
+    const now = rows[i]?.cmd_hash
+    const before = rows[i + 1]?.cmd_hash
     if (!now || !before || now === before || !cmds[now] || !cmds[before]) return []
     return cmdDiff(cmds[before], cmds[now])
   }
 
-  // Compare speed with the previous build and command, in the row below.
-  function change(i: number, key: 'gen_per_second' | 'prompt_per_second') {
-    const now = builds?.[i]?.[key]
-    const before = builds?.[i + 1]?.[key]
-    if (now == null || before == null || !before) return null
-    return now / before - 1
-  }
+  const speedCols = [
+    { key: 'gen', label: 'Output speed', digits: 1, kinds: 'client, prompt size range, and JSON or schema output' },
+    { key: 'prompt', label: 'Prompt speed', digits: 0, kinds: 'new-token count range and total prompt size range' },
+  ] as const
 
   const tabBtn = (t: string) => `px-2.5 py-1 text-xs border-b-2 ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-text'}`
 </script>
@@ -99,10 +147,9 @@
   </div>
 
   <div class="mb-2 flex border-b border-line">
-    {#if known}<button class={tabBtn('log')} onclick={() => (picked = 'log')}>Log</button>{/if}
-    <button class={tabBtn('loads')} onclick={() => (picked = 'loads')}>Loads and unloads</button>
-    <button class={tabBtn('builds')} onclick={() => (picked = 'builds')}>Speed by build and settings</button>
-    <button class={tabBtn('requests')} onclick={() => (picked = 'requests')}>Recent requests</button>
+    {#each detailTabs as t (t.tab)}
+      {#if t.tab !== 'log' || known}<button class={tabBtn(t.tab)} onclick={() => (picked = t.tab)}>{t.label}</button>{/if}
+    {/each}
   </div>
 
   {#if error}<div class="text-xs text-err">{error}</div>{/if}
@@ -133,36 +180,71 @@
       </table>
     {/if}
   {:else if tab === 'builds'}
+    <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+      <button
+        class="inline-flex items-center gap-1.5 rounded border px-2 py-0.5 {showFilter ? 'border-primary text-primary' : 'border-line bg-panel2 hover:text-text'}"
+        aria-expanded={showFilter}
+        onclick={() => (showFilter = !showFilter)}
+      >
+        <!-- A gear: a ring with eight teeth, on a 12-pixel grid. -->
+        <svg viewBox="0 0 12 12" class="block size-3" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M5 0h2v2.1l1.4.6 1.5-1.5 1.4 1.4-1.5 1.5.6 1.4H12v2H9.9l-.6 1.4 1.5 1.5-1.4 1.4-1.5-1.5-1.4.6V12H5V9.9l-1.4-.6-1.5 1.5-1.4-1.4 1.5-1.5L1.6 7H0V5h1.6l.6-1.4L.7 2.1 2.1.7l1.5 1.5L5 1.6zM6 4a2 2 0 1 0 0 4a2 2 0 1 0 0-4z" />
+        </svg>
+        Speed filters
+      </button>
+      {#if builds}<span>{count(builds.gen_counted)} of {count(builds.requests)} finished requests count toward output speed, {count(builds.prompt_counted)} toward prompt speed.</span>{/if}
+      {#if preview}<span class="text-warn">Showing unsaved changes.</span>{/if}
+    </div>
+    {#if showFilter && draft && saved && defaults}
+      <SpeedFilterPanel bind:draft bind:saved {defaults} clients={builds?.clients ?? []} counts={builds} />
+    {/if}
     {#if !builds}
       <div class="text-xs text-muted">Loading…</div>
-    {:else if !builds.length}
+    {:else if !rows.length}
       <div class="text-xs text-muted">No finished requests for this model yet.</div>
     {:else}
       <table class="text-[12.5px] [&_td]:py-0.5 [&_td]:pr-5 [&_td]:whitespace-nowrap [&_th]:pr-5 [&_th]:pb-1 [&_th]:text-left [&_th]:font-normal [&_th]:text-muted">
         <thead>
-          <tr><th>Build</th><th title="The command llama-swap started the model with">Settings</th><th>Used</th><th class="!text-right">Requests</th><th class="!text-right">Output speed</th><th class="!text-right">Prompt speed</th><th class="!text-right">Avg. time to first token</th></tr>
+          <tr>
+            <th>Build</th><th title="The command llama-swap started the model with">Settings</th><th>Used</th><th class="!text-right">Requests</th>
+            {#each speedCols as c}
+              <th class="!text-right" title="Median speed and number of included requests">{c.label}</th>
+              <th title="Change from the row below, grouped by {c.kinds}">Change</th>
+            {/each}
+          </tr>
         </thead>
         <tbody>
-          {#each builds as b, i (b.build + '/' + b.cmd_hash)}
+          {#each rows as b, i (b.build + '/' + b.cmd_hash)}
             {@const diff = changed(i)}
             <tr>
-              <td class="font-mono" title={b.build}>{b.build ? shortBuild(b.build) : 'unknown'}</td>
+              <td class="font-mono" title={b.build}>
+                {b.build ? shortBuild(b.build) : 'unknown'}
+                {#if b.current}<span class="ml-1 rounded bg-primary/15 px-1 font-sans text-[10px] text-primary uppercase" title="Build and settings from the latest finished request with speed data. Used for speeds in the Models table.">current</span>{/if}
+              </td>
               <td class="text-muted" title={cmds[b.cmd_hash] ? cmdLine(cmds[b.cmd_hash]) : undefined}>{b.cmd_hash ? `#${cmdNumber.get(b.cmd_hash)}` : 'unknown'}</td>
               <td class="text-muted">{when(b.first_used)} – {when(b.last_used)}</td>
-              <td class="num text-right">{b.requests}</td>
-              {#each ['gen_per_second', 'prompt_per_second'] as const as key}
-                {@const c = change(i, key)}
-                <td class="num text-right">
-                  {num(b[key], key === 'gen_per_second' ? 1 : 0)} tok/s
-                  {#if c != null}<span class="ml-1 text-[11px] {c >= 0 ? 'text-primary' : 'text-err'}">{c >= 0 ? '+' : ''}{pct(c)}</span>{/if}
+              <td class="num text-right">{count(b.requests)}</td>
+              {#each speedCols as c}
+                {@const speed = b[`${c.key}_per_second`]}
+                {@const counted = b[`${c.key}_counted`]}
+                {@const ch = b[`${c.key}_change`]}
+                {@const compared = b[`${c.key}_compared`]}
+                <td class="num text-right" title="Median of {count(counted)} included requests">
+                  {#if speed != null}{num(speed, c.digits)} tok/s <span class="text-[11px] text-dim">({count(counted)})</span>{:else}<span class="text-dim">–</span>{/if}
+                </td>
+                <td class="num">
+                  {#if ch != null}
+                    <span class="text-[11px] {ch >= 0 ? 'text-primary' : 'text-err'}" title="Based on {count(compared)} requests across this row and the row below, grouped by {c.kinds}">{ch >= 0 ? '+' : ''}{pct(ch)}</span>
+                  {:else if i + 1 < rows.length && speed != null && rows[i + 1][`${c.key}_per_second`] != null}
+                    <span class="text-[11px] text-dim" title="No matching group has at least 10 requests in both rows. Groups use {c.kinds}.">not comparable</span>
+                  {/if}
                 </td>
               {/each}
-              <td class="num text-right">{duration(b.ttft_ms)}</td>
             </tr>
             {#if diff.length}
               <tr>
                 <td></td>
-                <td colspan="6" class="!whitespace-normal pb-1 text-[11.5px] text-muted">
+                <td colspan="7" class="!whitespace-normal pb-1 text-[11.5px] text-muted">
                   Settings changed from the row below: <span class="font-mono text-text">{diff.join(', ')}</span>
                 </td>
               </tr>
@@ -170,8 +252,8 @@
           {/each}
         </tbody>
       </table>
-      <p class="mt-1 text-[11px] text-dim">
-        Finished requests only. Speeds and time to first token leave out requests that were more than half cached. Speeds use total tokens divided by total time; changes compare with the row below. Prompt speed excludes cached tokens. Prompt length affects speed, so compare similar requests. Settings are recorded when the model next loads after a notus-swap update.
+      <p class="mt-1 max-w-[900px] text-[11px] text-dim">
+        Speeds are medians of included requests, with counts in parentheses. Changes compare matching groups in adjacent rows, with at least 10 requests per group in each row. Output speed groups use client, prompt size range, and JSON or schema output. Prompt speed groups use new-token and total prompt size ranges; cached tokens are excluded from the speed. Settings are recorded when the model next loads after a notus-swap update.
       </p>
       {#if Object.keys(cmds).length}
         <details class="mt-2 text-[11.5px]">

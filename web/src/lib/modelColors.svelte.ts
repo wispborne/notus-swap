@@ -7,15 +7,23 @@
 // config models use. A model without a stored colour yet falls back to one
 // picked from its name.
 //
-// The palette was checked on the surface colour #21242B: every pair differs by
-// at least ΔE 10 (OKLab ×100) for normal vision, and neighbours pass the
-// colour-blindness checks too. Its length must match paletteSize in colors.go.
+// The palette was checked on the surface colour #21242B. The first nine are
+// given out automatically (autoColors): every pair of them differs by at
+// least ΔE 11 (OKLab ×100) for normal vision, and neighbours pass the
+// colour-blindness checks too. The other nine can only be picked by the user;
+// each differs from all eighteen by at least ΔE 9.9. The palette's length must
+// match paletteSize in colors.go.
 //
 // The user can pick another palette colour, a colour of their own, and a
 // shape for any model, on the Settings page or in the Models page's detail.
 // The shape and own colour are kept in the model_marks setting, and arrive
 // with the status poll too.
-export const palette = ['#40d7a3', '#b69cff', '#f0b85a', '#5b8cff', '#ff7a9a', '#18ffff', '#e95cf0', '#c4e36b', '#ff5a36']
+export const palette = [
+  '#40d7a3', '#b69cff', '#f0b85a', '#5b8cff', '#ff7a9a', '#18ffff', '#e95cf0', '#c4e36b', '#ff5a36',
+  '#e6e6e6', '#8f98a8', '#7cc7ff', '#8a5cff', '#ffb8d0', '#d6487a', '#ff8a2a', '#c99a72', '#2fae6e',
+]
+/** How many palette colours are given out automatically. Matches autoColors in colors.go. */
+export const autoColors = 9
 
 let stored = $state<Record<string, number>>({})
 
@@ -28,16 +36,24 @@ let marks = $state<Record<string, Mark>>({})
 
 /**
  * The shapes a model's dot can take, drawn on an 8 by 8 pixel grid. Straight
- * edges sit on whole pixels. Shapes must match `shapes` in colors.go.
+ * edges sit on whole pixels. `crisp` shapes have only straight, upright
+ * edges, so they are drawn with crispEdges. Shapes must match `shapes` in
+ * colors.go.
  */
 export const shapes = {
   circle: { name: 'Circle', d: 'M4 0a4 4 0 1 1 0 8a4 4 0 1 1 0-8z' },
-  square: { name: 'Square', d: 'M1 1h6v6h-6z' },
+  square: { name: 'Square', d: 'M1 1h6v6h-6z', crisp: true },
   diamond: { name: 'Diamond', d: 'M4 0l4 4-4 4-4-4z' },
   triangle: { name: 'Triangle', d: 'M4 0l4 7h-8z' },
   triangle_down: { name: 'Triangle, pointing down', d: 'M0 1h8l-4 7z' },
-  plus: { name: 'Plus', d: 'M3 0h2v3h3v2h-3v3h-2v-3h-3v-2h3z' },
-}
+  triangle_left: { name: 'Triangle, pointing left', d: 'M7 0v8l-7-4z' },
+  triangle_right: { name: 'Triangle, pointing right', d: 'M1 0l7 4-7 4z' },
+  plus: { name: 'Plus', d: 'M3 0h2v3h3v2h-3v3h-2v-3h-3v-2h3z', crisp: true },
+  cross: { name: 'Cross', d: 'M1.5 0 4 2.5 6.5 0 8 1.5 5.5 4 8 6.5 6.5 8 4 5.5 1.5 8 0 6.5 2.5 4 0 1.5z' },
+  star: { name: 'Star', d: 'M4 0.2 5.03 2.98 8 3.1 5.66 4.94 6.47 7.8 4 6.15 1.53 7.8 2.34 4.94 0 3.1 2.97 2.98z' },
+  hexagon: { name: 'Hexagon', d: 'M2 0h4l2 4-2 4h-4l-2-4z' },
+  hourglass: { name: 'Hourglass', d: 'M0 0h8l-4 4 4 4h-8l4-4z' },
+} satisfies Record<string, { name: string; d: string; crisp?: boolean }>
 export type Shape = keyof typeof shapes
 
 /** Sets the chosen colours and shapes. Called with every status poll. */
@@ -99,5 +115,5 @@ export function modelColor(model: string) {
   if (i !== undefined) return palette[i % palette.length]
   let h = 0
   for (const c of model) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return palette[h % palette.length]
+  return palette[h % autoColors]
 }

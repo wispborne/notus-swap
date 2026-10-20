@@ -113,6 +113,19 @@ func (s *Store) SetShare(ctx context.Context, id int64, energyJ *float64, queued
 	return err
 }
 
+// SetOverlap stores how long a request was worked on alongside others.
+func (s *Store) SetOverlap(ctx context.Context, id int64, overlapMs int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE requests SET overlap_ms = ? WHERE id = ?`, overlapMs, id)
+	return err
+}
+
+// ClearOverlaps sets no overlap on every finished request that has none
+// stored yet.
+func (s *Store) ClearOverlaps(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE requests SET overlap_ms = 0 WHERE overlap_ms IS NULL AND finished_at IS NOT NULL`)
+	return err
+}
+
 // SetQueued stores a request's time spent queued.
 func (s *Store) SetQueued(ctx context.Context, id int64, queuedMs int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE requests SET queued_ms = ? WHERE id = ?`, queuedMs, id)

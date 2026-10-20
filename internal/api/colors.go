@@ -11,8 +11,12 @@ import (
 )
 
 // paletteSize is how many model colours the UI has (palette in
-// web/src/lib/modelColors.svelte.ts).
-const paletteSize = 9
+// web/src/lib/modelColors.svelte.ts). Only the first autoColors are given out
+// automatically; the rest can only be picked by the user.
+const (
+	paletteSize = 18
+	autoColors  = 9
+)
 
 // modelColors gives each model a colour once and keeps it, in the
 // model_colors setting (model name to palette index). So a model's colour
@@ -127,8 +131,8 @@ func (c *modelColors) pick(model string, added []string) int {
 		}
 	}
 	for _, m := range added {
-		if !slices.Contains(c.config, m) {
-			used[c.colors[m]]++
+		if i := c.colors[m]; !slices.Contains(c.config, m) && i >= 0 && i < paletteSize {
+			used[i]++
 		}
 	}
 	avoid := map[int]bool{}
@@ -142,7 +146,7 @@ func (c *modelColors) pick(model string, added []string) int {
 		}
 	}
 	best := -1
-	for i := range paletteSize {
+	for i := range autoColors {
 		if avoid[i] {
 			continue
 		}
@@ -199,7 +203,8 @@ type Mark struct {
 	Shape string `json:"shape,omitempty"`
 }
 
-var shapes = []string{"circle", "square", "diamond", "triangle", "triangle_down", "plus"}
+var shapes = []string{"circle", "square", "diamond", "triangle", "triangle_down", "plus",
+	"triangle_left", "triangle_right", "cross", "star", "hexagon", "hourglass"}
 
 var hexColor = regexp.MustCompile(`^#[0-9a-f]{6}$`)
 
@@ -254,7 +259,7 @@ func (a *API) putMark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.setMark(r.Context(), r.PathValue("model"), ch); errors.Is(err, errBadMark) {
-		http.Error(w, "Expected a palette index from 0 to 8, a colour like #40d7a3, and one of the shapes", http.StatusBadRequest)
+		http.Error(w, "Expected a palette index from 0 to 17, a colour like #40d7a3, and one of the shapes", http.StatusBadRequest)
 		return
 	} else if err != nil {
 		a.fail(w, err)

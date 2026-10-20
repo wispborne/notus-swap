@@ -22,7 +22,7 @@
     height={size}
     viewBox="0 0 8 8"
     fill={color ?? modelColor(model)}
-    shape-rendering={s === 'square' || s === 'plus' ? 'crispEdges' : undefined}
+    shape-rendering={'crisp' in shapes[s] ? 'crispEdges' : undefined}
     aria-hidden="true"><path d={shapes[s].d} /></svg
   >
 </span>

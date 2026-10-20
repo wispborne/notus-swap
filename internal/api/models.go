@@ -2,17 +2,22 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/wispborne/notus-swap/internal/store"
 )
 
 func (a *API) registerModels(mux *http.ServeMux) {
 	mux.HandleFunc("GET /notus/api/models", a.models)
 	mux.HandleFunc("GET /notus/api/models/{model}/events", a.modelEvents)
 	mux.HandleFunc("GET /notus/api/models/{model}/builds", a.modelBuilds)
+	mux.HandleFunc("GET /notus/api/speed-filter", a.getSpeedFilter)
+	mux.HandleFunc("PUT /notus/api/speed-filter", a.putSpeedFilter)
 	mux.HandleFunc("POST /notus/api/models/unload", a.unloadAll)
 	mux.HandleFunc("PUT /notus/api/models/{model}/mark", a.putMark)
 	mux.HandleFunc("GET /notus/api/logs/stream", a.logStream)
@@ -21,7 +26,7 @@ func (a *API) registerModels(mux *http.ServeMux) {
 // models: GET /notus/api/models. notus-swap's own numbers for every model it
 // has seen. The model list and states come from the status poll.
 func (a *API) models(w http.ResponseWriter, r *http.Request) {
-	stats, err := a.Store.ModelStats(r.Context())
+	stats, err := a.Store.ModelStats(r.Context(), a.SpeedFilter(r.Context()))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -42,15 +47,24 @@ func (a *API) modelEvents(w http.ResponseWriter, r *http.Request) {
 
 // modelBuilds: GET /notus/api/models/{model}/builds. The model's speed on
 // each server build and command, most recent first, and the arguments of
-// each command.
+// each command. ?filter=<JSON> uses that SpeedFilter instead of the saved
+// one, so the Speed tab can show a change before it is saved.
 func (a *API) modelBuilds(w http.ResponseWriter, r *http.Request) {
-	builds, err := a.Store.ModelBuilds(r.Context(), r.PathValue("model"))
+	f := a.SpeedFilter(r.Context())
+	if q := r.URL.Query().Get("filter"); q != "" {
+		f = store.DefaultSpeedFilter()
+		if err := json.Unmarshal([]byte(q), &f); err != nil || !f.Valid() {
+			http.Error(w, "Expected filter to be a valid speed filter", http.StatusBadRequest)
+			return
+		}
+	}
+	builds, err := a.Store.ModelBuilds(r.Context(), r.PathValue("model"), f)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	var hashes []string
-	for _, b := range builds {
+	for _, b := range builds.Rows {
 		if b.CmdHash != "" && !slices.Contains(hashes, b.CmdHash) {
 			hashes = append(hashes, b.CmdHash)
 		}
@@ -60,7 +74,46 @@ func (a *API) modelBuilds(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"rows": builds, "cmds": cmds})
+	writeJSON(w, map[string]any{"builds": builds, "cmds": cmds})
+}
+
+// SpeedFilter is the speed_filter setting: which requests count toward
+// speeds. It is the default until one is saved.
+func (a *API) SpeedFilter(ctx context.Context) store.SpeedFilter {
+	f := store.DefaultSpeedFilter()
+	if v, err := a.Store.Setting(ctx, "speed_filter"); err == nil && v != "" {
+		saved := store.DefaultSpeedFilter()
+		if json.Unmarshal([]byte(v), &saved) == nil && saved.Valid() {
+			f = saved
+		}
+	}
+	if f.ExcludeClients == nil {
+		f.ExcludeClients = []string{}
+	}
+	return f
+}
+
+// getSpeedFilter: GET /notus/api/speed-filter. The filter in use and the default.
+func (a *API) getSpeedFilter(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"filter": a.SpeedFilter(r.Context()), "default": store.DefaultSpeedFilter()})
+}
+
+// putSpeedFilter: PUT /notus/api/speed-filter with a SpeedFilter.
+func (a *API) putSpeedFilter(w http.ResponseWriter, r *http.Request) {
+	f := store.DefaultSpeedFilter()
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&f); err != nil || !f.Valid() {
+		http.Error(w, "Expected a speed filter: token counts of 0 or more, a context range whose end is after its start, and structured set to \"\", \"exclude\" or \"only\"", http.StatusBadRequest)
+		return
+	}
+	if f.ExcludeClients == nil {
+		f.ExcludeClients = []string{}
+	}
+	b, _ := json.Marshal(f)
+	if err := a.Store.SetSetting(r.Context(), "speed_filter", string(b)); err != nil {
+		a.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // unloadAll: POST /notus/api/models/unload, passed on to llama-swap.

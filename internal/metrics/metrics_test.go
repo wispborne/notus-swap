@@ -204,3 +204,60 @@ func TestRecount(t *testing.T) {
 		t.Errorf("ran again: %d", n)
 	}
 }
+
+func TestOverlap(t *testing.T) {
+	t0 := time.Unix(1_800_000_000, 0)
+	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
+	a := store.Work{ID: 1, Arrived: at(0), Began: at(0), Ended: at(30)}
+	// B waits from 1 to 20, then runs alongside A until 30, then alone.
+	b := store.Work{ID: 2, Arrived: at(1), Began: at(20), Ended: at(40)}
+	// C is in flight, working from 35.
+	c := store.Work{ID: 3, Arrived: at(35), Began: at(35)}
+	if d := Overlap(a, []store.Work{b, c}); d != 10*time.Second {
+		t.Errorf("A: %v", d)
+	}
+	if d := Overlap(b, []store.Work{a, c}); d != 15*time.Second {
+		t.Errorf("B: %v", d)
+	}
+	// A request still waiting adds no overlap.
+	if d := Overlap(a, []store.Work{{ID: 4, Arrived: at(5)}}); d != 0 {
+		t.Errorf("with a waiting request: %v", d)
+	}
+}
+
+func TestFillOverlap(t *testing.T) {
+	ctx := context.Background()
+	st := recorder(t).Store
+	t0 := time.Unix(1_800_000_000, 0)
+	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
+	add := func(start, end int, promptMs, predictedMs float64) int64 {
+		id, err := st.Begin(ctx, store.Begin{StartedAt: at(start), Method: "POST", Path: "/v1/chat/completions", Model: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Finish(ctx, id, store.Finish{FinishedAt: at(end), State: store.StateDone, StatusCode: 200,
+			PromptMs: &promptMs, PredictedMs: &predictedMs}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	// Two slots: A runs 0-30, B runs 10-20 alongside it. C runs alone.
+	a := add(0, 30, 1000, 29000)
+	b := add(10, 20, 1000, 9000)
+	c := add(35, 37, 500, 1500)
+	if n, err := FillOverlap(ctx, st, at(60)); err != nil || n != 2 {
+		t.Fatalf("filled %d, err %v", n, err)
+	}
+	for id, want := range map[int64]int64{a: 10000, b: 10000, c: 0} {
+		rec, err := st.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.OverlapMs == nil || *rec.OverlapMs != want {
+			t.Errorf("request %d: overlap %v, want %d", id, rec.OverlapMs, want)
+		}
+	}
+	if n, _ := FillOverlap(ctx, st, at(60)); n != 0 {
+		t.Errorf("ran again: %d", n)
+	}
+}

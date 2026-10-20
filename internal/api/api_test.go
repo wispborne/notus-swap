@@ -205,6 +205,29 @@ func TestLiveFeedListAndDetail(t *testing.T) {
 		t.Errorf("layout read back: %v", layout)
 	}
 
+	// The speed filter is the default until saved, and a bad one is refused.
+	var sf struct{ Filter, Default store.SpeedFilter }
+	getJSON(t, srv.URL+"/notus/api/speed-filter", &sf)
+	if sf.Filter.MinOutput != 128 || sf.Default.MinNewPrompt != 2048 {
+		t.Errorf("default speed filter: %+v", sf)
+	}
+	for body, want := range map[string]int{`{"min_output":64,"structured":"only"}`: 204, `{"structured":"maybe"}`: 400, `{"min_context":9,"max_context":5}`: 400} {
+		put, _ := http.NewRequest("PUT", srv.URL+"/notus/api/speed-filter", strings.NewReader(body))
+		if resp, err := http.DefaultClient.Do(put); err != nil || resp.StatusCode != want {
+			t.Errorf("put speed filter %s: %v %v, want %d", body, resp, err, want)
+		}
+	}
+	getJSON(t, srv.URL+"/notus/api/speed-filter", &sf)
+	// Fields left out of the saved filter keep their defaults.
+	if sf.Filter.MinOutput != 64 || sf.Filter.Structured != "only" || sf.Filter.MinNewPrompt != 2048 || !sf.Filter.Alone {
+		t.Errorf("saved speed filter: %+v", sf.Filter)
+	}
+	var builds struct{ Builds store.Builds }
+	getJSON(t, srv.URL+`/notus/api/models/qwen/builds?filter={"min_output":1}`, &builds)
+	if resp, _ := http.Get(srv.URL + `/notus/api/models/qwen/builds?filter={"min_output":-1}`); resp == nil || resp.StatusCode != 400 {
+		t.Errorf("bad preview filter: %v", resp)
+	}
+
 	// Hidden models show up in the status for every open page.
 	getJSON(t, srv.URL+"/notus/api/status", &st2)
 	if st2.Privacy.ShowHidden || len(st2.Privacy.HiddenModels) != 0 {

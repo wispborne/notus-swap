@@ -283,25 +283,18 @@ type ModelStat struct {
 	// that report a cache count. Nil when none do.
 	CacheRate *float64 `json:"cache_rate"`
 	EnergyJ   *float64 `json:"energy_j"`
-	// Averages over the last RecentSpeeds requests that report speeds.
-	GenPerSecond    *float64 `json:"gen_per_second"`
-	PromptPerSecond *float64 `json:"prompt_per_second"`
+	// Speeds on the model's current build and command. Nil when no
+	// finished request has speeds.
+	Current *CurrentSpeeds `json:"current"`
 	// Loads counts changes to "ready" that were timed from "starting".
 	Loads      int64    `json:"loads"`
 	LoadMs     *float64 `json:"load_ms"` // average
 	LastLoaded *int64   `json:"last_loaded"`
 }
 
-// RecentSpeeds is how many recent requests ModelStat averages speeds over.
-const RecentSpeeds = 50
-
-// mostlyFresh is a SQL condition for requests that were at most half cached.
-// Requests with more cached are left out of speeds: their prompt speed is
-// worked out from only a few tokens, and their time to first token is short.
-// Requests that don't report a cache count are kept.
-const mostlyFresh = `(cached_tokens IS NULL OR prompt_tokens IS NULL OR cached_tokens * 2 <= prompt_tokens)`
-
-func (s *Store) ModelStats(ctx context.Context) ([]ModelStat, error) {
+// ModelStats lists every model seen in requests or model events, with its
+// totals and its speeds on its current build (see ModelCurrentSpeeds).
+func (s *Store) ModelStats(ctx context.Context, f SpeedFilter) ([]ModelStat, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH totals AS (
 			SELECT model, COUNT(*) AS n, SUM(state = 'failed') AS failed, MAX(started_at) AS last_used,
@@ -309,24 +302,17 @@ func (s *Store) ModelStats(ctx context.Context) ([]ModelStat, error) {
 				COALESCE(SUM(cached_tokens), 0) AS cached,
 				SUM(cached_tokens) * 1.0 / NULLIF(SUM(CASE WHEN cached_tokens IS NOT NULL THEN prompt_tokens END), 0) AS rate
 			FROM requests WHERE model != '' GROUP BY model
-		), recent AS (
-			SELECT model, predicted_per_second, prompt_per_second,
-				ROW_NUMBER() OVER (PARTITION BY model ORDER BY id DESC) AS i
-			FROM requests WHERE model != '' AND predicted_per_second IS NOT NULL AND `+mostlyFresh+`
-		), speeds AS (
-			SELECT model, AVG(predicted_per_second) AS gen, AVG(prompt_per_second) AS prompt
-			FROM recent WHERE i <= ? GROUP BY model
 		), loads AS (
 			SELECT model, COUNT(load_ms) AS n, AVG(load_ms) AS ms, MAX(at) AS last
 			FROM model_events WHERE to_state = 'ready' AND load_ms IS NOT NULL GROUP BY model
 		)
-		SELECT t.model, t.n, t.failed, t.last_used, t.pt, t.ct, t.cached, t.rate, t.e, s.gen, s.prompt,
+		SELECT t.model, t.n, t.failed, t.last_used, t.pt, t.ct, t.cached, t.rate, t.e,
 			COALESCE(l.n, 0), l.ms, l.last
-		FROM totals t LEFT JOIN speeds s USING (model) LEFT JOIN loads l USING (model)
+		FROM totals t LEFT JOIN loads l USING (model)
 		UNION ALL
-		SELECT l.model, 0, 0, NULL, 0, 0, 0, NULL, NULL, NULL, NULL, l.n, l.ms, l.last
+		SELECT l.model, 0, 0, NULL, 0, 0, 0, NULL, NULL, l.n, l.ms, l.last
 		FROM loads l WHERE l.model NOT IN (SELECT model FROM totals)
-		ORDER BY 1`, RecentSpeeds)
+		ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}
@@ -335,12 +321,26 @@ func (s *Store) ModelStats(ctx context.Context) ([]ModelStat, error) {
 	for rows.Next() {
 		var m ModelStat
 		if err := rows.Scan(&m.Model, &m.Requests, &m.Failed, &m.LastUsed, &m.PromptTokens, &m.CompletionTokens,
-			&m.CachedTokens, &m.CacheRate, &m.EnergyJ, &m.GenPerSecond, &m.PromptPerSecond, &m.Loads, &m.LoadMs, &m.LastLoaded); err != nil {
+			&m.CachedTokens, &m.CacheRate, &m.EnergyJ, &m.Loads, &m.LoadMs, &m.LastLoaded); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if out[i].Requests == 0 {
+			continue
+		}
+		c, err := s.ModelCurrentSpeeds(ctx, out[i].Model, f)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Current = c
+	}
+	return out, nil
 }
 
 // Earliest is the time of the oldest thing stored: a request, a sample of
@@ -358,50 +358,6 @@ func (s *Store) Earliest(ctx context.Context) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return time.UnixMilli(ms.Int64), nil
-}
-
-// BuildStat is one model's speed on one server build and command. Speeds
-// are weighted by tokens: total tokens over total time, so long requests
-// count for more.
-type BuildStat struct {
-	Build     string `json:"build"`    // empty for requests with no known build
-	CmdHash   string `json:"cmd_hash"` // empty for requests with no known command
-	Requests  int64  `json:"requests"`
-	FirstUsed int64  `json:"first_used"` // unix ms
-	LastUsed  int64  `json:"last_used"`
-	// GenPerSecond, PromptPerSecond and TTFTMs count only requests that
-	// report timings and were at most half cached (see mostlyFresh). Prompt
-	// speed leaves out cached tokens, which aren't processed.
-	GenPerSecond    *float64 `json:"gen_per_second"`
-	PromptPerSecond *float64 `json:"prompt_per_second"`
-	TTFTMs          *float64 `json:"ttft_ms"` // average time to first token
-}
-
-// ModelBuilds lists a model's finished requests grouped by server build and
-// command, the most recently started group first.
-func (s *Store) ModelBuilds(ctx context.Context, model string) ([]BuildStat, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(build, ''), COALESCE(cmd_hash, ''), COUNT(*), MIN(started_at), MAX(started_at),
-			SUM(CASE WHEN fresh AND predicted_ms > 0 THEN completion_tokens END) * 1000.0 /
-				NULLIF(SUM(CASE WHEN fresh AND predicted_ms > 0 AND completion_tokens IS NOT NULL THEN predicted_ms END), 0),
-			SUM(CASE WHEN fresh AND prompt_ms > 0 THEN prompt_tokens - COALESCE(cached_tokens, 0) END) * 1000.0 /
-				NULLIF(SUM(CASE WHEN fresh AND prompt_ms > 0 AND prompt_tokens IS NOT NULL THEN prompt_ms END), 0),
-			AVG(CASE WHEN fresh THEN first_token_at - started_at - COALESCE(queued_ms, 0) END)
-		FROM (SELECT *, `+mostlyFresh+` AS fresh FROM requests WHERE model = ? AND state = ?)
-		GROUP BY 1, 2 ORDER BY 4 DESC`, model, StateDone)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []BuildStat{}
-	for rows.Next() {
-		var b BuildStat
-		if err := rows.Scan(&b.Build, &b.CmdHash, &b.Requests, &b.FirstUsed, &b.LastUsed, &b.GenPerSecond, &b.PromptPerSecond, &b.TTFTMs); err != nil {
-			return nil, err
-		}
-		out = append(out, b)
-	}
-	return out, rows.Err()
 }
 
 // SaveModelCmd keeps a command's arguments under its hash, the first time

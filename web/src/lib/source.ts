@@ -1,5 +1,7 @@
 // A short name for the client that sent a request, from its User-Agent
-// header, for the Requests page's Source column.
+// header, for the Requests page's Source column. internal/source/source.go
+// names clients the same way for the Models page's speeds; change both lists
+// together.
 
 import type { Summary } from './api'
 

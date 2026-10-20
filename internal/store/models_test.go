@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,12 +18,12 @@ func TestModelStats(t *testing.T) {
 	defer st.Close()
 
 	now := time.Now()
-	add := func(model, state string, gen float64, ct, pt int64, cached *int64) {
+	add := func(model, build, state string, gen float64, ct, pt int64, cached *int64) {
 		id, err := st.Begin(ctx, Begin{StartedAt: now, Method: "POST", Path: "/v1/x", Model: model})
 		if err != nil {
 			t.Fatal(err)
 		}
-		f := Finish{FinishedAt: now, State: state, CompletionTokens: &ct, PromptTokens: &pt, CachedTokens: cached}
+		f := Finish{FinishedAt: now, State: state, Build: build, CompletionTokens: &ct, PromptTokens: &pt, CachedTokens: cached}
 		if gen > 0 {
 			f.PredictedPerSecond = &gen
 		}
@@ -31,15 +32,18 @@ func TestModelStats(t *testing.T) {
 		}
 	}
 	eighty := int64(80)
-	add("a", StateDone, 10, 5, 100, &eighty) // 80% cached: left out of the speeds
-	add("a", StateDone, 20, 7, 50, nil) // no cache count: left out of the cache rate
-	add("a", StateFailed, 0, 0, 0, nil)
+	add("a", "b0", StateDone, 99, 5, 100, nil) // an older build: not in the current speeds
+	add("a", "b1", StateDone, 10, 5, 100, &eighty)
+	add("a", "b1", StateDone, 20, 7, 50, nil) // no cache count: left out of the cache rate
+	add("a", "b1", StateFailed, 0, 0, 0, nil)
 	ms := int64(3000)
 	st.AddModelEvent(ctx, ModelEvent{At: now.UnixMilli(), Model: "a", From: "starting", To: "ready", LoadMs: &ms})
 	// Loaded but never asked anything.
 	st.AddModelEvent(ctx, ModelEvent{At: now.UnixMilli(), Model: "b", From: "starting", To: "ready", LoadMs: &ms})
 
-	stats, err := st.ModelStats(ctx)
+	f := DefaultSpeedFilter()
+	f.MinOutput = 1
+	stats, err := st.ModelStats(ctx, f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,13 +51,17 @@ func TestModelStats(t *testing.T) {
 		t.Fatalf("got %d models, want 2: %+v", len(stats), stats)
 	}
 	a, b := stats[0], stats[1]
-	if a.Model != "a" || a.Requests != 3 || a.Failed != 1 || a.CompletionTokens != 12 || a.GenPerSecond == nil || *a.GenPerSecond != 20 || a.Loads != 1 {
+	if a.Model != "a" || a.Requests != 4 || a.Failed != 1 || a.CompletionTokens != 17 || a.Loads != 1 {
 		t.Errorf("model a: %+v", a)
 	}
 	if a.CachedTokens != 80 || a.CacheRate == nil || *a.CacheRate != 0.8 {
-		t.Errorf("model a cache: %d tokens, rate %v", a.CachedTokens, a.CacheRate)
+		t.Errorf("model a cache: %d tokens, rate %v", a.CachedTokens, *a.CacheRate)
 	}
-	if b.Model != "b" || b.Requests != 0 || b.Loads != 1 || b.LoadMs == nil || *b.LoadMs != 3000 {
+	// The median of 10 and 20, on build b1.
+	if c := a.Current; c == nil || c.Build != "b1" || c.GenCounted != 2 || c.GenPerSecond == nil || *c.GenPerSecond != 15 {
+		t.Errorf("model a current speeds: %+v", a.Current)
+	}
+	if b.Model != "b" || b.Current != nil || b.Requests != 0 || b.Loads != 1 || b.LoadMs == nil || *b.LoadMs != 3000 {
 		t.Errorf("model b: %+v", b)
 	}
 
@@ -94,53 +102,142 @@ func TestModelBuilds(t *testing.T) {
 	defer st.Close()
 
 	start := time.Now()
-	cached := int64(100)
-	add := func(at time.Duration, build, state string, ct int64, predictedMs float64, body string) {
-		id, err := st.Begin(ctx, Begin{StartedAt: start.Add(at), Method: "POST", Path: "/v1/x", Model: "a"})
+	n := 0
+	add := func(build, state string, ct int64, gen float64, body string) {
+		n++
+		id, err := st.Begin(ctx, Begin{StartedAt: start.Add(time.Duration(n) * time.Second), Method: "POST", Path: "/v1/x", Model: "a"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		pt, promptMs := int64(1100), 500.0
-		f := Finish{FinishedAt: start.Add(at), State: state, Build: build, CompletionTokens: &ct, PredictedMs: &predictedMs,
-			PromptTokens: &pt, CachedTokens: &cached, PromptMs: &promptMs, ResponseBody: []byte(body)}
+		pt, cached, promptPS := int64(3100), int64(100), 1000.0
+		f := Finish{FinishedAt: start, State: state, Build: build, CompletionTokens: &ct, PredictedPerSecond: &gen,
+			PromptTokens: &pt, CachedTokens: &cached, PromptPerSecond: &promptPS, ResponseBody: []byte(body)}
 		if err := st.Finish(ctx, id, f); err != nil {
 			t.Fatal(err)
 		}
 	}
-	add(0, "", StateDone, 10, 1000, "old b1") // stored before builds were read
-	add(time.Second, "b1-x", StateDone, 30, 1000, "")
-	add(2*time.Second, "b2-y", StateDone, 100, 1000, "")
-	add(3*time.Second, "b2-y", StateDone, 20, 1000, "")
-	add(4*time.Second, "b2-y", StateFailed, 0, 0, "") // failed requests are left out
-	// Over half cached: counted as a request, but left out of the speeds.
-	cached = 1000
-	add(5*time.Second, "b2-y", StateDone, 500, 1000, "")
+	add("", StateDone, 200, 10, "old b1") // stored before builds were read
+	add("b1-x", StateDone, 200, 30, "")
+	add("b2-y", StateDone, 200, 50, "")
+	add("b2-y", StateDone, 200, 70, "")
+	add("b2-y", StateDone, 20, 500, "") // too short to count
+	add("b2-y", StateFailed, 0, 0, "")  // failed requests are left out
 
-	n, err := st.FillBuilds(ctx, func(b []byte) string {
+	if n, err := st.FillBuilds(ctx, func(b []byte) string {
 		if string(b) == "old b1" {
 			return "b1-x"
 		}
 		return ""
-	})
-	if err != nil || n != 1 {
+	}); err != nil || n != 1 {
 		t.Fatalf("filled %d, err %v", n, err)
 	}
 
-	builds, err := st.ModelBuilds(ctx, "a")
+	builds, err := st.ModelBuilds(ctx, "a", DefaultSpeedFilter())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(builds) != 2 {
-		t.Fatalf("got %d builds, want 2: %+v", len(builds), builds)
+	if len(builds.Rows) != 2 || builds.Requests != 5 || builds.GenCounted != 4 || builds.PromptCounted != 5 {
+		t.Fatalf("got %+v", builds)
 	}
-	b2, b1 := builds[0], builds[1]
-	// 120 tokens over 2 s; prompt speed counts 1000 uncached tokens per 0.5 s.
-	if b2.Build != "b2-y" || b2.Requests != 3 || b2.GenPerSecond == nil || *b2.GenPerSecond != 60 ||
-		b2.PromptPerSecond == nil || *b2.PromptPerSecond != 2000 {
+	b2, b1 := builds.Rows[0], builds.Rows[1]
+	if b2.Build != "b2-y" || b2.Requests != 3 || !b2.Current || b2.GenCounted != 2 || *b2.GenPerSecond != 60 ||
+		b2.PromptCounted != 3 || *b2.PromptPerSecond != 1000 {
 		t.Errorf("b2: %+v", b2)
 	}
-	if b1.Build != "b1-x" || b1.Requests != 2 || *b1.GenPerSecond != 20 || b1.FirstUsed != start.UnixMilli() {
+	if b1.Build != "b1-x" || b1.Requests != 2 || b1.Current || *b1.GenPerSecond != 20 || b1.FirstUsed != start.Add(time.Second).UnixMilli() {
 		t.Errorf("b1: %+v", b1)
+	}
+	// Too few requests of each kind to compare.
+	if b2.GenChange != nil {
+		t.Errorf("b2 change %v", *b2.GenChange)
+	}
+}
+
+// Builds are compared on the kinds of requests both have: here b2 is 10%
+// faster for each client, although most of b1's requests came from the
+// faster client.
+func TestModelBuildsCompareKinds(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	start := time.Now()
+	n := 0
+	add := func(build, agent string, gen float64, count int) {
+		for range count {
+			n++
+			id, err := st.Begin(ctx, Begin{StartedAt: start.Add(time.Duration(n) * time.Second), Method: "POST", Path: "/v1/x", Model: "a", UserAgent: agent})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ct, pt := int64(500), int64(1000)
+			if err := st.Finish(ctx, id, Finish{FinishedAt: start, State: StateDone, Build: build, CompletionTokens: &ct,
+				PromptTokens: &pt, PredictedPerSecond: &gen}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	add("b1", "fast/1", 100, 40)
+	add("b1", "slow/1", 50, 10)
+	add("b2", "fast/1", 110, 10)
+	add("b2", "slow/1", 55, 40)
+	add("b2", "other/1", 999, 30) // a kind b1 doesn't have
+
+	builds, err := st.ModelBuilds(ctx, "a", DefaultSpeedFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2 := builds.Rows[0]
+	if b2.GenChange == nil || math.Abs(*b2.GenChange-0.1) > 1e-9 || b2.GenCompared != 100 {
+		t.Errorf("b2 change %v over %d requests", b2.GenChange, b2.GenCompared)
+	}
+	if fmt.Sprint(builds.Clients) != "[{fast 50} {slow 50} {other 30}]" {
+		t.Errorf("clients %v", builds.Clients)
+	}
+	// Leaving out the other clients leaves one kind.
+	f := DefaultSpeedFilter()
+	f.ExcludeClients = []string{"fast", "other"}
+	builds, err = st.ModelBuilds(ctx, "a", f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := builds.Rows[0]; *b.GenPerSecond != 55 || b.GenCompared != 50 {
+		t.Errorf("slow only: %+v", b)
+	}
+}
+
+func TestSpeedFilterRules(t *testing.T) {
+	gen, prompt := 50.0, 900.0
+	base := speedRow{prompt: 30_000, cached: 20_000, output: 500, genPS: &gen, promptPS: &prompt, workMs: 10_000, client: "opencode"}
+	for _, c := range []struct {
+		name        string
+		change      func(r *speedRow, f *SpeedFilter)
+		gen, prompt bool
+	}{
+		{"counted", func(*speedRow, *SpeedFilter) {}, true, true},
+		{"short answer", func(r *speedRow, _ *SpeedFilter) { r.output = 100 }, false, true},
+		{"few new tokens", func(r *speedRow, _ *SpeedFilter) { r.cached = 29_000 }, true, false},
+		{"small overlap", func(r *speedRow, _ *SpeedFilter) { r.overlapMs = 400 }, true, true},
+		{"shared the server", func(r *speedRow, _ *SpeedFilter) { r.overlapMs = 2000 }, false, false},
+		{"shared, alone off", func(r *speedRow, f *SpeedFilter) { r.overlapMs = 2000; f.Alone = false }, true, true},
+		{"overlap unknown", func(r *speedRow, _ *SpeedFilter) { r.overlapMs = -1 }, true, true},
+		{"images", func(r *speedRow, _ *SpeedFilter) { r.images = true }, true, false},
+		{"other client", func(_ *speedRow, f *SpeedFilter) { f.ExcludeClients = []string{"opencode"} }, false, false},
+		{"under min context", func(_ *speedRow, f *SpeedFilter) { f.MinContext = 40_000 }, false, false},
+		{"over max context", func(_ *speedRow, f *SpeedFilter) { f.MaxContext = 20_000 }, false, false},
+		{"structured left out", func(r *speedRow, f *SpeedFilter) { r.structured = true; f.Structured = "exclude" }, false, false},
+		{"only structured", func(_ *speedRow, f *SpeedFilter) { f.Structured = "only" }, false, false},
+	} {
+		r, f := base, DefaultSpeedFilter()
+		c.change(&r, &f)
+		if g, p := f.countsGen(r), f.countsPrompt(r); g != c.gen || p != c.prompt {
+			t.Errorf("%s: counts gen %v prompt %v, want %v %v", c.name, g, p, c.gen, c.prompt)
+		}
+	}
+	if (SpeedFilter{MinContext: 10, MaxContext: 5}).Valid() || (SpeedFilter{Structured: "maybe"}).Valid() || !DefaultSpeedFilter().Valid() {
+		t.Error("Valid")
 	}
 }
 
@@ -170,12 +267,12 @@ func TestModelBuildsByCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	builds, err := st.ModelBuilds(ctx, "a")
+	builds, err := st.ModelBuilds(ctx, "a", DefaultSpeedFilter())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, b := range builds {
+	for _, b := range builds.Rows {
 		got = append(got, fmt.Sprintf("%s/%s:%d", b.Build, b.CmdHash, b.Requests))
 	}
 	if fmt.Sprint(got) != "[b1-x/:1 b1-x/c2:1 b1-x/c1:2]" {

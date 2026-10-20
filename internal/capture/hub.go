@@ -65,6 +65,10 @@ type Hub struct {
 	// Account, if set, works out a finished request's GPU energy (joules)
 	// and how long it waited behind other requests.
 	Account func(w store.Work) (*float64, time.Duration)
+	// Overlap, if set, works out how long the server worked on a finished
+	// request while it also worked on others. Call it after Account, which
+	// records the request.
+	Overlap func(w store.Work) time.Duration
 	// Props, if set, looks up a model's limits (context size and default
 	// output limit) for the issue checks. It returns nil when they aren't known.
 	Props func(model string) *store.ModelProps

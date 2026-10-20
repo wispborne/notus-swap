@@ -210,6 +210,27 @@ func (r *Recorder) Account(w store.Work) (*float64, time.Duration) {
 	return &j, queued
 }
 
+// Overlap works out how long the server worked on a finished request while
+// it also worked on others, on any model. Account must have recorded it first.
+func (r *Recorder) Overlap(w store.Work) time.Duration {
+	var others []store.Work
+	if r.InFlight != nil {
+		for _, o := range r.InFlight() {
+			if o.ID != w.ID {
+				others = append(others, o)
+			}
+		}
+	}
+	r.mu.Lock()
+	for _, f := range r.finished {
+		if f.ID != w.ID {
+			others = append(others, f)
+		}
+	}
+	r.mu.Unlock()
+	return Overlap(w, others)
+}
+
 // OnTransition records a model changing state. A load is timed from
 // "starting" to "ready".
 func (r *Recorder) OnTransition(t llamaswap.Transition) {

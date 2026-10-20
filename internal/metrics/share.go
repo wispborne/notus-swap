@@ -57,6 +57,82 @@ func Share(power []store.Power, r store.Work, others []store.Work) (joules float
 	return joules, queued
 }
 
+// Overlap is how long the server worked on r while it also worked on at
+// least one request in others.
+func Overlap(r store.Work, others []store.Work) time.Duration {
+	if r.Began.IsZero() || r.Ended.IsZero() {
+		return 0
+	}
+	cuts := []time.Time{r.Began, r.Ended}
+	for _, o := range others {
+		for _, t := range []time.Time{o.Began, o.Ended} {
+			if !t.IsZero() && t.After(r.Began) && t.Before(r.Ended) {
+				cuts = append(cuts, t)
+			}
+		}
+	}
+	slices.SortFunc(cuts, func(a, b time.Time) int { return a.Compare(b) })
+	cuts = slices.CompactFunc(cuts, time.Time.Equal)
+	var d time.Duration
+	for i := 0; i+1 < len(cuts); i++ {
+		a, b := cuts[i], cuts[i+1]
+		mid := a.Add(b.Sub(a) / 2)
+		if slices.ContainsFunc(others, func(o store.Work) bool { return o.Working(mid) }) {
+			d += b.Sub(a)
+		}
+	}
+	return d
+}
+
+// FillOverlap works out the overlap of requests stored before it was
+// measured. It runs once: a setting records that it finished. It returns how
+// many requests overlapped another.
+func FillOverlap(ctx context.Context, st *store.Store, now time.Time) (int, error) {
+	const done = "filled_overlap"
+	if v, err := st.Setting(ctx, done); err != nil || v != "" {
+		return 0, err
+	}
+	rows, err := st.WorkRows(ctx)
+	if err != nil {
+		return 0, err
+	}
+	changed := 0
+	// Rows are sorted by arrival. Each group holds requests that overlap,
+	// directly or through each other.
+	for i := 0; i < len(rows); {
+		end := rows[i].Ended
+		j := i + 1
+		for ; j < len(rows) && rows[j].Arrived.Before(end); j++ {
+			if rows[j].Ended.After(end) {
+				end = rows[j].Ended
+			}
+		}
+		group := rows[i:j]
+		i = j
+		if len(group) == 1 {
+			continue
+		}
+		works := make([]store.Work, len(group))
+		for k, g := range group {
+			works[k] = g.Work
+		}
+		for k, g := range group {
+			others := append(slices.Clone(works[:k]), works[k+1:]...)
+			if d := Overlap(g.Work, others); d > 0 {
+				if err := st.SetOverlap(ctx, g.ID, d.Milliseconds()); err != nil {
+					return changed, err
+				}
+				changed++
+			}
+		}
+	}
+	// Every request not set above overlapped nothing.
+	if err := st.ClearOverlaps(ctx); err != nil {
+		return changed, err
+	}
+	return changed, st.SetSetting(ctx, done, now.UTC().Format(time.RFC3339))
+}
+
 // energyBetween adds up the energy in power between a and b, in joules.
 func energyBetween(power []store.Power, a, b time.Time) float64 {
 	var j float64

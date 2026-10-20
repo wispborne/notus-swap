@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { duration, joules, num, pct, when } from '../lib/format'
+  import { duration, joules, num, pct, shortBuild, when } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
   import ModelDetail from '../lib/models/ModelDetail.svelte'
+  import TabIcon from '../lib/models/TabIcon.svelte'
+  import { detailTabs, type DetailTab } from '../lib/models/tabs'
   import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status, type RunningModel } from '../lib/status.svelte'
@@ -22,8 +24,16 @@
     cached_tokens: number
     cache_rate: number | null
     energy_j: number | null
-    gen_per_second: number | null
-    prompt_per_second: number | null
+    // Speeds on the model's current build and settings: medians over the
+    // requests that count (see the Speed tab).
+    current: {
+      build: string
+      cmd_hash: string
+      gen_per_second: number | null
+      gen_counted: number
+      prompt_per_second: number | null
+      prompt_counted: number
+    } | null
     loads: number
     load_ms: number | null
     last_loaded: number | null
@@ -117,34 +127,180 @@
   }
 
   let open = $state<string | null>(null)
-  const toggle = (m: string) => (open = open === m ? null : m)
+  let openTab = $state<DetailTab>('log')
+  function toggle(m: string) {
+    if (open !== m) openTab = 'log'
+    open = open === m ? null : m
+  }
+  function openAt(m: string, t: DetailTab) {
+    if (open === m && openTab === t) open = null
+    else [open, openTab] = [m, t]
+  }
+
+  // The columns between Model and the buttons. Each can be hidden and moved,
+  // from the Columns menu or by dragging its header; the choice is saved per
+  // browser (models_hidden_columns, models_column_order). Hidden columns are
+  // saved rather than shown ones, so a column added later shows by default.
+  interface Column {
+    key: string
+    label: string
+    num?: boolean
+    title?: string
+  }
+  const columns = [
+    { key: 'state', label: 'State', title: 'Whether llama-swap has the model loaded' },
+    { key: 'context', label: 'Context', num: true, title: 'Context size, from llama-swap' },
+    { key: 'requests', label: 'Requests', num: true, title: 'Requests captured, with failed ones in brackets' },
+    { key: 'cache', label: 'Cache', num: true, title: 'Share of prompt tokens reused from the cache, over all requests' },
+    { key: 'out_tps', label: 'Out t/s', num: true, title: "Median output speed for the model's current build and settings. Choose included requests in the Speed tab." },
+    { key: 'in_tps', label: 'In t/s', num: true, title: "Median prompt speed for the model's current build and settings. Choose included requests in the Speed tab." },
+    { key: 'load', label: 'Load time', num: true, title: 'Average time from starting to ready' },
+    { key: 'energy', label: 'Energy', num: true, title: 'Total GPU energy for this model' },
+    { key: 'last_used', label: 'Last used', title: 'When the model last got a request' },
+  ] as const satisfies readonly Column[]
+  type Col = (typeof columns)[number]['key']
+  const allKeys = columns.map((c) => c.key) as Col[]
+
+  function stored(key: string): unknown {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? 'null')
+    } catch {
+      return null
+    }
+  }
+  function store(key: string, v: unknown) {
+    try {
+      if (v == null) localStorage.removeItem(key)
+      else localStorage.setItem(key, JSON.stringify(v))
+    } catch {
+      // Not saved; it still applies until the page reloads.
+    }
+  }
+  function savedHidden(): Col[] {
+    const v = stored('models_hidden_columns')
+    return Array.isArray(v) ? allKeys.filter((k) => v.includes(k)) : []
+  }
+  function savedOrder(): Col[] {
+    const v = stored('models_column_order')
+    if (!Array.isArray(v)) return allKeys
+    const list = v.filter((k, n): k is Col => allKeys.includes(k) && v.indexOf(k) === n)
+    // A column added later goes after the column it follows in the default order.
+    for (const [n, k] of allKeys.entries()) {
+      if (list.includes(k)) continue
+      const prev = allKeys.slice(0, n).findLast((p) => list.includes(p))
+      list.splice(prev ? list.indexOf(prev) + 1 : 0, 0, k)
+    }
+    return list
+  }
+  let hidden = $state<Col[]>(savedHidden())
+  let order = $state<Col[]>(savedOrder())
+  const shownCols = $derived(order.filter((k) => !hidden.includes(k)).map((k) => columns.find((c) => c.key === k)!))
+  const span = $derived(shownCols.length + 2)
+  function toggleCol(k: Col) {
+    hidden = hidden.includes(k) ? hidden.filter((c) => c !== k) : [...hidden, k]
+    store('models_hidden_columns', hidden)
+  }
+  function resetCols() {
+    hidden = []
+    order = allKeys
+    store('models_hidden_columns', null)
+    store('models_column_order', null)
+  }
+  // Dragging a header, or an entry in the Columns menu, moves the column as
+  // the pointer passes the middle of another. The order is saved when the
+  // drag ends.
+  let dragging = $state<Col | null>(null)
+  function dragStart(e: DragEvent, k: Col) {
+    dragging = k
+    e.dataTransfer!.effectAllowed = 'move'
+    e.dataTransfer!.setData('text/plain', k)
+  }
+  function dragOver(e: DragEvent, k: Col, axis: 'x' | 'y') {
+    if (!dragging) return
+    e.preventDefault()
+    if (dragging === k) return
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const after = axis === 'x' ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2
+    const rest = order.filter((c) => c !== dragging)
+    const at = rest.indexOf(k) + (after ? 1 : 0)
+    order = [...rest.slice(0, at), dragging, ...rest.slice(at)]
+  }
+  function dragEnd() {
+    dragging = null
+    store('models_column_order', order)
+  }
+  let picker = $state<HTMLDetailsElement>()
+  function closePicker(e: MouseEvent) {
+    if (picker?.open && !picker.contains(e.target as Node)) picker.open = false
+  }
+
+  function speedTitle(s: Stat | undefined, key: 'gen' | 'prompt') {
+    const c = s?.current
+    if (!c) return 'No finished requests with speeds yet'
+    const on = `build ${c.build ? shortBuild(c.build) : 'unknown'}`
+    const n = c[`${key}_counted`]
+    return n ? `Median of ${n.toLocaleString('en-US')} included requests on ${on}` : `No requests on ${on} match the speed filters. Adjust filters in the Speed tab.`
+  }
 
   const dot: Record<string, string> = { ready: 'bg-primary', starting: 'bg-secondary pulse', stopping: 'bg-warn pulse' }
   const th = 'px-2 py-1.5 font-medium whitespace-nowrap'
   const btn = 'rounded border border-line bg-panel2 px-2 text-xs hover:border-primary disabled:opacity-50 disabled:hover:border-line'
 </script>
 
-{#snippet numbers(s: Stat | undefined)}
-  <td class="num text-right">{s?.requests ?? 0}{#if s?.failed}{' '}<span class="text-err" title="failed">({s.failed})</span>{/if}</td>
-  <td class="num text-right" title={s?.cached_tokens ? `${s.cached_tokens.toLocaleString('en-US')} of ${s.prompt_tokens.toLocaleString('en-US')} prompt tokens` : ''}>{pct(s?.cache_rate)}</td>
-  <td class="num text-right">{num(s?.gen_per_second, 1)}</td>
-  <td class="num text-right">{num(s?.prompt_per_second)}</td>
-  <td class="num text-right" title={s?.loads ? `${s.loads} timed loads` : ''}>{duration(s?.load_ms)}</td>
-  <td class="num text-right">{s?.energy_j != null ? joules(s.energy_j) : '–'}</td>
-  <td class="text-muted">{s?.last_used ? when(s.last_used) : '–'}</td>
+<svelte:window onclick={closePicker} />
+
+<!-- One cell of a movable column. m is the model's entry in llama-swap's
+     config, missing for a model no longer in it. -->
+{#snippet cell(k: Col, m: RunningModel | undefined, s: Stat | undefined)}
+  {#if k === 'state'}
+    {#if m}
+      <td>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="relative top-px size-2 rounded-full {dot[m.state] ?? 'bg-line'}"></span>
+          <span class={m.state === 'stopped' ? 'text-dim' : ''}>{m.state === 'stopped' ? 'not loaded' : m.state}</span>
+        </span>
+      </td>
+    {:else}<td class="text-dim">removed</td>{/if}
+  {:else if k === 'context'}<td class="num text-right text-muted">{m ? (m.context_length ? m.context_length.toLocaleString() : '–') : ''}</td>
+  {:else if k === 'requests'}<td class="num text-right">{s?.requests ?? 0}{#if s?.failed}{' '}<span class="text-err" title="failed">({s.failed})</span>{/if}</td>
+  {:else if k === 'cache'}<td class="num text-right" title={s?.cached_tokens ? `${s.cached_tokens.toLocaleString('en-US')} of ${s.prompt_tokens.toLocaleString('en-US')} prompt tokens` : ''}>{pct(s?.cache_rate)}</td>
+  {:else if k === 'out_tps'}<td class="num text-right" title={speedTitle(s, 'gen')}>{num(s?.current?.gen_per_second, 1)}</td>
+  {:else if k === 'in_tps'}<td class="num text-right" title={speedTitle(s, 'prompt')}>{num(s?.current?.prompt_per_second)}</td>
+  {:else if k === 'load'}<td class="num text-right" title={s?.loads ? `${s.loads} timed loads` : ''}>{duration(s?.load_ms)}</td>
+  {:else if k === 'energy'}<td class="num text-right">{s?.energy_j != null ? joules(s.energy_j) : '–'}</td>
+  {:else if k === 'last_used'}<td class="text-muted">{s?.last_used ? when(s.last_used) : '–'}</td>
+  {/if}
+{/snippet}
+
+{#snippet tabButtons(model: string, hasLog: boolean)}
+  <span class="mr-1.5 inline-flex align-middle">
+    {#each detailTabs as t (t.tab)}
+      {#if t.tab !== 'log' || hasLog}
+        {@const on = open === model && (openTab === t.tab || (t.tab === 'requests' && openTab === 'log' && !hasLog))}
+        <button class="rounded p-[3px] {on ? 'text-primary' : 'text-dim hover:bg-panel2 hover:text-text'}" title={t.label} aria-label={t.label} onclick={(e) => (e.stopPropagation(), openAt(model, t.tab))}>
+          <TabIcon name={t.tab} />
+        </button>
+      {/if}
+    {/each}
+  </span>
 {/snippet}
 
 {#snippet head()}
   <thead>
     <tr class="border-b border-line text-left text-[11px] text-dim">
-      <th class={th}>Model</th><th class={th}>State</th><th class="{th} text-right">Context</th>
-      <th class="{th} text-right">Requests</th>
-      <th class="{th} text-right" title="Share of prompt tokens reused from the cache, over all requests">Cache</th>
-      <th class="{th} text-right" title="Average generation speed over the last 50 requests that were at most half cached">Out t/s</th>
-      <th class="{th} text-right" title="Average prompt speed over the last 50 requests that were at most half cached">In t/s</th>
-      <th class="{th} text-right" title="Average time from starting to ready">Load time</th>
-      <th class="{th} text-right" title="Total GPU energy for this model">Energy</th>
-      <th class={th}>Last used</th><th class={th}></th>
+      <th class={th}>Model</th>
+      {#each shownCols as c (c.key)}
+        <th
+          draggable="true"
+          class="{th} cursor-grab {'num' in c ? 'text-right' : ''} {dragging === c.key ? 'opacity-40' : ''}"
+          title={c.title}
+          ondragstart={(e) => dragStart(e, c.key)}
+          ondragover={(e) => dragOver(e, c.key, 'x')}
+          ondrop={(e) => e.preventDefault()}
+          ondragend={dragEnd}>{c.label}</th
+        >
+      {/each}
+      <th class={th}></th>
     </tr>
   </thead>
 {/snippet}
@@ -157,6 +313,32 @@
     <input type="checkbox" checked={showUnlisted} onchange={toggleUnlisted} class="accent-primary" />
     Show unlisted ({unlistedCount})
   </label>
+  <details bind:this={picker} class="relative text-xs">
+    <summary class="cursor-pointer list-none rounded border border-line bg-panel2 px-2 text-muted hover:text-text">Columns</summary>
+    <div class="absolute right-0 z-20 mt-1 w-44 rounded-md border border-line bg-panel2 p-1.5 shadow-lg">
+      <div class="px-1.5 pt-0.5 pb-1 text-dim">Drag columns here or by their headers to move them.</div>
+      {#each order as k (k)}
+        {@const c = columns.find((x) => x.key === k)!}
+        <div
+          role="listitem"
+          draggable="true"
+          class="flex cursor-grab items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-hover {dragging === k ? 'opacity-40' : ''}"
+          title={c.title}
+          ondragstart={(e) => dragStart(e, k)}
+          ondragover={(e) => dragOver(e, k, 'y')}
+          ondrop={(e) => e.preventDefault()}
+          ondragend={dragEnd}
+        >
+          <span class="text-dim" aria-hidden="true">⠿</span>
+          <label class="flex flex-1 cursor-pointer items-center gap-2 text-text">
+            <input type="checkbox" class="accent-primary" checked={!hidden.includes(k)} onchange={() => toggleCol(k)} />
+            {c.label}
+          </label>
+        </div>
+      {/each}
+      <button class="mt-1 w-full rounded px-1.5 py-0.5 text-left text-primary hover:bg-hover" onclick={resetCols}>Reset to default</button>
+    </div>
+  </details>
   <button class={btn} disabled={!loadedCount || unloadingAll} onclick={unloadAll}>{unloadingAll ? 'Unloading…' : 'Unload all'}</button>
 </div>
 
@@ -184,15 +366,9 @@
             </div>
             {#if m.name && m.name !== m.model}<div class="truncate pl-7 text-[11px] text-dim">{modelShow.show === 'name' ? m.model : m.name}</div>{/if}
           </td>
-          <td>
-            <span class="inline-flex items-center gap-1.5">
-              <span class="relative top-px size-2 rounded-full {dot[m.state] ?? 'bg-line'}"></span>
-              <span class={m.state === 'stopped' ? 'text-dim' : ''}>{m.state === 'stopped' ? 'not loaded' : m.state}</span>
-            </span>
-          </td>
-          <td class="num text-right text-muted">{m.context_length ? m.context_length.toLocaleString() : '–'}</td>
-          {@render numbers(s)}
+          {#each shownCols as c (c.key)}{@render cell(c.key, m, s)}{/each}
           <td class="text-right">
+            {@render tabButtons(m.model, true)}
             {#if m.state === 'ready' || m.state === 'starting'}
               <button class={btn} disabled={!!busy[m.model]} onclick={(e) => (e.stopPropagation(), act(m.model, 'unload'))}>{busy[m.model] === 'unload' ? 'Unloading…' : 'Unload'}</button>
             {:else if m.state === 'stopped'}
@@ -201,10 +377,10 @@
           </td>
         </tr>
         {#if open === m.model}
-          <tr><td colspan="10" class="p-0"><ModelDetail model={m.model} known={m} /></td></tr>
+          <tr><td colspan={span} class="p-0"><ModelDetail model={m.model} known={m} bind:picked={openTab} /></td></tr>
         {/if}
       {:else}
-        <tr><td colspan="10" class="px-2 py-4 text-center text-muted">{up ? 'No models in the config.' : 'Waiting for llama-swap.'}</td></tr>
+        <tr><td colspan={span} class="px-2 py-4 text-center text-muted">{up ? 'No models in the config.' : 'Waiting for llama-swap.'}</td></tr>
       {/each}
     </tbody>
   </table>
@@ -225,13 +401,11 @@
                 <span class="truncate" title={modelTitle(s.model)}>{modelLabel(s.model)}</span>
               </div>
             </td>
-            <td class="text-dim">removed</td>
-            <td></td>
-            {@render numbers(s)}
-            <td></td>
+            {#each shownCols as c (c.key)}{@render cell(c.key, undefined, s)}{/each}
+            <td class="text-right">{@render tabButtons(s.model, false)}</td>
           </tr>
           {#if open === s.model}
-            <tr><td colspan="10" class="p-0"><ModelDetail model={s.model} /></td></tr>
+            <tr><td colspan={span} class="p-0"><ModelDetail model={s.model} bind:picked={openTab} /></td></tr>
           {/if}
         {/each}
       </tbody>
