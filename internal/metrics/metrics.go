@@ -62,6 +62,16 @@ type Recorder struct {
 
 const ringLen = 3600
 
+const procMeminfo = "/proc/meminfo"
+
+// InspectMemory says where Sample reads RAM use from, and what it reads now.
+func (r *Recorder) InspectMemory() memory.Inspection {
+	if r.MemInfoPath != "" {
+		return memory.InspectFile(r.MemInfoPath)
+	}
+	return memory.InspectSystem(procMeminfo)
+}
+
 // Run samples every second and rolls stored samples up every minute, until
 // ctx ends.
 func (r *Recorder) Run(ctx context.Context) {
@@ -93,7 +103,7 @@ func (r *Recorder) Sample(ctx context.Context, now time.Time) Snapshot {
 	if r.MemInfoPath != "" {
 		s.RAMUsed, s.RAMTotal = memory.Read(r.MemInfoPath)
 	} else {
-		s.RAMUsed, s.RAMTotal = memory.System("/proc/meminfo")
+		s.RAMUsed, s.RAMTotal = memory.System(procMeminfo)
 	}
 	if r.CPU != nil {
 		r.CPU.Sample()

@@ -35,3 +35,13 @@ func System(meminfo string) (used, total *int64) {
 	u, t := int64(s.totalPhys-s.availPhys), int64(s.totalPhys)
 	return &u, &t
 }
+
+// InspectSystem says where System reads from, and what it read.
+func InspectSystem(meminfo string) Inspection {
+	in := Inspection{Source: "GlobalMemoryStatusEx"}
+	in.Used, in.Total = System(meminfo)
+	if in.Used == nil {
+		in.Error = "GlobalMemoryStatusEx failed"
+	}
+	return in
+}

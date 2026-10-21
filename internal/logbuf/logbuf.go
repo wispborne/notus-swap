@@ -57,3 +57,10 @@ func (b *Buffer) Subscribe() (history []byte, writes <-chan []byte, cancel func(
 		b.mu.Unlock()
 	}
 }
+
+// Bytes returns what the buffer holds now.
+func (b *Buffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.Clone(b.data)
+}
