@@ -10,9 +10,9 @@
   import { cmdDiff, cmdLine } from './cmdDiff'
   import SpeedFilterPanel from './SpeedFilterPanel.svelte'
   import { loadSpeedFilter, sameFilter, type SpeedFilter } from './speedFilter'
-  import { detailTabs, type DetailTab } from './tabs'
+  import type { DetailTab } from './tabs'
 
-  // The parent owns the tab, so its row buttons can open a chosen tab.
+  // The parent owns the tab: the buttons on its row's second line pick it.
   let { model, known, picked = $bindable('log') }: { model: string; known?: RunningModel; picked?: DetailTab } = $props()
 
   interface ModelEvent {
@@ -128,8 +128,6 @@
     { key: 'gen', label: 'Output speed', digits: 1, kinds: 'client, prompt size range, and JSON or schema output' },
     { key: 'prompt', label: 'Prompt speed', digits: 0, kinds: 'new-token count range and total prompt size range' },
   ] as const
-
-  const tabBtn = (t: string) => `px-2.5 py-1 text-xs border-b-2 ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-text'}`
 </script>
 
 <div class="border-t border-line-soft bg-surface px-3 pt-1 pb-3">
@@ -144,12 +142,6 @@
   <div class="flex items-center gap-2 py-1 text-xs text-muted">
     <span>Colour and shape</span>
     <MarkPicker {model} />
-  </div>
-
-  <div class="mb-2 flex border-b border-line">
-    {#each detailTabs as t (t.tab)}
-      {#if t.tab !== 'log' || known}<button class={tabBtn(t.tab)} onclick={() => (picked = t.tab)}>{t.label}</button>{/if}
-    {/each}
   </div>
 
   {#if error}<div class="text-xs text-err">{error}</div>{/if}
