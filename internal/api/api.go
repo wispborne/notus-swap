@@ -81,6 +81,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /notus/api/settings/{key}", a.putSetting)
 	mux.HandleFunc("POST /notus/api/models/{model}/load", a.loadModel)
 	mux.HandleFunc("POST /notus/api/models/{model}/unload", a.unloadModel)
+	mux.HandleFunc("POST /notus/api/models/{model}/restart", a.restartModel)
 	mux.HandleFunc("POST /notus/api/query", a.query)
 	a.registerConfig(mux)
 	a.registerSystem(mux)

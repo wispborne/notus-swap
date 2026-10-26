@@ -10,7 +10,8 @@
   import { status, type RunningModel } from '../lib/status.svelte'
 
   // Every model in llama-swap's config, with its state, notus-swap's numbers
-  // for it, and load and unload buttons. Clicking a row opens its log, loads
+  // for it, and a second line under each with load, unload and restart and a
+  // button for each tab of its detail. Clicking a row opens its log, loads
   // and recent requests. Models from past requests that are no longer in the
   // config are listed after.
 
@@ -85,8 +86,9 @@
   )
 
   // A button stays disabled until its model's state changes, so it can't be
-  // pressed twice while llama-swap acts on it. A change also brings new
-  // numbers (a load time, for one).
+  // pressed twice while llama-swap acts on it. A restart waits for ready, as
+  // it passes through stopping and stopped on the way. A change also brings
+  // new numbers (a load time, for one).
   let busy = $state<Record<string, string>>({})
   let lastState: Record<string, string> = {}
   $effect(() => {
@@ -94,14 +96,15 @@
     for (const m of known) {
       if (m.model in lastState && lastState[m.model] !== m.state) {
         changed = true
-        if (untrack(() => busy[m.model])) delete busy[m.model]
+        const b = untrack(() => busy[m.model])
+        if (b && (b !== 'restart' || m.state === 'ready')) delete busy[m.model]
       }
       lastState[m.model] = m.state
     }
     if (changed) loadStats()
   })
   let actionError = $state('')
-  async function act(model: string, action: 'load' | 'unload') {
+  async function act(model: string, action: 'load' | 'unload' | 'restart') {
     busy[model] = action
     actionError = ''
     try {
@@ -111,7 +114,8 @@
       actionError = `Couldn't ${action} ${modelLabel(model)}: ${e instanceof Error ? e.message : e}`
       delete busy[model]
     }
-    setTimeout(() => delete busy[model], 30_000) // give up waiting for a state change
+    // Give up waiting for a state change. A restart includes a load, which can take minutes.
+    setTimeout(() => busy[model] === action && delete busy[model], action === 'restart' ? 300_000 : 30_000)
   }
   let unloadingAll = $state(false)
   async function unloadAll() {
@@ -195,7 +199,7 @@
   let hidden = $state<Col[]>(savedHidden())
   let order = $state<Col[]>(savedOrder())
   const shownCols = $derived(order.filter((k) => !hidden.includes(k)).map((k) => columns.find((c) => c.key === k)!))
-  const span = $derived(shownCols.length + 2)
+  const span = $derived(shownCols.length + 1)
   function toggleCol(k: Col) {
     hidden = hidden.includes(k) ? hidden.filter((c) => c !== k) : [...hidden, k]
     store('models_hidden_columns', hidden)
@@ -245,6 +249,7 @@
   const dot: Record<string, string> = { ready: 'bg-primary', starting: 'bg-secondary pulse', stopping: 'bg-warn pulse' }
   const th = 'px-2 py-1.5 font-medium whitespace-nowrap'
   const btn = 'rounded border border-line bg-panel2 px-2 text-xs hover:border-primary disabled:opacity-50 disabled:hover:border-line'
+  const act2 = 'rounded border border-line bg-panel2 px-2 py-px text-[11.5px] hover:border-primary disabled:opacity-50 disabled:hover:border-line'
 </script>
 
 <svelte:window onclick={closePicker} />
@@ -272,17 +277,43 @@
   {/if}
 {/snippet}
 
-{#snippet tabButtons(model: string, hasLog: boolean)}
-  <span class="mr-1.5 inline-flex align-middle">
-    {#each detailTabs as t (t.tab)}
-      {#if t.tab !== 'log' || hasLog}
-        {@const on = open === model && (openTab === t.tab || (t.tab === 'requests' && openTab === 'log' && !hasLog))}
-        <button class="rounded p-[3px] {on ? 'text-primary' : 'text-dim hover:bg-panel2 hover:text-text'}" title={t.label} aria-label={t.label} onclick={(e) => (e.stopPropagation(), openAt(model, t.tab))}>
-          <TabIcon name={t.tab} />
-        </button>
-      {/if}
-    {/each}
-  </span>
+<!-- The second line of a model's entry, shown even when it is closed: load,
+     unload and restart (for a model in the config), then one button per tab
+     of the model's detail. m is missing for a model no longer in the config. -->
+{#snippet actions(model: string, m: RunningModel | undefined)}
+  <tr class="border-b border-line-soft group-hover:bg-hover {open === model ? 'bg-hover' : ''}" onclick={() => toggle(model)}>
+    <td colspan={span} class="cursor-pointer px-2 pt-0 pb-1.5">
+      <div class="flex flex-wrap items-center gap-1 pl-[22px]">
+        {#if m}
+          {@const b = busy[model]}
+          {#if m.state === 'stopped'}
+            <button class={act2} disabled={!!b || !up} onclick={(e) => (e.stopPropagation(), act(model, 'load'))}>{b === 'load' ? 'Loading…' : 'Load'}</button>
+          {:else}
+            <button class={act2} disabled={!!b || m.state === 'stopping'} onclick={(e) => (e.stopPropagation(), act(model, 'unload'))}>{b === 'unload' ? 'Unloading…' : 'Unload'}</button>
+          {/if}
+          <button
+            class={act2}
+            disabled={!!b || !up || m.state !== 'ready'}
+            title={m.state === 'ready' ? 'Unload the model and load it again' : 'Only a loaded model can be restarted'}
+            onclick={(e) => (e.stopPropagation(), act(model, 'restart'))}>{b === 'restart' ? 'Restarting…' : 'Restart'}</button
+          >
+          <span class="mx-1 h-3.5 w-px bg-line"></span>
+        {/if}
+        {#each detailTabs as t (t.tab)}
+          {#if t.tab !== 'log' || m}
+            {@const on = open === model && (openTab === t.tab || (t.tab === 'requests' && openTab === 'log' && !m))}
+            <button
+              class="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11.5px] {on ? 'bg-panel2 text-primary' : 'text-muted hover:bg-panel2 hover:text-text'}"
+              title={t.label}
+              onclick={(e) => (e.stopPropagation(), openAt(model, t.tab))}
+            >
+              <TabIcon name={t.tab} />{t.short}
+            </button>
+          {/if}
+        {/each}
+      </div>
+    </td>
+  </tr>
 {/snippet}
 
 {#snippet head()}
@@ -300,7 +331,6 @@
           ondragend={dragEnd}>{c.label}</th
         >
       {/each}
-      <th class={th}></th>
     </tr>
   </thead>
 {/snippet}
@@ -353,36 +383,31 @@
 <div class="mt-2 overflow-x-auto rounded-lg border border-line bg-panel">
   <table class="w-full border-collapse text-[12.5px]">
     {@render head()}
-    <tbody>
-      {#each listed as m (m.model)}
-        {@const s = stats.get(m.model)}
-        <tr class="cursor-pointer border-b border-line-soft hover:bg-hover [&>td]:px-2 [&>td]:py-1 [&>td]:whitespace-nowrap {open === m.model ? 'bg-hover' : ''}" onclick={() => toggle(m.model)}>
+    {#each listed as m (m.model)}
+      {@const s = stats.get(m.model)}
+      <tbody class="group">
+        <tr class="cursor-pointer group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1 [&>td]:whitespace-nowrap {open === m.model ? 'bg-hover' : ''}" onclick={() => toggle(m.model)}>
           <td class="max-w-[360px]">
             <div class="flex items-center gap-1.5">
               <span class="text-dim">{open === m.model ? '▾' : '▸'}</span>
               <ModelMark model={m.model} />
               <b class="truncate font-semibold" title={modelTitle(m.model)}>{modelLabel(m.model)}</b>
               {#if m.unlisted}<span class="rounded bg-line px-1 text-[10px] text-muted uppercase">unlisted</span>{/if}
+              {#if m.name && m.name !== m.model}<span class="truncate text-[11px] text-dim">{modelShow.show === 'name' ? m.model : m.name}</span>{/if}
             </div>
-            {#if m.name && m.name !== m.model}<div class="truncate pl-7 text-[11px] text-dim">{modelShow.show === 'name' ? m.model : m.name}</div>{/if}
           </td>
           {#each shownCols as c (c.key)}{@render cell(c.key, m, s)}{/each}
-          <td class="text-right">
-            {@render tabButtons(m.model, true)}
-            {#if m.state === 'ready' || m.state === 'starting'}
-              <button class={btn} disabled={!!busy[m.model]} onclick={(e) => (e.stopPropagation(), act(m.model, 'unload'))}>{busy[m.model] === 'unload' ? 'Unloading…' : 'Unload'}</button>
-            {:else if m.state === 'stopped'}
-              <button class={btn} disabled={!!busy[m.model] || !up} onclick={(e) => (e.stopPropagation(), act(m.model, 'load'))}>{busy[m.model] === 'load' ? 'Loading…' : 'Load'}</button>
-            {/if}
-          </td>
         </tr>
+        {@render actions(m.model, m)}
         {#if open === m.model}
           <tr><td colspan={span} class="p-0"><ModelDetail model={m.model} known={m} bind:picked={openTab} /></td></tr>
         {/if}
-      {:else}
+      </tbody>
+    {:else}
+      <tbody>
         <tr><td colspan={span} class="px-2 py-4 text-center text-muted">{up ? 'No models in the config.' : 'Waiting for llama-swap.'}</td></tr>
-      {/each}
-    </tbody>
+      </tbody>
+    {/each}
   </table>
 </div>
 
@@ -391,9 +416,9 @@
   <div class="overflow-x-auto rounded-lg border border-line bg-panel">
     <table class="w-full border-collapse text-[12.5px]">
       {@render head()}
-      <tbody>
-        {#each gone as s (s.model)}
-          <tr class="cursor-pointer border-b border-line-soft text-muted hover:bg-hover [&>td]:px-2 [&>td]:py-1 [&>td]:whitespace-nowrap" onclick={() => toggle(s.model)}>
+      {#each gone as s (s.model)}
+        <tbody class="group">
+          <tr class="cursor-pointer text-muted group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1 [&>td]:whitespace-nowrap {open === s.model ? 'bg-hover' : ''}" onclick={() => toggle(s.model)}>
             <td class="max-w-[360px]">
               <div class="flex items-center gap-1.5">
                 <span class="text-dim">{open === s.model ? '▾' : '▸'}</span>
@@ -402,13 +427,13 @@
               </div>
             </td>
             {#each shownCols as c (c.key)}{@render cell(c.key, undefined, s)}{/each}
-            <td class="text-right">{@render tabButtons(s.model, false)}</td>
           </tr>
+          {@render actions(s.model, undefined)}
           {#if open === s.model}
             <tr><td colspan={span} class="p-0"><ModelDetail model={s.model} bind:picked={openTab} /></td></tr>
           {/if}
-        {/each}
-      </tbody>
+        </tbody>
+      {/each}
     </table>
   </div>
 {/if}

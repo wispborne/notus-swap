@@ -293,19 +293,55 @@ func (a *API) LoadModel(ctx context.Context, model string) error {
 
 // unloadModel: POST /notus/api/models/{model}/unload
 func (a *API) unloadModel(w http.ResponseWriter, r *http.Request) {
+	if !a.unload(w, r) {
+		return
+	}
+	a.unloadedByHand()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// restartModel: POST /notus/api/models/{model}/restart. It unloads the model,
+// waits for llama-swap to report it stopped, then loads it again in the
+// background. It doesn't pause the default model, because the model comes
+// straight back.
+func (a *API) restartModel(w http.ResponseWriter, r *http.Request) {
+	if !a.unload(w, r) {
+		return
+	}
+	model := r.PathValue("model")
+	go func() {
+		if a.LlamaSwap != nil {
+			// llama-swap's unload normally returns once the model has stopped.
+			// This covers the event feed being a moment behind.
+			for range 150 {
+				if a.LlamaSwap.State(model) == "stopped" {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+		if err := a.LoadModel(context.Background(), model); err != nil {
+			a.Log.Warn("loading model after restart", "model", model, "err", err)
+		}
+	}()
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// unload asks llama-swap to unload the model named in the path. On failure it
+// writes the error and returns false.
+func (a *API) unload(w http.ResponseWriter, r *http.Request) bool {
 	model := r.PathValue("model")
 	req, _ := http.NewRequestWithContext(r.Context(), "POST", a.Upstream.JoinPath("api", "models", "unload", model).String(), nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		http.Error(w, "Can't reach llama-swap", http.StatusBadGateway)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode >= 300 {
 		http.Error(w, "llama-swap answered "+resp.Status+": "+string(body), http.StatusBadGateway)
-		return
+		return false
 	}
-	a.unloadedByHand()
-	w.WriteHeader(http.StatusNoContent)
+	return true
 }

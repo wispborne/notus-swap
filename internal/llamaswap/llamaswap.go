@@ -189,6 +189,14 @@ func (m *Monitor) Names(model string) []string {
 	return []string{model}
 }
 
+// State returns a model's state as last seen: stopped, starting, ready or
+// stopping. It is empty for a model not seen yet.
+func (m *Monitor) State(model string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.states[model]
+}
+
 // Ready reports whether a model is loaded and ready right now.
 func (m *Monitor) Ready(model string) bool {
 	m.mu.Lock()
