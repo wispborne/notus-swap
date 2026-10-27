@@ -404,13 +404,13 @@
   // The same size as the cache_miss tag's limit in internal/capture/notable.go.
   const cacheMissTokens = 8000
 
-  // Saved per browser, like the column choices.
+  // Saved per browser, like the column choices. On unless turned off.
   let colorful = $state(savedColorful())
   function savedColorful() {
     try {
-      return localStorage.getItem('requests_colorful') === 'true'
+      return localStorage.getItem('requests_colorful') !== 'false'
     } catch {
-      return false
+      return true
     }
   }
   function toggleColorful() {

@@ -81,7 +81,8 @@ func TestSettle(t *testing.T) {
 	finish := func(w store.Work) float64 {
 		j, q := r.Account(w)
 		ms := q.Milliseconds()
-		o := r.Overlap(w).Milliseconds()
+		d, _ := r.Overlap(w)
+		o := d.Milliseconds()
 		if err := st.Finish(ctx, w.ID, store.Finish{FinishedAt: w.Ended, State: store.StateDone, StatusCode: 200,
 			EnergyJ: j, QueuedMs: &ms, OverlapMs: &o}); err != nil {
 			t.Fatal(err)
@@ -277,15 +278,15 @@ func TestOverlap(t *testing.T) {
 	b := store.Work{ID: 2, Arrived: at(1), Began: at(20), Ended: at(40)}
 	// C is in flight, working from 35.
 	c := store.Work{ID: 3, Arrived: at(35), Began: at(35)}
-	if d := Overlap(a, []store.Work{b, c}); d != 10*time.Second {
-		t.Errorf("A: %v", d)
+	if d, n := Overlap(a, []store.Work{b, c}); d != 10*time.Second || n != 1 {
+		t.Errorf("A: %v with %d", d, n)
 	}
-	if d := Overlap(b, []store.Work{a, c}); d != 15*time.Second {
-		t.Errorf("B: %v", d)
+	if d, n := Overlap(b, []store.Work{a, c}); d != 15*time.Second || n != 2 {
+		t.Errorf("B: %v with %d", d, n)
 	}
 	// A request still waiting adds no overlap.
-	if d := Overlap(a, []store.Work{{ID: 4, Arrived: at(5)}}); d != 0 {
-		t.Errorf("with a waiting request: %v", d)
+	if d, n := Overlap(a, []store.Work{{ID: 4, Arrived: at(5)}}); d != 0 || n != 0 {
+		t.Errorf("with a waiting request: %v with %d", d, n)
 	}
 }
 
@@ -312,13 +313,13 @@ func TestFillOverlap(t *testing.T) {
 	if n, err := FillOverlap(ctx, st, at(60)); err != nil || n != 2 {
 		t.Fatalf("filled %d, err %v", n, err)
 	}
-	for id, want := range map[int64]int64{a: 10000, b: 10000, c: 0} {
+	for id, want := range map[int64][2]int64{a: {10000, 1}, b: {10000, 1}, c: {0, 0}} {
 		rec, err := st.Get(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if rec.OverlapMs == nil || *rec.OverlapMs != want {
-			t.Errorf("request %d: overlap %v, want %d", id, rec.OverlapMs, want)
+		if rec.OverlapMs == nil || *rec.OverlapMs != want[0] || rec.OverlapN == nil || *rec.OverlapN != want[1] {
+			t.Errorf("request %d: overlap %v with %v, want %v", id, rec.OverlapMs, rec.OverlapN, want)
 		}
 	}
 	if n, _ := FillOverlap(ctx, st, at(60)); n != 0 {

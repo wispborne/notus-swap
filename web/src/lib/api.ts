@@ -25,6 +25,10 @@ export interface Summary {
   energy_j: number | null
   /** How long the request waited while the server worked on other requests. Null for older requests. */
   queued_ms: number | null
+  /** How long the server worked on the request while it also worked on others. Null for older requests. */
+  overlap_ms: number | null
+  /** How many other requests it worked on in that time. Null for older requests. */
+  overlap_n: number | null
   request_bytes: number
   response_bytes: number
   preview: string
@@ -239,6 +243,8 @@ export function summaryFromStart(s: Start): Summary {
     predicted_per_second: null,
     energy_j: null,
     queued_ms: null,
+    overlap_ms: null,
+    overlap_n: null,
     response_bytes: 0,
     has_bodies: true,
     finish_reason: null,

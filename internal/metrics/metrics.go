@@ -209,8 +209,9 @@ func (r *Recorder) Account(w store.Work) (*float64, time.Duration) {
 }
 
 // Overlap works out how long the server worked on a finished request while
-// it also worked on others, on any model. Account must have recorded it first.
-func (r *Recorder) Overlap(w store.Work) time.Duration {
+// it also worked on others, on any model, and how many others. Account must
+// have recorded it first.
+func (r *Recorder) Overlap(w store.Work) (time.Duration, int) {
 	inFlight := r.inFlight()
 	r.mu.Lock()
 	others, _ := r.othersLocked(w, inFlight)
@@ -230,6 +231,7 @@ func (r *Recorder) Settle(ctx context.Context) {
 		id               int64
 		energy           *float64
 		queued, overlaps time.Duration
+		alongside        int
 	}
 	var done []settled
 	r.mu.Lock()
@@ -243,7 +245,8 @@ func (r *Recorder) Settle(ctx context.Context) {
 			continue
 		}
 		j, queued := Share(r.powerLocked(p.Ended), p, others)
-		s := settled{id: p.ID, queued: queued, overlaps: Overlap(p, others)}
+		s := settled{id: p.ID, queued: queued}
+		s.overlaps, s.alongside = Overlap(p, others)
 		if len(r.ring) > 0 {
 			s.energy = &j
 		}
@@ -255,7 +258,7 @@ func (r *Recorder) Settle(ctx context.Context) {
 		if err := r.Store.SetShare(ctx, s.id, s.energy, s.queued.Milliseconds()); err != nil {
 			r.Log.Error("storing settled energy", "id", s.id, "err", err)
 		}
-		if err := r.Store.SetOverlap(ctx, s.id, s.overlaps.Milliseconds()); err != nil {
+		if err := r.Store.SetOverlap(ctx, s.id, s.overlaps.Milliseconds(), s.alongside); err != nil {
 			r.Log.Error("storing settled overlap", "id", s.id, "err", err)
 		}
 	}

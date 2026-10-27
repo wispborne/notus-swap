@@ -115,7 +115,11 @@ type Summary struct {
 	EnergyJ            *float64 `json:"energy_j"`
 	// QueuedMs is how long the request waited while the server worked on
 	// other requests. Nil for requests stored before it was measured.
-	QueuedMs      *int64  `json:"queued_ms"`
+	QueuedMs *int64 `json:"queued_ms"`
+	// OverlapMs is how long the server worked on the request while it also
+	// worked on others, and OverlapN how many others. Nil for older requests.
+	OverlapMs     *int64  `json:"overlap_ms"`
+	OverlapN      *int64  `json:"overlap_n"`
 	RequestBytes  int64   `json:"request_bytes"`
 	ResponseBytes int64   `json:"response_bytes"`
 	Preview       string  `json:"preview"`
@@ -153,7 +157,7 @@ func summary(r *store.Record) Summary {
 		Model: r.Model, Streaming: r.Streaming, State: r.State, StatusCode: r.StatusCode, Error: r.Error,
 		PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens, CachedTokens: r.CachedTokens, PromptMs: r.PromptMs,
 		PredictedMs: r.PredictedMs, PromptPerSecond: r.PromptPerSecond, PredictedPerSecond: r.PredictedPerSecond,
-		EnergyJ: r.EnergyJ, QueuedMs: r.QueuedMs, RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes, Preview: r.Preview, HasBodies: r.HasBodies,
+		EnergyJ: r.EnergyJ, QueuedMs: r.QueuedMs, OverlapMs: r.OverlapMs, OverlapN: r.OverlapN, RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes, Preview: r.Preview, HasBodies: r.HasBodies,
 		FinishReason: r.FinishReason, NCtx: r.NCtx, Build: r.Build, Issues: r.Issues, RetryOf: r.RetryOf,
 		ClientIP: r.ClientIP, UserAgent: r.UserAgent,
 	}

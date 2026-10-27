@@ -41,6 +41,10 @@
       <rect x="1" y="7" width="13" height="3" fill="currentColor" stroke="none" opacity=".35" />
       <rect x="1" y="12" width="6" height="2" fill="currentColor" stroke="none" opacity=".35" />
       <path d="M2 15 15 2" />
+    {:else if name === 'parallel'}
+      <!-- Two bars that overlap in time, like lanes on a timeline. -->
+      <rect x="1" y="3" width="10" height="4" fill="currentColor" stroke="none" shape-rendering="crispEdges" />
+      <rect x="5" y="9" width="10" height="4" fill="currentColor" stroke="none" shape-rendering="crispEdges" opacity=".6" />
     {/if}
   </svg>
 {/snippet}

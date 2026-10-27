@@ -4,7 +4,7 @@ import type { Summary, Tag } from './api'
 import { issueKinds } from './issues.svelte'
 import type { LiveOutput } from './live.svelte'
 
-export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'warn' | 'nostream'
+export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'warn' | 'nostream' | 'parallel'
 
 export interface Chip {
   kind: string
@@ -59,6 +59,8 @@ const colors: Record<string, string> = {
   schema: '#6aa8ff',
   cache_miss: '#f0b85a',
 }
+
+// The Parallel chip, built in rowChips, is a muted slate blue with Colorful on.
 
 /** inFlight distinguishes live output from the finished answer. */
 export function chip(t: Tag, inFlight = false): Chip {
@@ -178,7 +180,34 @@ export function rowChips(r: Summary, flight: LiveOutput | undefined): Chip[] {
     })
   }
   if (r.tags) out.push(...liveTags(r.tags, flight).map((t) => chip(t, !!flight)))
+  const p = parallelChip(r)
+  if (p) out.push(p)
   return out
+}
+
+/**
+ * Requests the server worked on alongside others for more than 5% of their
+ * runtime, the share above which model speeds leave them out. The runtime is
+ * llama.cpp's prompt and generation time, or else the whole request less the
+ * time spent waiting behind others.
+ */
+function parallelChip(r: Summary): Chip | undefined {
+  if (!r.overlap_ms || !r.overlap_n || r.finished_at == null) return undefined
+  const runtime =
+    r.prompt_ms != null && r.predicted_ms != null ? r.prompt_ms + r.predicted_ms : r.finished_at - r.started_at - (r.queued_ms ?? 0)
+  if (runtime <= 0) return undefined
+  const pct = Math.min(100, Math.round((r.overlap_ms / runtime) * 100))
+  if (pct <= 5) return undefined
+  return {
+    kind: 'parallel',
+    icon: 'parallel',
+    label: String(r.overlap_n),
+    bright: false,
+    color: '#8fa3c8',
+    strength: { text: 75, fill: 12 },
+    title: 'Parallel',
+    lines: [`Ran with ${plural(r.overlap_n, 'other request')} for ${pct}% of its runtime.`],
+  }
 }
 
 /** Live answer tags precede request tags, matching the stored order. */

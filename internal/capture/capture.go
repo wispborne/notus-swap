@@ -198,8 +198,9 @@ func finish(st *store.Store, hub *Hub, log *slog.Logger, id int64, start time.Ti
 		ms := queued.Milliseconds()
 		f.QueuedMs = &ms
 		if hub.Overlap != nil {
-			o := hub.Overlap(w).Milliseconds()
-			f.OverlapMs = &o
+			d, n := hub.Overlap(w)
+			o, n64 := d.Milliseconds(), int64(n)
+			f.OverlapMs, f.OverlapN = &o, &n64
 		}
 		measureSpeeds(&f, start, cw.firstChunk, queued, loaded)
 	} else {

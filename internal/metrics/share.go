@@ -58,10 +58,11 @@ func Share(power []store.Power, r store.Work, others []store.Work) (joules float
 }
 
 // Overlap is how long the server worked on r while it also worked on at
-// least one request in others.
-func Overlap(r store.Work, others []store.Work) time.Duration {
+// least one request in others, and how many of others it worked on in that
+// time.
+func Overlap(r store.Work, others []store.Work) (time.Duration, int) {
 	if r.Began.IsZero() || r.Ended.IsZero() {
-		return 0
+		return 0, 0
 	}
 	cuts := []time.Time{r.Began, r.Ended}
 	for _, o := range others {
@@ -74,22 +75,35 @@ func Overlap(r store.Work, others []store.Work) time.Duration {
 	slices.SortFunc(cuts, func(a, b time.Time) int { return a.Compare(b) })
 	cuts = slices.CompactFunc(cuts, time.Time.Equal)
 	var d time.Duration
+	seen := make([]bool, len(others))
 	for i := 0; i+1 < len(cuts); i++ {
 		a, b := cuts[i], cuts[i+1]
 		mid := a.Add(b.Sub(a) / 2)
-		if slices.ContainsFunc(others, func(o store.Work) bool { return o.Working(mid) }) {
+		shared := false
+		for k, o := range others {
+			if o.Working(mid) {
+				seen[k], shared = true, true
+			}
+		}
+		if shared {
 			d += b.Sub(a)
 		}
 	}
-	return d
+	n := 0
+	for _, s := range seen {
+		if s {
+			n++
+		}
+	}
+	return d, n
 }
 
 // FillOverlap works out the overlap of requests stored before it was
-// measured, or before Settle worked it out again once overlapping requests
-// finished. It runs once: a setting records that it finished. It returns how
+// measured, before Settle worked it out again once overlapping requests
+// finished, or before the number of other requests was kept. It runs once: a setting records that it finished. It returns how
 // many requests overlapped another.
 func FillOverlap(ctx context.Context, st *store.Store, now time.Time) (int, error) {
-	const done = "filled_overlap_2"
+	const done = "filled_overlap_3"
 	if v, err := st.Setting(ctx, done); err != nil || v != "" {
 		return 0, err
 	}
@@ -119,8 +133,8 @@ func FillOverlap(ctx context.Context, st *store.Store, now time.Time) (int, erro
 		}
 		for k, g := range group {
 			others := append(slices.Clone(works[:k]), works[k+1:]...)
-			d := Overlap(g.Work, others)
-			if err := st.SetOverlap(ctx, g.ID, d.Milliseconds()); err != nil {
+			d, n := Overlap(g.Work, others)
+			if err := st.SetOverlap(ctx, g.ID, d.Milliseconds(), n); err != nil {
 				return changed, err
 			}
 			if d > 0 {

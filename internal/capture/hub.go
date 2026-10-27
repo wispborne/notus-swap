@@ -66,9 +66,9 @@ type Hub struct {
 	// and how long it waited behind other requests.
 	Account func(w store.Work) (*float64, time.Duration)
 	// Overlap, if set, works out how long the server worked on a finished
-	// request while it also worked on others. Call it after Account, which
-	// records the request.
-	Overlap func(w store.Work) time.Duration
+	// request while it also worked on others, and how many others. Call it
+	// after Account, which records the request.
+	Overlap func(w store.Work) (time.Duration, int)
 	// Settle, if set, runs after each request leaves the in-flight list. It
 	// works out again the energy of requests that finished alongside it.
 	Settle func()
