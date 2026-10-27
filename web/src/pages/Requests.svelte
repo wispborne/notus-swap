@@ -158,18 +158,18 @@
     { key: 'id', label: 'ID' },
     { key: 'model', label: 'Model' },
     { key: 'status', label: 'Status' },
-    { key: 'source', label: 'Source', title: 'The client that sent the request, from its User-Agent, and its address. Hover a value for the full User-Agent.' },
+    { key: 'source', label: 'Source', title: 'Client and address. The client name comes from its User-Agent; hover a value to see the full header.' },
     { key: 'build', label: 'Build', title: 'The server build that answered, such as the llama.cpp build number' },
     { key: 'prompt', label: 'Prompt' },
-    { key: 'notable', label: 'Notable', title: 'Problems first, then tool calls, thinking, images, and other request details. Hover or tap a chip for more.' },
+    { key: 'notable', label: 'Notable', title: 'Issues, tool calls, thinking, images, and other request details. Hover or tap a chip for details.' },
     { key: 'cache_pct', label: 'Cache %', num: true, title: 'Share of the prompt tokens reused from the cache' },
     { key: 'cache', label: 'Cache', num: true, title: 'Prompt tokens reused from the cache' },
-    { key: 'in', label: 'In', num: true, title: 'Prompt tokens, cached ones included' },
+    { key: 'in', label: 'In', num: true, title: 'Prompt tokens, including cached tokens' },
     { key: 'out', label: 'Out', num: true, title: 'Generated tokens' },
     { key: 'in_tps', label: 'In t/s', num: true, title: 'Prompt processing speed, tokens per second' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: 'Generation speed, tokens per second' },
     { key: 'ttft', label: 'TTFT s', num: true, title: 'Time to first token, in seconds' },
-    { key: 'duration', label: 'Duration s', num: true, title: 'Whole request, in seconds' },
+    { key: 'duration', label: 'Duration s', num: true, title: 'Total request time, in seconds' },
     { key: 'energy', label: 'Energy Wh', num: true, title: 'GPU energy used, in watt-hours' },
     { key: 'watts', label: 'Avg W', num: true, title: 'Average GPU power during this request: energy divided by duration' },
     { key: 'jtok', label: 'J/tok', num: true, title: 'GPU energy per generated token, in joules' },
@@ -618,7 +618,7 @@
       <svg viewBox="0 0 16 16" class="size-[15px]" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="13" cy="8" r="1.4" /></svg>
     </summary>
     <div class="absolute right-0 z-20 mt-1 w-44 rounded-md border border-line bg-panel2 p-1.5 shadow-lg">
-      <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover" title="Give each kind of Notable chip its own colour, and mark big prompts that mostly missed the cache in amber">
+      <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover" title="Colour Notable chips by type and highlight large prompts with low cache reuse in amber">
         <input type="checkbox" class="accent-primary" checked={colorful} onchange={toggleColorful} />
         Colorful
       </label>
@@ -627,7 +627,7 @@
         Show units
       </label>
       <div class="mt-1 border-t border-line-soft px-1.5 pt-1.5 pb-0.5 text-xs text-dim">Highlight worse numbers</div>
-      <label class="flex items-center gap-2 px-1.5 py-0.5" title="Dims the numbers right of Cache, except those worse than usual for that column. Further right is a stronger effect.">
+      <label class="flex items-center gap-2 px-1.5 py-0.5" title="Dim typical values so worse-than-usual values stand out. Move the slider right to increase dimming.">
         <input type="range" min="0" max="60" step="5" class="min-w-0 flex-1 accent-primary" value={heatStrength} oninput={(e) => setHeat(Number(e.currentTarget.value))} />
         <span class="num w-7 text-right text-xs text-muted">{heatStrength ? `${heatStrength}%` : 'Off'}</span>
       </label>

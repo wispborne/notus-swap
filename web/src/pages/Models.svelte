@@ -130,6 +130,26 @@
     unloadingAll = false
   }
 
+  // Load, unload, restart and unload all take two clicks. The first turns the
+  // button into "Click to confirm …", and the second acts. The button goes
+  // back after 5 s, or on a click anywhere else. Keys are "<model> <action>",
+  // or "unload-all".
+  let armed = $state<string | null>(null)
+  let disarm: ReturnType<typeof setTimeout> | undefined
+  function confirmed(key: string) {
+    clearTimeout(disarm)
+    if (armed === key) {
+      armed = null
+      return true
+    }
+    armed = key
+    disarm = setTimeout(() => (armed = null), 5000)
+    return false
+  }
+  const doing = { load: 'Loading…', unload: 'Unloading…', restart: 'Restarting…' }
+  const label = { load: 'Load', unload: 'Unload', restart: 'Restart' }
+  const armedCls = 'border-warn! bg-warn/10 text-warn'
+
   let open = $state<string | null>(null)
   let openTab = $state<DetailTab>('log')
   function toggle(m: string) {
@@ -234,8 +254,9 @@
     store('models_column_order', order)
   }
   let picker = $state<HTMLDetailsElement>()
-  function closePicker(e: MouseEvent) {
+  function windowClick(e: MouseEvent) {
     if (picker?.open && !picker.contains(e.target as Node)) picker.open = false
+    if (!(e.target as Element).closest?.('[data-confirm]')) armed = null
   }
 
   function speedTitle(s: Stat | undefined, key: 'gen' | 'prompt') {
@@ -262,7 +283,20 @@
   const act2 = 'inline-flex h-[20px] items-center rounded border border-line bg-panel2 px-2 text-[11.5px] hover:border-primary disabled:opacity-50 disabled:hover:border-line'
 </script>
 
-<svelte:window onclick={closePicker} />
+<svelte:window onclick={windowClick} />
+
+<!-- Load, unload or restart, each needing a second click to confirm. -->
+{#snippet actButton(model: string, action: 'load' | 'unload' | 'restart', disabled: boolean, title?: string)}
+  {@const key = `${model} ${action}`}
+  <button
+    class="{act2} {armed === key ? armedCls : ''}"
+    data-confirm
+    {disabled}
+    {title}
+    onclick={(e) => (e.stopPropagation(), confirmed(key) && act(model, action))}
+    >{busy[model] === action ? doing[action] : armed === key ? `Click to confirm ${action}` : label[action]}</button
+  >
+{/snippet}
 
 <!-- One cell of a movable column. m is the model's entry in llama-swap's
      config, missing for a model no longer in it. -->
@@ -302,16 +336,16 @@
         {#if m}
           {@const b = busy[model]}
           {#if m.state === 'stopped'}
-            <button class={act2} disabled={!!b || !up} onclick={(e) => (e.stopPropagation(), act(model, 'load'))}>{b === 'load' ? 'Loading…' : 'Load'}</button>
+            {@render actButton(model, 'load', !!b || !up)}
           {:else}
-            <button class={act2} disabled={!!b || m.state === 'stopping'} onclick={(e) => (e.stopPropagation(), act(model, 'unload'))}>{b === 'unload' ? 'Unloading…' : 'Unload'}</button>
+            {@render actButton(model, 'unload', !!b || m.state === 'stopping')}
           {/if}
-          <button
-            class={act2}
-            disabled={!!b || !up || m.state !== 'ready'}
-            title={m.state === 'ready' ? 'Unload the model and load it again' : 'Only a loaded model can be restarted'}
-            onclick={(e) => (e.stopPropagation(), act(model, 'restart'))}>{b === 'restart' ? 'Restarting…' : 'Restart'}</button
-          >
+          {@render actButton(
+            model,
+            'restart',
+            !!b || !up || m.state !== 'ready',
+            m.state === 'ready' ? 'Unload the model and load it again' : 'Only a loaded model can be restarted',
+          )}
           <span class="mx-1.5 h-3.5 w-px bg-line"></span>
         {/if}
         {#each detailTabs as t (t.tab)}
@@ -384,7 +418,9 @@
       <button class="mt-1 w-full rounded px-1.5 py-0.5 text-left text-primary hover:bg-hover" onclick={resetCols}>Reset to default</button>
     </div>
   </details>
-  <button class={btn} disabled={!loadedCount || unloadingAll} onclick={unloadAll}>{unloadingAll ? 'Unloading…' : 'Unload all'}</button>
+  <button class="{btn} {armed === 'unload-all' ? armedCls : ''}" data-confirm disabled={!loadedCount || unloadingAll} onclick={() => confirmed('unload-all') && unloadAll()}
+    >{unloadingAll ? 'Unloading…' : armed === 'unload-all' ? 'Click to confirm unload all' : 'Unload all'}</button
+  >
 </div>
 
 {#if !up}
