@@ -130,7 +130,8 @@
   ] as const
 </script>
 
-<div class="border-t border-line-soft bg-surface px-3 pt-1 pb-3">
+<!-- Indented to line up with the name and buttons of the model's row. -->
+<div class="border-t border-line-soft bg-surface pt-2 pr-3 pb-3 pl-[32px]">
   {#if known && (known.aliases?.length || known.description || known.name)}
     <div class="py-1 text-xs text-muted">
       {#if known.name && known.name !== model}<span>{#if modelShow.show === 'name'}ID <code class="text-text">{model}</code>{:else}Name <span class="text-text">{known.name}</span>{/if}. </span>{/if}
@@ -139,8 +140,8 @@
     </div>
   {/if}
 
-  <div class="flex items-center gap-2 py-1 text-xs text-muted">
-    <span>Colour and shape</span>
+  <div class="mb-2 flex items-center gap-2 py-1 text-xs text-muted">
+    <span class="shrink-0">Colour and shape</span>
     <MarkPicker {model} />
   </div>
 

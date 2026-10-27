@@ -249,7 +249,9 @@
   const dot: Record<string, string> = { ready: 'bg-primary', starting: 'bg-secondary pulse', stopping: 'bg-warn pulse' }
   const th = 'px-2 py-1.5 font-medium whitespace-nowrap'
   const btn = 'rounded border border-line bg-panel2 px-2 text-xs hover:border-primary disabled:opacity-50 disabled:hover:border-line'
-  const act2 = 'rounded border border-line bg-panel2 px-2 py-px text-[11.5px] hover:border-primary disabled:opacity-50 disabled:hover:border-line'
+  // The second line's buttons are all 20 px tall. The tab buttons have a
+  // clear border so they match the bordered ones.
+  const act2 = 'inline-flex h-[20px] items-center rounded border border-line bg-panel2 px-2 text-[11.5px] hover:border-primary disabled:opacity-50 disabled:hover:border-line'
 </script>
 
 <svelte:window onclick={closePicker} />
@@ -282,8 +284,9 @@
      of the model's detail. m is missing for a model no longer in the config. -->
 {#snippet actions(model: string, m: RunningModel | undefined)}
   <tr class="border-b border-line-soft group-hover:bg-hover {open === model ? 'bg-hover' : ''}" onclick={() => toggle(model)}>
-    <td colspan={span} class="cursor-pointer px-2 pt-0 pb-1.5">
-      <div class="flex flex-wrap items-center gap-1 pl-[22px]">
+    <td colspan={span} class="cursor-pointer px-2 pt-1 pb-2">
+      <!-- Indented to start under the model's name: the arrow, the mark and their gaps are 25 px. -->
+      <div class="flex flex-wrap items-center gap-1 pl-[25px]">
         {#if m}
           {@const b = busy[model]}
           {#if m.state === 'stopped'}
@@ -297,13 +300,13 @@
             title={m.state === 'ready' ? 'Unload the model and load it again' : 'Only a loaded model can be restarted'}
             onclick={(e) => (e.stopPropagation(), act(model, 'restart'))}>{b === 'restart' ? 'Restarting…' : 'Restart'}</button
           >
-          <span class="mx-1 h-3.5 w-px bg-line"></span>
+          <span class="mx-1.5 h-3.5 w-px bg-line"></span>
         {/if}
         {#each detailTabs as t (t.tab)}
           {#if t.tab !== 'log' || m}
             {@const on = open === model && (openTab === t.tab || (t.tab === 'requests' && openTab === 'log' && !m))}
             <button
-              class="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11.5px] {on ? 'bg-panel2 text-primary' : 'text-muted hover:bg-panel2 hover:text-text'}"
+              class="inline-flex h-[20px] items-center gap-1 rounded border border-transparent px-1.5 text-[11.5px] {on ? 'bg-panel2 text-primary' : 'text-muted hover:bg-panel2 hover:text-text'}"
               title={t.label}
               onclick={(e) => (e.stopPropagation(), openAt(model, t.tab))}
             >
@@ -386,10 +389,10 @@
     {#each listed as m (m.model)}
       {@const s = stats.get(m.model)}
       <tbody class="group">
-        <tr class="cursor-pointer group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1 [&>td]:whitespace-nowrap {open === m.model ? 'bg-hover' : ''}" onclick={() => toggle(m.model)}>
+        <tr class="cursor-pointer group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === m.model ? 'bg-hover' : ''}" onclick={() => toggle(m.model)}>
           <td class="max-w-[360px]">
             <div class="flex items-center gap-1.5">
-              <span class="text-dim">{open === m.model ? '▾' : '▸'}</span>
+              <span class="w-2.5 shrink-0 text-center text-dim">{open === m.model ? '▾' : '▸'}</span>
               <ModelMark model={m.model} />
               <b class="truncate font-semibold" title={modelTitle(m.model)}>{modelLabel(m.model)}</b>
               {#if m.unlisted}<span class="rounded bg-line px-1 text-[10px] text-muted uppercase">unlisted</span>{/if}
@@ -418,10 +421,10 @@
       {@render head()}
       {#each gone as s (s.model)}
         <tbody class="group">
-          <tr class="cursor-pointer text-muted group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1 [&>td]:whitespace-nowrap {open === s.model ? 'bg-hover' : ''}" onclick={() => toggle(s.model)}>
+          <tr class="cursor-pointer text-muted group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === s.model ? 'bg-hover' : ''}" onclick={() => toggle(s.model)}>
             <td class="max-w-[360px]">
               <div class="flex items-center gap-1.5">
-                <span class="text-dim">{open === s.model ? '▾' : '▸'}</span>
+                <span class="w-2.5 shrink-0 text-center text-dim">{open === s.model ? '▾' : '▸'}</span>
                 <ModelMark model={s.model} />
                 <span class="truncate" title={modelTitle(s.model)}>{modelLabel(s.model)}</span>
               </div>
