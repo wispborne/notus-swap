@@ -57,6 +57,10 @@ type Recorder struct {
 	latest   Snapshot
 	ring     []second     // the last hour, oldest first
 	finished []store.Work // requests finished recently, for Account
+	// pending lists finished requests whose energy, time queued and overlap
+	// Settle must work out again, because a request that arrived before
+	// they ended was still in flight.
+	pending  []store.Work
 	starting map[string]time.Time
 }
 
@@ -178,32 +182,26 @@ func (r *Recorder) Latest() Snapshot {
 // Account works out a finished request's GPU energy and how long it waited
 // behind other requests, using Share. Time after the newest sample uses that
 // sample's reading. The energy is nil when there are no GPU readings.
+//
+// A request still in flight counts as waiting until it is first seen
+// working. With several slots, that is often long after the server started
+// on its prompt. So when a request that arrived before w ended is still in
+// flight, the answer is only a first guess, and Settle works it out again.
 func (r *Recorder) Account(w store.Work) (*float64, time.Duration) {
-	var others []store.Work
-	if r.InFlight != nil {
-		for _, o := range r.InFlight() {
-			if o.ID != w.ID {
-				others = append(others, o)
-			}
-		}
-	}
+	inFlight := r.inFlight()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// Keep requests that could still overlap one in flight. The ring only
 	// covers an hour, so older ones would not change any energy.
-	r.finished = slices.DeleteFunc(r.finished, func(f store.Work) bool { return w.Ended.Sub(f.Ended) > 2*time.Hour })
-	others = append(others, r.finished...)
+	old := func(f store.Work) bool { return w.Ended.Sub(f.Ended) > 2*time.Hour }
+	r.finished = slices.DeleteFunc(r.finished, old)
+	r.pending = slices.DeleteFunc(r.pending, old)
+	others, open := r.othersLocked(w, inFlight)
 	r.finished = append(r.finished, w)
-
-	power := make([]store.Power, 0, len(r.ring)+1)
-	for _, s := range r.ring {
-		power = append(power, store.Power{From: s.at.Add(-time.Second), To: s.at, Watts: s.gpuWatts})
+	if open {
+		r.pending = append(r.pending, w)
 	}
-	if n := len(r.ring); n > 0 && w.Ended.After(r.ring[n-1].at) {
-		last := r.ring[n-1]
-		power = append(power, store.Power{From: last.at, To: w.Ended, Watts: last.gpuWatts})
-	}
-	j, queued := Share(power, w, others)
+	j, queued := Share(r.powerLocked(w.Ended), w, others)
 	if len(r.ring) == 0 {
 		return nil, queued
 	}
@@ -213,22 +211,98 @@ func (r *Recorder) Account(w store.Work) (*float64, time.Duration) {
 // Overlap works out how long the server worked on a finished request while
 // it also worked on others, on any model. Account must have recorded it first.
 func (r *Recorder) Overlap(w store.Work) time.Duration {
-	var others []store.Work
-	if r.InFlight != nil {
-		for _, o := range r.InFlight() {
-			if o.ID != w.ID {
-				others = append(others, o)
-			}
+	inFlight := r.inFlight()
+	r.mu.Lock()
+	others, _ := r.othersLocked(w, inFlight)
+	r.mu.Unlock()
+	return Overlap(w, others)
+}
+
+// Settle works out again the energy, time queued and overlap of finished
+// requests that Account could only guess, once every request that arrived
+// before they ended has finished too. Without this, a stretch where two
+// requests were worked on together was counted in full for the one that
+// finished first, and in part for the other. Call it each time a request
+// leaves the in-flight list.
+func (r *Recorder) Settle(ctx context.Context) {
+	inFlight := r.inFlight()
+	type settled struct {
+		id               int64
+		energy           *float64
+		queued, overlaps time.Duration
+	}
+	var done []settled
+	r.mu.Lock()
+	keep := r.pending[:0]
+	for _, p := range r.pending {
+		others, open := r.othersLocked(p, inFlight)
+		// A request still in the in-flight list may not have stored its
+		// first guess yet, which would overwrite this answer.
+		if open || slices.ContainsFunc(inFlight, func(o store.Work) bool { return o.ID == p.ID }) {
+			keep = append(keep, p)
+			continue
+		}
+		j, queued := Share(r.powerLocked(p.Ended), p, others)
+		s := settled{id: p.ID, queued: queued, overlaps: Overlap(p, others)}
+		if len(r.ring) > 0 {
+			s.energy = &j
+		}
+		done = append(done, s)
+	}
+	r.pending = keep
+	r.mu.Unlock()
+	for _, s := range done {
+		if err := r.Store.SetShare(ctx, s.id, s.energy, s.queued.Milliseconds()); err != nil {
+			r.Log.Error("storing settled energy", "id", s.id, "err", err)
+		}
+		if err := r.Store.SetOverlap(ctx, s.id, s.overlaps.Milliseconds()); err != nil {
+			r.Log.Error("storing settled overlap", "id", s.id, "err", err)
 		}
 	}
-	r.mu.Lock()
+}
+
+func (r *Recorder) inFlight() []store.Work {
+	if r.InFlight == nil {
+		return nil
+	}
+	return r.InFlight()
+}
+
+// othersLocked lists the requests that could have shared the server with w:
+// those finished recently, and those in flight that Account hasn't recorded
+// yet. open reports whether any of those in flight arrived before w ended,
+// which makes the answer for w a first guess.
+func (r *Recorder) othersLocked(w store.Work, inFlight []store.Work) (others []store.Work, open bool) {
 	for _, f := range r.finished {
 		if f.ID != w.ID {
 			others = append(others, f)
 		}
 	}
-	r.mu.Unlock()
-	return Overlap(w, others)
+	for _, o := range inFlight {
+		// A request leaves the in-flight list just after Account records it.
+		if o.ID == w.ID || slices.ContainsFunc(r.finished, func(f store.Work) bool { return f.ID == o.ID }) {
+			continue
+		}
+		others = append(others, o)
+		if o.Arrived.Before(w.Ended) {
+			open = true
+		}
+	}
+	return others, open
+}
+
+// powerLocked returns the ring's GPU power, with the newest reading carried
+// on to end.
+func (r *Recorder) powerLocked(end time.Time) []store.Power {
+	power := make([]store.Power, 0, len(r.ring)+1)
+	for _, s := range r.ring {
+		power = append(power, store.Power{From: s.at.Add(-time.Second), To: s.at, Watts: s.gpuWatts})
+	}
+	if n := len(r.ring); n > 0 && end.After(r.ring[n-1].at) {
+		last := r.ring[n-1]
+		power = append(power, store.Power{From: last.at, To: end, Watts: last.gpuWatts})
+	}
+	return power
 }
 
 // OnTransition records a model changing state. A load is timed from

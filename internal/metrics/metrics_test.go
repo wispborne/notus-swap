@@ -57,6 +57,70 @@ func TestAccountSplitsWithRequestsInFlight(t *testing.T) {
 	}
 }
 
+func TestSettle(t *testing.T) {
+	ctx := context.Background()
+	r := recorder(t)
+	st := r.Store
+	t0 := time.Unix(1_800_000_000, 0)
+	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
+	for i := 1; i <= 40; i++ {
+		r.ring = append(r.ring, second{at: at(i), gpuWatts: 200})
+	}
+	begin := func() int64 {
+		id, err := st.Begin(ctx, store.Begin{StartedAt: t0, Method: "POST", Path: "/v1/chat/completions", Model: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	// Two slots. A and B both start at 0. B's first output is seen at 15,
+	// so until it ends, B counts as waiting before then.
+	a := store.Work{ID: begin(), Arrived: t0, Began: t0, Ended: at(20)}
+	b := store.Work{ID: begin(), Arrived: t0, Began: t0, Ended: at(30)}
+	bLive := store.Work{ID: b.ID, Arrived: t0, Began: at(15)}
+	finish := func(w store.Work) float64 {
+		j, q := r.Account(w)
+		ms := q.Milliseconds()
+		o := r.Overlap(w).Milliseconds()
+		if err := st.Finish(ctx, w.ID, store.Finish{FinishedAt: w.Ended, State: store.StateDone, StatusCode: 200,
+			EnergyJ: j, QueuedMs: &ms, OverlapMs: &o}); err != nil {
+			t.Fatal(err)
+		}
+		return *j
+	}
+
+	r.InFlight = func() []store.Work { return []store.Work{a, bLive} }
+	// A's first guess: 0-15 alone, 15-20 shared: 3000 + 500 J.
+	if j := finish(a); math.Abs(j-3500) > 0.01 {
+		t.Errorf("A's first guess: %v J", j)
+	}
+	r.InFlight = func() []store.Work { return []store.Work{bLive} }
+	r.Settle(ctx) // B is still in flight, so A waits.
+	// B knows A's times: 0-20 shared, 20-30 alone: 2000 + 2000 J.
+	if j := finish(b); math.Abs(j-4000) > 0.01 {
+		t.Errorf("B: %v J", j)
+	}
+	r.InFlight = func() []store.Work { return nil }
+	r.Settle(ctx)
+
+	for _, want := range []struct {
+		id      int64
+		energy  float64
+		overlap int64
+	}{{a.ID, 2000, 20000}, {b.ID, 4000, 20000}} {
+		rec, err := st.Get(ctx, want.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.EnergyJ == nil || math.Abs(*rec.EnergyJ-want.energy) > 0.01 || rec.OverlapMs == nil || *rec.OverlapMs != want.overlap {
+			t.Errorf("request %d: energy %v, overlap %v; want %v, %v", want.id, rec.EnergyJ, rec.OverlapMs, want.energy, want.overlap)
+		}
+	}
+	if len(r.pending) != 0 {
+		t.Errorf("still pending: %v", r.pending)
+	}
+}
+
 func TestShare(t *testing.T) {
 	t0 := time.Unix(1_800_000_000, 0)
 	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }

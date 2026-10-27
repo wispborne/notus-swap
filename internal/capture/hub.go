@@ -69,6 +69,9 @@ type Hub struct {
 	// request while it also worked on others. Call it after Account, which
 	// records the request.
 	Overlap func(w store.Work) time.Duration
+	// Settle, if set, runs after each request leaves the in-flight list. It
+	// works out again the energy of requests that finished alongside it.
+	Settle func()
 	// Props, if set, looks up a model's limits (context size and default
 	// output limit) for the issue checks. It returns nil when they aren't known.
 	Props func(model string) *store.ModelProps

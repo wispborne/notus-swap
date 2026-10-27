@@ -110,6 +110,9 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 			rec := recover()
 			finish(st, hub, log, id, start, r, reqBody, model, streaming, cw, upstreamErr, rec != nil)
 			hub.finish(id)
+			if hub.Settle != nil {
+				hub.Settle()
+			}
 			if rec != nil {
 				panic(rec)
 			}

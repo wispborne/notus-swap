@@ -85,10 +85,11 @@ func Overlap(r store.Work, others []store.Work) time.Duration {
 }
 
 // FillOverlap works out the overlap of requests stored before it was
-// measured. It runs once: a setting records that it finished. It returns how
+// measured, or before Settle worked it out again once overlapping requests
+// finished. It runs once: a setting records that it finished. It returns how
 // many requests overlapped another.
 func FillOverlap(ctx context.Context, st *store.Store, now time.Time) (int, error) {
-	const done = "filled_overlap"
+	const done = "filled_overlap_2"
 	if v, err := st.Setting(ctx, done); err != nil || v != "" {
 		return 0, err
 	}
@@ -118,10 +119,11 @@ func FillOverlap(ctx context.Context, st *store.Store, now time.Time) (int, erro
 		}
 		for k, g := range group {
 			others := append(slices.Clone(works[:k]), works[k+1:]...)
-			if d := Overlap(g.Work, others); d > 0 {
-				if err := st.SetOverlap(ctx, g.ID, d.Milliseconds()); err != nil {
-					return changed, err
-				}
+			d := Overlap(g.Work, others)
+			if err := st.SetOverlap(ctx, g.ID, d.Milliseconds()); err != nil {
+				return changed, err
+			}
+			if d > 0 {
 				changed++
 			}
 		}
@@ -147,11 +149,13 @@ func energyBetween(power []store.Power, a, b time.Time) float64 {
 
 // Recount works out the energy and time queued again for requests stored
 // before Share, when every request that overlapped another took an equal
-// share of the power, even while it only waited. Requests that overlapped
-// none keep the energy they have. It runs once: a setting records that it
+// share of the power, even while it only waited, and for requests stored
+// before Settle. Without Settle, requests that ran in parallel added up to
+// about 1.5 times the energy the GPUs used. Requests that overlapped none
+// keep the energy they have. It runs once: a setting records that it
 // finished. It returns how many requests it changed.
 func Recount(ctx context.Context, st *store.Store, now time.Time) (int, error) {
-	const done = "recounted_energy"
+	const done = "recounted_energy_2"
 	if v, err := st.Setting(ctx, done); err != nil || v != "" {
 		return 0, err
 	}
