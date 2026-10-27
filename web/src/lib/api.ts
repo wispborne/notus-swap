@@ -152,6 +152,8 @@ export type LiveEvent =
   | { type: 'delta'; id: number; content?: string; reasoning?: string; chunks: number; reasoning_chunks?: number; tools?: string[]; at: number }
   | { type: 'progress'; id: number; progress: Progress; at: number }
   | { type: 'finish'; id: number; at: number }
+  /** A finished request's energy, time queued and overlap were worked out again. */
+  | { type: 'settled'; id: number; at: number }
 
 export interface ListFilter {
   q?: string

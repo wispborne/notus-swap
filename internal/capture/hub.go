@@ -45,6 +45,8 @@ type Progress struct {
 //	          naming tool calls that start in this chunk)
 //	progress: how far the prompt has got (Progress)
 //	finish:   a request ended and its row is final in the store
+//	settled:  a finished request's energy, time queued and overlap were
+//	          worked out again, now that the requests it overlapped have ended
 type Event struct {
 	Type      string `json:"type"`
 	ID        int64  `json:"id"`
@@ -70,8 +72,9 @@ type Hub struct {
 	// after Account, which records the request.
 	Overlap func(w store.Work) (time.Duration, int)
 	// Settle, if set, runs after each request leaves the in-flight list. It
-	// works out again the energy of requests that finished alongside it.
-	Settle func()
+	// works out again the energy of requests that finished alongside it, and
+	// returns the ones it changed.
+	Settle func() []int64
 	// Props, if set, looks up a model's limits (context size and default
 	// output limit) for the issue checks. It returns nil when they aren't known.
 	Props func(model string) *store.ModelProps
@@ -290,6 +293,16 @@ func (h *Hub) finish(id int64) {
 		close(h.idle)
 	}
 	h.publish(Event{Type: "finish", ID: id, At: time.Now().UnixMilli()})
+}
+
+// settled tells subscribers that these finished requests' rows changed.
+func (h *Hub) settled(ids []int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	at := time.Now().UnixMilli()
+	for _, id := range ids {
+		h.publish(Event{Type: "settled", ID: id, At: at})
+	}
 }
 
 // publish must be called with h.mu held. A subscriber whose buffer is full

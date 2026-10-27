@@ -231,7 +231,7 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	go rec.Run(ctx)
 	hub.Account = rec.Account
 	hub.Overlap = rec.Overlap
-	hub.Settle = func() { rec.Settle(context.WithoutCancel(ctx)) }
+	hub.Settle = func() []int64 { return rec.Settle(context.WithoutCancel(ctx)) }
 	go func() {
 		time.Sleep(3 * time.Second)
 		if p := rec.Latest().CPUProblem; p != "" {

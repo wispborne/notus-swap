@@ -224,8 +224,8 @@ func (r *Recorder) Overlap(w store.Work) (time.Duration, int) {
 // before they ended has finished too. Without this, a stretch where two
 // requests were worked on together was counted in full for the one that
 // finished first, and in part for the other. Call it each time a request
-// leaves the in-flight list.
-func (r *Recorder) Settle(ctx context.Context) {
+// leaves the in-flight list. It returns the requests it stored again.
+func (r *Recorder) Settle(ctx context.Context) []int64 {
 	inFlight := r.inFlight()
 	type settled struct {
 		id               int64
@@ -254,7 +254,9 @@ func (r *Recorder) Settle(ctx context.Context) {
 	}
 	r.pending = keep
 	r.mu.Unlock()
+	ids := make([]int64, 0, len(done))
 	for _, s := range done {
+		ids = append(ids, s.id)
 		if err := r.Store.SetShare(ctx, s.id, s.energy, s.queued.Milliseconds()); err != nil {
 			r.Log.Error("storing settled energy", "id", s.id, "err", err)
 		}
@@ -262,6 +264,7 @@ func (r *Recorder) Settle(ctx context.Context) {
 			r.Log.Error("storing settled overlap", "id", s.id, "err", err)
 		}
 	}
+	return ids
 }
 
 func (r *Recorder) inFlight() []store.Work {

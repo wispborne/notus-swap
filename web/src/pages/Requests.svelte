@@ -101,7 +101,7 @@
         const r = summaryFromStart(e.start)
         if (matches(r) && !rows.some((x) => x.id === r.id)) rows = [r, ...rows]
         if (r.model && !models.includes(r.model)) models = [...models, r.model].sort()
-      } else if (e.type === 'finish') {
+      } else if (e.type === 'finish' || e.type === 'settled') {
         if (!rows.some((x) => x.id === e.id)) return
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { request, response_raw, response, truncated, live: _, chunks, issue_details, ...done } = await getRequest(e.id)

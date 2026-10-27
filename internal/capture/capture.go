@@ -111,7 +111,7 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 			finish(st, hub, log, id, start, r, reqBody, model, streaming, cw, upstreamErr, rec != nil)
 			hub.finish(id)
 			if hub.Settle != nil {
-				hub.Settle()
+				hub.settled(hub.Settle())
 			}
 			if rec != nil {
 				panic(rec)

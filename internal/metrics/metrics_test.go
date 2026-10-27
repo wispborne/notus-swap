@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"slices"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,13 +97,17 @@ func TestSettle(t *testing.T) {
 		t.Errorf("A's first guess: %v J", j)
 	}
 	r.InFlight = func() []store.Work { return []store.Work{bLive} }
-	r.Settle(ctx) // B is still in flight, so A waits.
+	if ids := r.Settle(ctx); len(ids) != 0 { // B is still in flight, so A waits.
+		t.Errorf("settled %v while B was in flight", ids)
+	}
 	// B knows A's times: 0-20 shared, 20-30 alone: 2000 + 2000 J.
 	if j := finish(b); math.Abs(j-4000) > 0.01 {
 		t.Errorf("B: %v J", j)
 	}
 	r.InFlight = func() []store.Work { return nil }
-	r.Settle(ctx)
+	if ids := r.Settle(ctx); !slices.Equal(ids, []int64{a.ID}) {
+		t.Errorf("settled %v, want A", ids)
+	}
 
 	for _, want := range []struct {
 		id      int64
