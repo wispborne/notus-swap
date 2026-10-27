@@ -247,6 +247,14 @@
   }
 
   const dot: Record<string, string> = { ready: 'bg-primary', starting: 'bg-secondary pulse', stopping: 'bg-warn pulse' }
+  // The State column's label for a model that isn't stopped, and the bar on
+  // the left edge of both its rows, which shows even when that column is hidden.
+  const pill: Record<string, string> = { ready: 'bg-primary/15 text-primary', starting: 'bg-secondary/15 text-secondary', stopping: 'bg-warn/15 text-warn' }
+  const edge: Record<string, string> = {
+    ready: 'shadow-[inset_3px_0_0_var(--color-primary)]',
+    starting: 'shadow-[inset_3px_0_0_var(--color-secondary)]',
+    stopping: 'shadow-[inset_3px_0_0_var(--color-warn)]',
+  }
   const th = 'px-2 py-1.5 font-medium whitespace-nowrap'
   const btn = 'rounded border border-line bg-panel2 px-2 text-xs hover:border-primary disabled:opacity-50 disabled:hover:border-line'
   // The second line's buttons are all 20 px tall. The tab buttons have a
@@ -262,10 +270,14 @@
   {#if k === 'state'}
     {#if m}
       <td>
-        <span class="inline-flex items-center gap-1.5">
-          <span class="relative top-px size-2 rounded-full {dot[m.state] ?? 'bg-line'}"></span>
-          <span class={m.state === 'stopped' ? 'text-dim' : ''}>{m.state === 'stopped' ? 'not loaded' : m.state}</span>
-        </span>
+        {#if m.state === 'stopped'}
+          <span class="text-dim">not loaded</span>
+        {:else}
+          <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-px font-medium {pill[m.state] ?? 'bg-line text-text'}">
+            <span class="size-2 rounded-full {dot[m.state] ?? 'bg-line'}"></span>
+            {m.state}
+          </span>
+        {/if}
       </td>
     {:else}<td class="text-dim">removed</td>{/if}
   {:else if k === 'context'}<td class="num text-right text-muted">{m ? (m.context_length ? m.context_length.toLocaleString() : '–') : ''}</td>
@@ -284,7 +296,7 @@
      of the model's detail. m is missing for a model no longer in the config. -->
 {#snippet actions(model: string, m: RunningModel | undefined)}
   <tr class="border-b border-line-soft group-hover:bg-hover {open === model ? 'bg-hover' : ''}" onclick={() => toggle(model)}>
-    <td colspan={span} class="cursor-pointer px-2 pt-1 pb-2">
+    <td colspan={span} class="cursor-pointer px-2 pt-1 pb-2 {m ? (edge[m.state] ?? '') : ''}">
       <!-- Indented to start under the model's name: the arrow, the mark and their gaps are 25 px. -->
       <div class="flex flex-wrap items-center gap-1 pl-[25px]">
         {#if m}
@@ -390,7 +402,7 @@
       {@const s = stats.get(m.model)}
       <tbody class="group">
         <tr class="cursor-pointer group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === m.model ? 'bg-hover' : ''}" onclick={() => toggle(m.model)}>
-          <td class="max-w-[360px]">
+          <td class="max-w-[360px] {edge[m.state] ?? ''}">
             <div class="flex items-center gap-1.5">
               <span class="w-2.5 shrink-0 text-center text-dim">{open === m.model ? '▾' : '▸'}</span>
               <ModelMark model={m.model} />
