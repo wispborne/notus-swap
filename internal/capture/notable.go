@@ -31,7 +31,7 @@ const (
 
 // TagsVersion goes up whenever the tags change. At startup, stored requests
 // get their tags worked out again if the last run used an older version.
-const TagsVersion = 5
+const TagsVersion = 6
 
 // A prompt this big with under a tenth of it cached is a cache miss.
 const (
@@ -63,6 +63,10 @@ const sampleChars = 200
 func RequestTags(path string, body []byte, streaming bool) []Tag {
 	var tags []Tag
 	x := readTagRequest(body)
+	// Tool results come first, so they sit right after an answer's tool calls.
+	if last, all := x.toolResults(); len(last) > 0 {
+		tags = append(tags, Tag{Kind: TagToolResults, N: int64(len(last)), Of: int64(all), Items: last})
+	}
 	if asked, off := x.thinking(); off {
 		tags = append(tags, Tag{Kind: TagNoThinking, Text: asked})
 	} else if asked != "" {
@@ -70,9 +74,6 @@ func RequestTags(path string, body []byte, streaming bool) []Tag {
 	}
 	if images := x.images(); len(images) > 0 {
 		tags = append(tags, Tag{Kind: TagImages, N: int64(len(images)), Items: images})
-	}
-	if last, all := x.toolResults(); len(last) > 0 {
-		tags = append(tags, Tag{Kind: TagToolResults, N: int64(len(last)), Of: int64(all), Items: last})
 	}
 	if t := x.format(); t.Kind != "" {
 		tags = append(tags, t)
@@ -88,7 +89,8 @@ func RequestTags(path string, body []byte, streaming bool) []Tag {
 }
 
 // Tags gives every tag of a finished request: the request's own, plus those
-// read from its answer. Answer tags come first. resp is nil when the answer
+// read from its answer. Answer tags come first, except that tool results
+// follow tool calls. resp is nil when the answer
 // couldn't be read. prompt and cached are the request's token counts, if known.
 func Tags(path string, body []byte, streaming bool, resp *Parsed, prompt, cached *int64) []Tag {
 	req := RequestTags(path, body, streaming)
@@ -100,6 +102,12 @@ func Tags(path string, body []byte, streaming bool, resp *Parsed, prompt, cached
 				items[i] = tc.Name + "(" + clip(strings.Join(strings.Fields(tc.Arguments), " "), 80) + ")"
 			}
 			out = append(out, Tag{Kind: TagToolCalls, N: int64(n), Items: items})
+		}
+		// Tool results follow tool calls, before thinking.
+		for _, r := range req {
+			if r.Kind == TagToolResults {
+				out = append(out, r)
+			}
 		}
 		if words := len(strings.Fields(resp.Reasoning)); words > 0 {
 			t := Tag{Kind: TagThinking, N: int64(words), Sample: clip(strings.Join(strings.Fields(resp.Reasoning), " "), sampleChars)}
@@ -115,6 +123,9 @@ func Tags(path string, body []byte, streaming bool, resp *Parsed, prompt, cached
 	for _, r := range req {
 		// Thinking that came back replaces the request's own thinking tag.
 		if (r.Kind == TagThinking || r.Kind == TagNoThinking) && hasKind(out, TagThinking) {
+			continue
+		}
+		if r.Kind == TagToolResults && hasKind(out, TagToolResults) {
 			continue
 		}
 		out = append(out, r)

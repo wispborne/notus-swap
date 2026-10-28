@@ -296,15 +296,17 @@ function parallelChip(r: Summary): Chip | undefined {
   }
 }
 
-/** Live answer tags precede request tags, matching the stored order. */
+/** Live answer tags precede request tags, with tool results right after tool calls, matching the stored order. */
 export function liveTags(tags: Tag[], f: LiveOutput | undefined): Tag[] {
   if (!f) return tags
   const out: Tag[] = []
   if (f.tools.length) out.push({ kind: 'tool_calls', n: f.tools.length, items: f.tools })
+  const results = tags.find((t) => t.kind === 'tool_results')
+  if (results) out.push(results)
   const asked = tags.find((t) => t.kind === 'thinking' || t.kind === 'no_thinking')
   // Each streamed chunk is about one token.
   if (f.reasoning) out.push({ kind: 'thinking', n: words(f.reasoning), tokens: f.reasoningChunks, est: true, text: asked?.text, sample: sample(f.reasoning) })
-  for (const t of tags) if (!(f.reasoning && t === asked)) out.push(t)
+  for (const t of tags) if (t !== results && !(f.reasoning && t === asked)) out.push(t)
   return out
 }
 
