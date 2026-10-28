@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { listRequests, type Summary } from '../api'
-  import { duration, fixed, num, pct, shortBuild, when } from '../format'
+  import { fixed, loadTime, num, pct, shortBuild, when } from '../format'
   import LogPanel from '../logs/LogPanel.svelte'
   import MarkPicker from '../MarkPicker.svelte'
   import { modelLabel, modelShow } from '../modelNames.svelte'
@@ -180,7 +180,7 @@
             <tr>
               <td class="text-muted">{when(e.at)}</td>
               <td>{e.from} → <b class="font-semibold">{e.to}</b>{#if e.auto}<span class="ml-1.5 text-dim" title="notus-swap started this load after the idle timeout">(default model)</span>{/if}</td>
-              <td class="num text-muted">{e.load_ms != null ? `loaded in ${duration(e.load_ms)}` : ''}</td>
+              <td class="num text-muted">{e.load_ms != null ? `loaded in ${loadTime(e.load_ms)}` : ''}</td>
             </tr>
           {/each}
         </tbody>

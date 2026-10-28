@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { duration, modelColor, when } from '../format'
+  import { loadTime, modelColor, when } from '../format'
   import ModelMark from '../ModelMark.svelte'
   import { live } from '../live.svelte'
   import { modelLabel, modelTitle } from '../modelNames.svelte'
@@ -51,7 +51,7 @@
         <span class="truncate" title={modelTitle(e.model)}>{modelLabel(e.model)}</span>
         {#if e.auto}<span class="text-[11px] text-dim" title="notus-swap started this load after the idle timeout">auto</span>{/if}
         <span class="flex-1"></span>
-        <span class="num">{e.load_ms != null ? duration(e.load_ms) : ''}</span>
+        <span class="num">{e.load_ms != null ? loadTime(e.load_ms) : ''}</span>
       </div>
     {:else}
       <div class="text-muted">No model loads in this range.</div>

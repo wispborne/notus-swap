@@ -15,6 +15,15 @@ export function duration(ms: number | null | undefined) {
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
 }
 
+/** A model's load time in whole seconds: "12 s", "1m 5s". */
+export function loadTime(ms: number | null | undefined) {
+  if (ms == null || !isFinite(ms)) return '–'
+  const s = Math.round(ms / 1000)
+  if (s < 1) return '<1 s'
+  if (s < 60) return `${s} s`
+  return `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
 export function num(v: number | null | undefined, digits = 0) {
   if (v == null || !isFinite(v)) return '–'
   if (v >= 10_000) return `${(v / 1000).toFixed(1)}k`

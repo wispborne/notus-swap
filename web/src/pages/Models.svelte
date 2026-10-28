@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import ChipPopover from '../lib/ChipPopover.svelte'
-  import { duration, fixed, shortBuild, when } from '../lib/format'
+  import { fixed, loadTime, shortBuild, when } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
   import { capChips, contextChip, type ModelProps } from '../lib/models/caps'
   import ModelDetail from '../lib/models/ModelDetail.svelte'
@@ -364,7 +364,7 @@
     {:else}<td class="num text-right">–</td>{/if}
   {:else if k === 'out_tps'}<td class="num text-right" title={speedTitle(s, 'gen')}>{@render withUnit(s?.current?.gen_per_second, 1, 't/s')}</td>
   {:else if k === 'in_tps'}<td class="num text-right" title={speedTitle(s, 'prompt')}>{@render withUnit(s?.current?.prompt_per_second, 0, 't/s')}</td>
-  {:else if k === 'load'}<td class="num text-right" title={s?.loads ? `${s.loads} timed loads` : ''}>{duration(s?.load_ms)}</td>
+  {:else if k === 'load'}<td class="num text-right" title={s?.loads ? `${s.loads} timed loads` : ''}>{loadTime(s?.load_ms)}</td>
   {:else if k === 'energy'}<td class="num text-right">{s?.energy_j != null ? fixed(s.energy_j / 3600, 2) : '–'}</td>
   {:else if k === 'last_used'}<td class="text-muted">{s?.last_used ? when(s.last_used) : '–'}</td>
   {/if}
