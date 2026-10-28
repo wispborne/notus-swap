@@ -13,6 +13,31 @@ The examples use `http://llm.example.com`. Use your own server's address.
 - **Model names:** requests store the name the client sent, which can be an alias from llama-swap's config. Filters and per-model numbers go by the model's ID, and a filter for a model also matches its aliases.
 - **Inference goes through the same address.** Every path outside `/notus/` is passed on to llama-swap. So `POST /v1/chat/completions` and the other OpenAI-style endpoints work on the same host and port, and each call is recorded.
 
+## For AI agents: MCP
+
+notus-swap is also an MCP server, at `/notus/mcp`. An agent that speaks MCP gets read-only tools over the same data, with descriptions, so it doesn't need this page. To add it to Claude Code:
+
+```bash
+claude mcp add --transport http notus http://llm.example.com/notus/mcp
+```
+
+Other clients take the same address as an HTTP (Streamable HTTP) server. It needs no login and keeps no sessions.
+
+| Tool | What it gives |
+|---|---|
+| `list_requests` | Recorded requests, newest first, with the same filters as `GET /notus/api/requests`. Times can be RFC 3339 or a plain date. |
+| `get_request` | One request: its body, the answer, the thinking and tool calls. Long texts are cut in the middle to `max_chars` (6,000 unless set), so the start and the end both stay. |
+| `current_status` | llama-swap's state, loaded models, each GPU, CPU and system watts, RAM, and the requests running. |
+| `model_stats` | Every configured model with its state, totals, speeds and capabilities. |
+| `model_events` | One model's loads and unloads. |
+| `model_speeds` | One model's speeds on each llama.cpp build and launch command. |
+| `hardware_history` | Average, lowest and highest watts, temperature, VRAM and use for each source over a range, and the energy used. `points` adds a series. |
+| `query_sql` | Read-only SQL, at most 1,000 rows. Only offered when the SQL API is on (see below). |
+
+The MCP tools leave out hidden models while the Settings page hides them, unlike the JSON endpoints. `query_sql` can't filter them. The tools can't change anything.
+
+Request and response text comes from whoever sent the request. A stored prompt could hold text that tries to instruct an agent. The tools only read, so such text can't make them change anything. The server's instructions also tell the agent to treat that text as data.
+
 ## Find the endpoints
 
 ```bash

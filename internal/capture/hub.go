@@ -134,6 +134,18 @@ func (h *Hub) Subscribe() (events <-chan Event, inFlight []Flight, cancel func()
 	}
 }
 
+// InFlight returns a snapshot of every request in flight, oldest first.
+func (h *Hub) InFlight() []Flight {
+	h.mu.Lock()
+	out := make([]Flight, 0, len(h.flights))
+	for _, f := range h.flights {
+		out = append(out, f.snapshot())
+	}
+	h.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Start.ID < out[j].Start.ID })
+	return out
+}
+
 // Flight is a snapshot of one request in flight.
 type Flight struct {
 	Start           Start     `json:"start"`

@@ -92,6 +92,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerModels(r)
 	a.registerAutoLoad(r)
 	a.registerDebug(r)
+	m := a.mcpHandler()
+	r.handle("POST /notus/mcp", "MCP server (Streamable HTTP, no sessions) with read-only tools over this data, for AI agents.", m.ServeHTTP)
+	mux.Handle("/notus/mcp", m) // other methods: the MCP library answers 405
 	a.endpoints = r.endpoints
 }
 
