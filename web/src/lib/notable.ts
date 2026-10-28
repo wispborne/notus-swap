@@ -185,8 +185,7 @@ function baseChip(t: Tag, inFlight: boolean): Chip {
       }
     case 'tool_results': {
       const earlier = (t.of ?? 0) - (t.n ?? 0)
-      const lines = ['The prompt ends with these answers to tool calls.']
-      if (earlier > 0) lines.push(`It holds ${plural(earlier, 'earlier tool result')} too.`)
+      const lines = earlier > 0 ? [`${plural(earlier, 'earlier result')} in the prompt`] : []
       return {
         kind: t.kind,
         icon: 'result',
@@ -296,13 +295,13 @@ function parallelChip(r: Summary): Chip | undefined {
   }
 }
 
-/** Live answer tags precede request tags, with tool results right after tool calls, matching the stored order. */
+/** Live answer tags precede request tags, with tool results right before tool calls, matching the stored order. */
 export function liveTags(tags: Tag[], f: LiveOutput | undefined): Tag[] {
   if (!f) return tags
   const out: Tag[] = []
-  if (f.tools.length) out.push({ kind: 'tool_calls', n: f.tools.length, items: f.tools })
   const results = tags.find((t) => t.kind === 'tool_results')
   if (results) out.push(results)
+  if (f.tools.length) out.push({ kind: 'tool_calls', n: f.tools.length, items: f.tools })
   const asked = tags.find((t) => t.kind === 'thinking' || t.kind === 'no_thinking')
   // Each streamed chunk is about one token.
   if (f.reasoning) out.push({ kind: 'thinking', n: words(f.reasoning), tokens: f.reasoningChunks, est: true, text: asked?.text, sample: sample(f.reasoning) })

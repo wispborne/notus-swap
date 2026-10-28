@@ -102,11 +102,11 @@ func TestTagsFromAnswer(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 
-	// Tool results sit right after the answer's tool calls.
+	// Tool results sit right before the answer's tool calls.
 	tags = Tags("/v1/chat/completions", []byte(`{"reasoning_effort":"high","messages":[
 		{"role":"assistant","tool_calls":[{"id":"a","function":{"name":"ls"}}]},
 		{"role":"tool","tool_call_id":"a","content":"x.go"}]}`), true, &resp, nil, nil)
-	if got := kinds(tags); !reflect.DeepEqual(got, []string{TagToolCalls, TagToolResults, TagThinking}) {
+	if got := kinds(tags); !reflect.DeepEqual(got, []string{TagToolResults, TagToolCalls, TagThinking}) {
 		t.Errorf("got %v", got)
 	}
 	tags = RequestTags("/v1/chat/completions", []byte(`{"reasoning_effort":"high","messages":[{"role":"tool","content":"x"}]}`), true)
