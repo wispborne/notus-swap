@@ -172,6 +172,7 @@
     title?: string
   }
   const columns = [
+    { key: 'aliases', label: 'Aliases', title: "Other names clients can use for the model, from llama-swap's config" },
     { key: 'state', label: 'State', title: 'Whether llama-swap has the model loaded' },
     { key: 'context', label: 'Context', num: true, title: 'Context size, from llama-swap' },
     { key: 'requests', label: 'Requests', num: true, title: 'Requests captured, with failed ones in brackets' },
@@ -301,7 +302,9 @@
 <!-- One cell of a movable column. m is the model's entry in llama-swap's
      config, missing for a model no longer in it. -->
 {#snippet cell(k: Col, m: RunningModel | undefined, s: Stat | undefined)}
-  {#if k === 'state'}
+  {#if k === 'aliases'}
+    <td class="text-muted" title={m?.aliases?.join(', ')}><div class="max-w-[240px] truncate">{m ? m.aliases?.join(', ') || '–' : ''}</div></td>
+  {:else if k === 'state'}
     {#if m}
       <td>
         {#if m.state === 'stopped'}
