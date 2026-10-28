@@ -1,5 +1,6 @@
 // Formats output issues detected by internal/capture/issues.go and manages per-model muting.
 import type { Issue, IssueNumbers } from './api'
+import { modelId } from './modelIds.svelte'
 
 /** Every kind, in the order the filter lists them. */
 export const issueKinds: [string, string][] = [
@@ -118,11 +119,15 @@ class IssueMutes {
   /** Goes up after each change, so pages showing issues fetch them again. */
   version = $state(0)
 
-  /** Mutes or unmutes one kind of issue for one model. */
+  /**
+   * Mutes or unmutes one kind of issue for one model. Mutes are saved under
+   * the model's ID, and cover its aliases too.
+   */
   async set(kind: string, model: string, mute: boolean) {
+    model = modelId(model)
     // Read the current list first, so a change made on another device stays.
     const res = await fetch('/notus/api/settings/issue_mutes')
-    const list: Mute[] = ((await res.json()) ?? []).filter((m: Mute) => !(m.kind === kind && m.model === model))
+    const list: Mute[] = ((await res.json()) ?? []).filter((m: Mute) => !(m.kind === kind && modelId(m.model) === model))
     if (mute) list.push({ kind, model })
     await fetch('/notus/api/settings/issue_mutes', { method: 'PUT', body: JSON.stringify(list) })
     this.version++

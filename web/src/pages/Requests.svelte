@@ -10,6 +10,7 @@
   import { heatColor, heatMap, type HeatColumn } from '../lib/heat'
   import { rowChips } from '../lib/notable'
   import { privacy } from '../lib/privacy.svelte'
+  import { modelId } from '../lib/modelIds.svelte'
   import { modelLabel, modelTitle } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
   import { sourceLabel, sourceTitle } from '../lib/source'
@@ -83,7 +84,7 @@
 
   function matches(r: Summary) {
     const f = filter
-    if (f.model && r.model !== f.model) return false
+    if (f.model && modelId(r.model) !== modelId(f.model)) return false
     if (f.state && r.state !== f.state) return false
     // A request still in flight may yet have an issue, so it stays listed.
     if (f.issue && r.state !== 'in_flight' && !(f.issue === 'any' ? r.issues.length : r.issues.includes(f.issue))) return false
@@ -100,7 +101,8 @@
       if (e.type === 'start') {
         const r = summaryFromStart(e.start)
         if (matches(r) && !rows.some((x) => x.id === r.id)) rows = [r, ...rows]
-        if (r.model && !models.includes(r.model)) models = [...models, r.model].sort()
+        const id = modelId(r.model)
+        if (id && !models.includes(id)) models = [...models, id].sort()
       } else if (e.type === 'finish' || e.type === 'settled') {
         if (!rows.some((x) => x.id === e.id)) return
         // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -1,6 +1,9 @@
 // The Requests page's heatmap: numbers that are worse than usual are drawn
 // brighter than the rest. Each column compares a request with the median of the
 // requests listed, of the same model where the number depends on the model.
+// An alias counts as its model.
+
+import { modelId } from './modelIds.svelte'
 
 export interface HeatColumn<R> {
   /** The number, or null to leave the row out. */
@@ -29,7 +32,7 @@ export function heatMap<R extends { model: string; state: string }>(rows: R[], c
     for (const r of rows) {
       const v = r.state === 'done' ? col.value(r) : null
       if (v == null || !isFinite(v) || v <= 0) continue
-      const g = col.perModel ? r.model : ''
+      const g = col.perModel ? modelId(r.model) : ''
       let list = groups.get(g)
       if (!list) groups.set(g, (list = []))
       list.push(v)
@@ -44,7 +47,7 @@ export function heatMap<R extends { model: string; state: string }>(rows: R[], c
   return (key: string, r: R): number => {
     const col = cols[key]
     if (!col || r.state !== 'done') return 0
-    const median = medians.get(`${key}\n${col.perModel ? r.model : ''}`)
+    const median = medians.get(`${key}\n${col.perModel ? modelId(r.model) : ''}`)
     const v = col.value(r)
     if (median == null || v == null || !isFinite(v) || v <= 0) return 0
     const worse = col.high ? v / median : median / v

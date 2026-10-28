@@ -1,5 +1,6 @@
 // Types for /notus/api/dashboard and the numbers the widgets derive from it.
 import type { Summary } from '../api'
+import { modelId } from '../modelIds.svelte'
 
 /** 'all' runs from the oldest thing stored until now. */
 export type Range = '15m' | '1h' | '6h' | '24h' | '7d' | '30d' | 'all'
@@ -47,6 +48,14 @@ export interface DashboardData {
     range_gpu_wh: number | null
     range_system_wh: number | null
   }
+}
+
+/**
+ * The data with each request's model given by its ID, so a request sent to
+ * an alias counts as its model in every widget. Model events already use IDs.
+ */
+export function byModelId(d: DashboardData): DashboardData {
+  return { ...d, requests: d.requests.map((r) => (modelId(r.model) === r.model ? r : { ...r, model: modelId(r.model) })) }
 }
 
 /** The fields of a request that the Dashboard draws. The server sends only these. */

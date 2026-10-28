@@ -465,7 +465,9 @@ func (s *Store) Get(ctx context.Context, id int64) (*Record, error) {
 type ListOptions struct {
 	BeforeID int64 // only requests older than this one, for paging
 	Limit    int   // default 100, at most 500
-	Model    string
+	// Models keeps requests for any of these names: a model's ID and its
+	// aliases, since requests may use any of them.
+	Models []string
 	State    string
 	Search   string // matched against the prompt preview and the model
 	// Since and Until limit the start time; zero means no limit.
@@ -500,9 +502,10 @@ func (s *Store) List(ctx context.Context, o ListOptions) ([]Record, error) {
 		q += ` AND r.id < ?`
 		args = append(args, o.BeforeID)
 	}
-	if o.Model != "" {
-		q += ` AND r.model = ?`
-		args = append(args, o.Model)
+	if len(o.Models) > 0 {
+		in, names := inList(o.Models)
+		q += ` AND r.model IN ` + in
+		args = append(args, names...)
 	}
 	if o.State != "" {
 		q += ` AND r.state = ?`
@@ -593,6 +596,15 @@ func (s *Store) Timings(ctx context.Context, from, to time.Time, limit int) ([]T
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// inList gives "(?, ?, ...)" and its arguments, for a SQL IN.
+func inList(names []string) (string, []any) {
+	args := make([]any, len(names))
+	for i, n := range names {
+		args[i] = n
+	}
+	return "(" + strings.TrimSuffix(strings.Repeat("?, ", len(names)), ", ") + ")", args
 }
 
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)

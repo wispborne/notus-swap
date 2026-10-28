@@ -2,9 +2,11 @@
 // is on. Everything is still captured and measured; only the UI filters.
 //
 // Filter through `visible()` (or the helpers below) wherever a model name
-// could appear. The settings arrive with every status poll, so a change made
+// could appear. They take a model ID or an alias: hiding a model hides its
+// aliases too. The settings arrive with every status poll, so a change made
 // on one device reaches every open page within 2 seconds.
 import type { DashboardData } from './dashboard/data'
+import { modelAliases, modelId } from './modelIds.svelte'
 
 class Privacy {
   hidden = $state<string[]>([])
@@ -12,14 +14,16 @@ class Privacy {
   /** False until the settings have been read once; pages wait for it. */
   ready = $state(false)
   private hiddenSet = $derived(new Set(this.hidden))
+  /** Every name of the hidden models: their IDs and aliases. */
+  private hiddenNames = $derived(this.hidden.flatMap((m) => [m, ...modelAliases(m)]))
 
   /** Whether a model may appear on screen right now. */
-  visible = (model: string) => this.showHidden || !this.hiddenSet.has(model)
+  visible = (model: string) => this.showHidden || !this.hiddenSet.has(modelId(model))
 
-  isHidden = (model: string) => this.hiddenSet.has(model)
+  isHidden = (model: string) => this.hiddenSet.has(modelId(model))
 
   /** Whether a log line may appear: it names no hidden model. */
-  logLine = (line: string) => this.showHidden || !this.hidden.some((m) => line.includes(m))
+  logLine = (line: string) => this.showHidden || !this.hiddenNames.some((m) => line.includes(m))
 
   /**
    * Whether a log source may appear. The combined output of all models can't

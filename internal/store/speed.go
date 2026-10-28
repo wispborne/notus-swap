@@ -260,9 +260,11 @@ type Builds struct {
 }
 
 // ModelBuilds lists a model's finished requests grouped by server build and
-// command, the group started most recently first.
-func (s *Store) ModelBuilds(ctx context.Context, model string, f SpeedFilter) (Builds, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+speedColumns+` FROM requests WHERE model = ? AND state = ? ORDER BY id`, model, StateDone)
+// command, the group started most recently first. names are the model's ID
+// and aliases.
+func (s *Store) ModelBuilds(ctx context.Context, names []string, f SpeedFilter) (Builds, error) {
+	in, args := inList(names)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+speedColumns+` FROM requests WHERE model IN `+in+` AND state = ? ORDER BY id`, append(args, StateDone)...)
 	if err != nil {
 		return Builds{}, err
 	}
@@ -334,13 +336,14 @@ type CurrentSpeeds struct {
 	PromptCounted   int      `json:"prompt_counted"`
 }
 
-// ModelCurrentSpeeds works out CurrentSpeeds. It returns nil when the model
-// has no finished request with speeds.
-func (s *Store) ModelCurrentSpeeds(ctx context.Context, model string, f SpeedFilter) (*CurrentSpeeds, error) {
+// ModelCurrentSpeeds works out CurrentSpeeds. names are the model's ID and
+// aliases. It returns nil when the model has no finished request with speeds.
+func (s *Store) ModelCurrentSpeeds(ctx context.Context, names []string, f SpeedFilter) (*CurrentSpeeds, error) {
 	var c CurrentSpeeds
+	in, args := inList(names)
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(build, ''), COALESCE(cmd_hash, '') FROM requests
-		WHERE model = ? AND state = ? AND (predicted_per_second IS NOT NULL OR prompt_per_second IS NOT NULL)
-		ORDER BY id DESC LIMIT 1`, model, StateDone).Scan(&c.Build, &c.CmdHash)
+		WHERE model IN `+in+` AND state = ? AND (predicted_per_second IS NOT NULL OR prompt_per_second IS NOT NULL)
+		ORDER BY id DESC LIMIT 1`, append(slices.Clone(args), StateDone)...).Scan(&c.Build, &c.CmdHash)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -348,8 +351,8 @@ func (s *Store) ModelCurrentSpeeds(ctx context.Context, model string, f SpeedFil
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT `+speedColumns+` FROM requests
-		WHERE model = ? AND state = ? AND COALESCE(build, '') = ? AND COALESCE(cmd_hash, '') = ?
-		ORDER BY id`, model, StateDone, c.Build, c.CmdHash)
+		WHERE model IN `+in+` AND state = ? AND COALESCE(build, '') = ? AND COALESCE(cmd_hash, '') = ?
+		ORDER BY id`, append(args, StateDone, c.Build, c.CmdHash)...)
 	if err != nil {
 		return nil, err
 	}

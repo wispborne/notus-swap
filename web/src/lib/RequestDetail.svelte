@@ -218,7 +218,7 @@
         {#if d.config}<a data-nav class="text-primary hover:underline" href="/notus/config">Open Model Config</a>{/if}
         <span class="flex-1"></span>
         <button class="text-dim hover:text-text" onclick={() => issueMutes.set(issue.kind, row.model, true)}>
-          Don't flag this for {row.model || 'requests with no model'}
+          Don't flag this for {modelLabel(row.model) || 'requests with no model'}
         </button>
       </div>
     </div>

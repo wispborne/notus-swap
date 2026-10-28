@@ -54,7 +54,7 @@ func (a *API) assignColors(ctx context.Context, config []string, others []string
 		c.config = config
 		if !c.seeded {
 			if all, err := a.Store.Models(ctx); err == nil {
-				others = append(slices.Clone(others), all...)
+				others = append(slices.Clone(others), a.modelIDs(all)...)
 				c.seeded = true
 			}
 		}
@@ -161,11 +161,12 @@ func (c *modelColors) pick(model string, added []string) int {
 }
 
 // statusColors is the model_colors for the status poll, without hidden models
-// while they are hidden.
+// while they are hidden. Aliases are left out too: the UI colours a model by
+// its ID. Older versions gave aliases colours of their own.
 func (a *API) statusColors(ctx context.Context, known []string, p Privacy) map[string]int {
 	colors := a.assignColors(ctx, known, nil)
-	if !p.ShowHidden {
-		for _, m := range p.HiddenModels {
+	for m := range colors {
+		if id := a.modelID(m); id != m || !p.ShowHidden && slices.Contains(p.HiddenModels, id) {
 			delete(colors, m)
 		}
 	}
@@ -186,7 +187,7 @@ func (a *API) statusMarks(ctx context.Context, p Privacy) map[string]Mark {
 		return out
 	}
 	for m, k := range c.marks {
-		if p.ShowHidden || !slices.Contains(p.HiddenModels, m) {
+		if id := a.modelID(m); id == m && (p.ShowHidden || !slices.Contains(p.HiddenModels, id)) {
 			out[m] = k
 		}
 	}
@@ -258,7 +259,7 @@ func (a *API) putMark(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Expected a JSON request body", http.StatusBadRequest)
 		return
 	}
-	if err := a.setMark(r.Context(), r.PathValue("model"), ch); errors.Is(err, errBadMark) {
+	if err := a.setMark(r.Context(), a.modelID(r.PathValue("model")), ch); errors.Is(err, errBadMark) {
 		http.Error(w, "Expected a palette index from 0 to 17, a colour like #40d7a3, and one of the shapes", http.StatusBadRequest)
 		return
 	} else if err != nil {

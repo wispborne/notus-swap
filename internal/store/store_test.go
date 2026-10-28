@@ -132,7 +132,8 @@ func TestListFilters(t *testing.T) {
 		}
 	}
 	check("all, newest first", ids(ListOptions{}), 3, 2, 1)
-	check("model", ids(ListOptions{Model: "qwen"}), 3, 1)
+	check("model", ids(ListOptions{Models: []string{"qwen"}}), 3, 1)
+	check("model and alias", ids(ListOptions{Models: []string{"qwen", "gemma"}}), 3, 2, 1)
 	check("search", ids(ListOptions{Search: "hello"}), 3, 2)
 	check("search matches model", ids(ListOptions{Search: "gem"}), 2)
 	check("percent is literal", ids(ListOptions{Search: "0%"}), 1)

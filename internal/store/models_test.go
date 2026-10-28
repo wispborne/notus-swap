@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,6 +37,7 @@ func TestModelStats(t *testing.T) {
 	add("a", "b1", StateDone, 10, 5, 100, &eighty)
 	add("a", "b1", StateDone, 20, 7, 50, nil) // no cache count: left out of the cache rate
 	add("a", "b1", StateFailed, 0, 0, 0, nil)
+	add("a-alias", "b1", StateDone, 30, 6, 100, &eighty) // an alias of a: counts toward a
 	ms := int64(3000)
 	st.AddModelEvent(ctx, ModelEvent{At: now.UnixMilli(), Model: "a", From: "starting", To: "ready", LoadMs: &ms})
 	// Loaded but never asked anything.
@@ -43,7 +45,8 @@ func TestModelStats(t *testing.T) {
 
 	f := DefaultSpeedFilter()
 	f.MinOutput = 1
-	stats, err := st.ModelStats(ctx, f)
+	id := func(name string) string { return strings.TrimSuffix(name, "-alias") }
+	stats, err := st.ModelStats(ctx, f, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +54,14 @@ func TestModelStats(t *testing.T) {
 		t.Fatalf("got %d models, want 2: %+v", len(stats), stats)
 	}
 	a, b := stats[0], stats[1]
-	if a.Model != "a" || a.Requests != 4 || a.Failed != 1 || a.CompletionTokens != 17 || a.Loads != 1 {
+	if a.Model != "a" || a.Requests != 5 || a.Failed != 1 || a.CompletionTokens != 23 || a.Loads != 1 {
 		t.Errorf("model a: %+v", a)
 	}
-	if a.CachedTokens != 80 || a.CacheRate == nil || *a.CacheRate != 0.8 {
-		t.Errorf("model a cache: %d tokens, rate %v", a.CachedTokens, *a.CacheRate)
+	if a.CachedTokens != 160 || a.CacheRate == nil || *a.CacheRate != 0.8 {
+		t.Errorf("model a cache: %d tokens, rate %v", a.CachedTokens, a.CacheRate)
 	}
-	// The median of 10 and 20, on build b1.
-	if c := a.Current; c == nil || c.Build != "b1" || c.GenCounted != 2 || c.GenPerSecond == nil || *c.GenPerSecond != 15 {
+	// The median of 10, 20 and 30 (sent to the alias), on build b1.
+	if c := a.Current; c == nil || c.Build != "b1" || c.GenCounted != 3 || c.GenPerSecond == nil || *c.GenPerSecond != 20 {
 		t.Errorf("model a current speeds: %+v", a.Current)
 	}
 	if b.Model != "b" || b.Current != nil || b.Requests != 0 || b.Loads != 1 || b.LoadMs == nil || *b.LoadMs != 3000 {
@@ -132,7 +135,7 @@ func TestModelBuilds(t *testing.T) {
 		t.Fatalf("filled %d, err %v", n, err)
 	}
 
-	builds, err := st.ModelBuilds(ctx, "a", DefaultSpeedFilter())
+	builds, err := st.ModelBuilds(ctx, []string{"a"}, DefaultSpeedFilter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +188,7 @@ func TestModelBuildsCompareKinds(t *testing.T) {
 	add("b2", "slow/1", 55, 40)
 	add("b2", "other/1", 999, 30) // a kind b1 doesn't have
 
-	builds, err := st.ModelBuilds(ctx, "a", DefaultSpeedFilter())
+	builds, err := st.ModelBuilds(ctx, []string{"a"}, DefaultSpeedFilter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +202,7 @@ func TestModelBuildsCompareKinds(t *testing.T) {
 	// Leaving out the other clients leaves one kind.
 	f := DefaultSpeedFilter()
 	f.ExcludeClients = []string{"fast", "other"}
-	builds, err = st.ModelBuilds(ctx, "a", f)
+	builds, err = st.ModelBuilds(ctx, []string{"a"}, f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +270,7 @@ func TestModelBuildsByCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	builds, err := st.ModelBuilds(ctx, "a", DefaultSpeedFilter())
+	builds, err := st.ModelBuilds(ctx, []string{"a"}, DefaultSpeedFilter())
 	if err != nil {
 		t.Fatal(err)
 	}

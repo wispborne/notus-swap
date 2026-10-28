@@ -4,7 +4,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { duration, num, pct, when } from '../lib/format'
   import { C } from '../lib/dashboard/charts'
-  import { cacheRate, fetchDashboard, fetchLayout, median, RANGES, savedRange, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
+  import { byModelId, cacheRate, fetchDashboard, fetchLayout, median, RANGES, savedRange, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
   import Gauge from '../lib/dashboard/Gauge.svelte'
   import Lists from '../lib/dashboard/Lists.svelte'
   import ModelScatter from '../lib/dashboard/ModelScatter.svelte'
@@ -103,8 +103,9 @@
   // ---- Time range and data ----
   let range = $state<Range>(savedRange())
   let raw = $state<DashboardData | null>(null)
-  // Hidden models are removed here, once, before any widget sees the data.
-  const data = $derived(raw && privacy.dashboard(raw))
+  // Aliases become their model's ID, and hidden models are removed, here,
+  // once, before any widget sees the data.
+  const data = $derived(raw && privacy.dashboard(byModelId(raw)))
   let error = $state('')
   // The charts zoom inside the loaded range. Choosing another range ends the zoom.
   $effect.pre(() => {

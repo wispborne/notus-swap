@@ -175,21 +175,23 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 }
 
 // list: GET /notus/api/requests?before=ID&limit=N&model=M&state=S&q=TEXT&issue=KIND
-// issue=any keeps requests with any issue. The first page (no "before") also
-// lists every model seen, for the filter.
+// issue=any keeps requests with any issue. model=M keeps requests that used
+// the model's ID or any of its aliases. The first page (no "before") also
+// lists every model seen by ID, for the filter.
 func (a *API) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	mutes, err := a.Store.IssueMutes(r.Context())
+	mutes, err := a.issueMutes(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	recs, err := a.Store.List(r.Context(), store.ListOptions{
-		BeforeID: before, Limit: limit, Model: q.Get("model"), State: q.Get("state"), Search: q.Get("q"),
-		Issue: q.Get("issue"), Mutes: mutes,
-	})
+	o := store.ListOptions{BeforeID: before, Limit: limit, State: q.Get("state"), Search: q.Get("q"), Issue: q.Get("issue"), Mutes: mutes}
+	if m := q.Get("model"); m != "" {
+		o.Models = a.modelNames(m)
+	}
+	recs, err := a.Store.List(r.Context(), o)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -202,10 +204,12 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 		out.Requests[i] = summary(&recs[i])
 	}
 	if before == 0 {
-		if out.Models, err = a.Store.Models(r.Context()); err != nil {
+		names, err := a.Store.Models(r.Context())
+		if err != nil {
 			a.fail(w, err)
 			return
 		}
+		out.Models = a.modelIDs(names)
 		a.assignColors(r.Context(), nil, out.Models)
 	}
 	writeJSONGzip(w, r, out)
@@ -256,7 +260,7 @@ func (a *API) get(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	mutes, err := a.Store.IssueMutes(r.Context())
+	mutes, err := a.issueMutes(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return

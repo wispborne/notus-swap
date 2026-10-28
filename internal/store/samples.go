@@ -293,54 +293,102 @@ type ModelStat struct {
 }
 
 // ModelStats lists every model seen in requests or model events, with its
-// totals and its speeds on its current build (see ModelCurrentSpeeds).
-func (s *Store) ModelStats(ctx context.Context, f SpeedFilter) ([]ModelStat, error) {
+// totals and its speeds on its current build (see ModelCurrentSpeeds). id
+// gives the model ID for a name that may be an alias, so an alias's requests
+// count toward its model.
+func (s *Store) ModelStats(ctx context.Context, f SpeedFilter, id func(string) string) ([]ModelStat, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH totals AS (
 			SELECT model, COUNT(*) AS n, SUM(state = 'failed') AS failed, MAX(started_at) AS last_used,
 				COALESCE(SUM(prompt_tokens), 0) AS pt, COALESCE(SUM(completion_tokens), 0) AS ct, SUM(energy_j) AS e,
 				COALESCE(SUM(cached_tokens), 0) AS cached,
-				SUM(cached_tokens) * 1.0 / NULLIF(SUM(CASE WHEN cached_tokens IS NOT NULL THEN prompt_tokens END), 0) AS rate
+				COALESCE(SUM(CASE WHEN cached_tokens IS NOT NULL THEN prompt_tokens END), 0) AS cache_of
 			FROM requests WHERE model != '' GROUP BY model
 		), loads AS (
 			SELECT model, COUNT(load_ms) AS n, AVG(load_ms) AS ms, MAX(at) AS last
 			FROM model_events WHERE to_state = 'ready' AND load_ms IS NOT NULL GROUP BY model
 		)
-		SELECT t.model, t.n, t.failed, t.last_used, t.pt, t.ct, t.cached, t.rate, t.e,
+		SELECT t.model, t.n, t.failed, t.last_used, t.pt, t.ct, t.cached, t.cache_of, t.e,
 			COALESCE(l.n, 0), l.ms, l.last
 		FROM totals t LEFT JOIN loads l USING (model)
 		UNION ALL
-		SELECT l.model, 0, 0, NULL, 0, 0, 0, NULL, NULL, l.n, l.ms, l.last
-		FROM loads l WHERE l.model NOT IN (SELECT model FROM totals)
-		ORDER BY 1`)
+		SELECT l.model, 0, 0, NULL, 0, 0, 0, 0, NULL, l.n, l.ms, l.last
+		FROM loads l WHERE l.model NOT IN (SELECT model FROM totals)`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []ModelStat{}
+	type stat struct {
+		ModelStat
+		names   []string
+		cacheOf int64 // prompt tokens of requests that report a cache count
+	}
+	byID := map[string]*stat{}
 	for rows.Next() {
 		var m ModelStat
-		if err := rows.Scan(&m.Model, &m.Requests, &m.Failed, &m.LastUsed, &m.PromptTokens, &m.CompletionTokens,
-			&m.CachedTokens, &m.CacheRate, &m.EnergyJ, &m.Loads, &m.LoadMs, &m.LastLoaded); err != nil {
+		var name string
+		var cacheOf int64
+		if err := rows.Scan(&name, &m.Requests, &m.Failed, &m.LastUsed, &m.PromptTokens, &m.CompletionTokens,
+			&m.CachedTokens, &cacheOf, &m.EnergyJ, &m.Loads, &m.LoadMs, &m.LastLoaded); err != nil {
 			return nil, err
 		}
-		out = append(out, m)
+		m.Model = id(name)
+		t := byID[m.Model]
+		if t == nil {
+			byID[m.Model] = &stat{ModelStat: m, names: []string{name}, cacheOf: cacheOf}
+			continue
+		}
+		t.names = append(t.names, name)
+		t.Requests += m.Requests
+		t.Failed += m.Failed
+		t.LastUsed = maxPtr(t.LastUsed, m.LastUsed)
+		t.PromptTokens += m.PromptTokens
+		t.CompletionTokens += m.CompletionTokens
+		t.CachedTokens += m.CachedTokens
+		t.cacheOf += cacheOf
+		if m.EnergyJ != nil {
+			t.EnergyJ = new(*m.EnergyJ + derefOr(t.EnergyJ, 0))
+		}
+		if m.Loads > 0 {
+			t.LoadMs = new((derefOr(t.LoadMs, 0)*float64(t.Loads) + *m.LoadMs*float64(m.Loads)) / float64(t.Loads+m.Loads))
+			t.Loads += m.Loads
+		}
+		t.LastLoaded = maxPtr(t.LastLoaded, m.LastLoaded)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	rows.Close()
-	for i := range out {
-		if out[i].Requests == 0 {
-			continue
+	out := make([]ModelStat, 0, len(byID))
+	for _, t := range byID {
+		if t.cacheOf > 0 {
+			t.CacheRate = new(float64(t.CachedTokens) / float64(t.cacheOf))
 		}
-		c, err := s.ModelCurrentSpeeds(ctx, out[i].Model, f)
-		if err != nil {
-			return nil, err
+		if t.Requests > 0 {
+			c, err := s.ModelCurrentSpeeds(ctx, t.names, f)
+			if err != nil {
+				return nil, err
+			}
+			t.Current = c
 		}
-		out[i].Current = c
+		out = append(out, t.ModelStat)
 	}
+	slices.SortFunc(out, func(a, b ModelStat) int { return cmp.Compare(a.Model, b.Model) })
 	return out, nil
+}
+
+func maxPtr[T cmp.Ordered](a, b *T) *T {
+	if a == nil || b != nil && *b > *a {
+		return b
+	}
+	return a
+}
+
+func derefOr[T any](p *T, v T) T {
+	if p == nil {
+		return v
+	}
+	return *p
 }
 
 // Earliest is the time of the oldest thing stored: a request, a sample of

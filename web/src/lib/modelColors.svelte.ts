@@ -18,6 +18,11 @@
 // shape for any model, on the Settings page or in the Models page's detail.
 // The shape and own colour are kept in the model_marks setting, and arrive
 // with the status poll too.
+//
+// Every function here takes a model ID or an alias; an alias gets its
+// model's colour and shape.
+import { modelId } from './modelIds.svelte'
+
 export const palette = [
   '#40d7a3', '#b69cff', '#f0b85a', '#5b8cff', '#ff7a9a', '#18ffff', '#e95cf0', '#c4e36b', '#ff5a36',
   '#e6e6e6', '#8f98a8', '#7cc7ff', '#8a5cff', '#ffb8d0', '#d6487a', '#ff8a2a', '#c99a72', '#2fae6e',
@@ -63,15 +68,15 @@ export function setModelMarks(next: Record<string, Mark>) {
 
 /** A model's shape. Circle unless one was chosen. */
 export function modelShape(model: string): Shape {
-  const s = marks[model]?.shape
+  const s = marks[modelId(model)]?.shape
   return s && s in shapes ? s : 'circle'
 }
 
 /** The palette index the server gave a model, if any. */
-export const paletteIndex = (model: string): number | undefined => stored[model]
+export const paletteIndex = (model: string): number | undefined => stored[modelId(model)]
 
 /** A model's colour outside the palette, if one was chosen. */
-export const customColor = (model: string) => marks[model]?.color
+export const customColor = (model: string) => marks[modelId(model)]?.color
 
 /**
  * Changes for every change to any colour or shape. Charts read it with `void`
@@ -84,6 +89,7 @@ export const marksKey = () => JSON.stringify(stored) + JSON.stringify(marks)
  * colour and drops an own colour; `color` is an own colour.
  */
 export async function saveMark(model: string, change: { palette?: number; color?: string; shape: Shape }) {
+  model = modelId(model)
   const res = await fetch(`/notus/api/models/${encodeURIComponent(model)}/mark`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -109,6 +115,7 @@ export function setModelColors(colors: Record<string, number>) {
 }
 
 export function modelColor(model: string) {
+  model = modelId(model)
   const own = marks[model]?.color
   if (own) return own
   const i = stored[model]

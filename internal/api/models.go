@@ -24,9 +24,10 @@ func (a *API) registerModels(mux *http.ServeMux) {
 }
 
 // models: GET /notus/api/models. notus-swap's own numbers for every model it
-// has seen. The model list and states come from the status poll.
+// has seen, by model ID: requests that used an alias count toward its model.
+// The model list and states come from the status poll.
 func (a *API) models(w http.ResponseWriter, r *http.Request) {
-	stats, err := a.Store.ModelStats(r.Context(), a.SpeedFilter(r.Context()))
+	stats, err := a.Store.ModelStats(r.Context(), a.SpeedFilter(r.Context()), a.modelID)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -37,7 +38,7 @@ func (a *API) models(w http.ResponseWriter, r *http.Request) {
 // modelEvents: GET /notus/api/models/{model}/events?limit=N, newest first.
 func (a *API) modelEvents(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	evs, err := a.Store.ModelEventsFor(r.Context(), r.PathValue("model"), limit)
+	evs, err := a.Store.ModelEventsFor(r.Context(), a.modelID(r.PathValue("model")), limit)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -58,7 +59,7 @@ func (a *API) modelBuilds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	builds, err := a.Store.ModelBuilds(r.Context(), r.PathValue("model"), f)
+	builds, err := a.Store.ModelBuilds(r.Context(), a.modelNames(r.PathValue("model")), f)
 	if err != nil {
 		a.fail(w, err)
 		return
