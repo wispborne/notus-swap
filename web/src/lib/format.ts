@@ -21,6 +21,12 @@ export function num(v: number | null | undefined, digits = 0) {
   return v.toFixed(digits)
 }
 
+/** 12345.6 as "12,345.6" with digits=1. */
+export function fixed(v: number | null | undefined, digits = 0) {
+  if (v == null || !isFinite(v)) return '–'
+  return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
 /** 0.834 as "83%". */
 export function pct(v: number | null | undefined) {
   if (v == null || !isFinite(v)) return '–'

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { duration, joules, num, pct, shortBuild, when } from '../lib/format'
+  import { duration, fixed, shortBuild, when } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
   import ModelDetail from '../lib/models/ModelDetail.svelte'
   import TabIcon from '../lib/models/TabIcon.svelte'
@@ -61,6 +61,16 @@
   })
 
   let showUnlisted = $state(localGet('models-unlisted') === '1')
+  // Numbers look as they do on the Requests page, and follow its Show units
+  // and Colorful choices. Show units can be changed here too.
+  let units = $state(localGet('requests_units') !== 'false')
+  const colorful = localGet('requests_colorful') !== 'false'
+  function toggleUnits() {
+    units = !units
+    try {
+      localStorage.setItem('requests_units', String(units))
+    } catch {}
+  }
   function localGet(k: string) {
     try {
       return localStorage.getItem(k)
@@ -176,11 +186,11 @@
     { key: 'state', label: 'State', title: 'Whether llama-swap has the model loaded' },
     { key: 'context', label: 'Context', num: true, title: 'Context size, from llama-swap' },
     { key: 'requests', label: 'Requests', num: true, title: 'Requests captured, with failed ones in brackets' },
-    { key: 'cache', label: 'Cache', num: true, title: 'Share of prompt tokens reused from the cache, over all requests' },
+    { key: 'cache', label: 'Cache %', num: true, title: 'Share of prompt tokens reused from the cache, over all requests' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: "Median output speed for the model's current build and settings. Choose included requests in the Speed tab." },
     { key: 'in_tps', label: 'In t/s', num: true, title: "Median prompt speed for the model's current build and settings. Choose included requests in the Speed tab." },
     { key: 'load', label: 'Load time', num: true, title: 'Average time from starting to ready' },
-    { key: 'energy', label: 'Energy', num: true, title: 'Total GPU energy for this model' },
+    { key: 'energy', label: 'Energy Wh', num: true, title: 'Total GPU energy for this model, in watt-hours' },
     { key: 'last_used', label: 'Last used', title: 'When the model last got a request' },
   ] as const satisfies readonly Column[]
   type Col = (typeof columns)[number]['key']
@@ -286,6 +296,11 @@
 
 <svelte:window onclick={windowClick} />
 
+<!-- The unit is dimmed, and left off when there is no number. -->
+{#snippet withUnit(v: number | null | undefined, digits: number, unit: string)}
+  {fixed(v, digits)}{#if units && v != null && isFinite(v)}<span class="ml-0.5 text-dim">{unit}</span>{/if}
+{/snippet}
+
 <!-- Load, unload or restart, each needing a second click to confirm. -->
 {#snippet actButton(model: string, action: 'load' | 'unload' | 'restart', disabled: boolean, title?: string)}
   {@const key = `${model} ${action}`}
@@ -317,13 +332,20 @@
         {/if}
       </td>
     {:else}<td class="text-dim">removed</td>{/if}
-  {:else if k === 'context'}<td class="num text-right text-muted">{m ? (m.context_length ? m.context_length.toLocaleString() : '–') : ''}</td>
-  {:else if k === 'requests'}<td class="num text-right">{s?.requests ?? 0}{#if s?.failed}{' '}<span class="text-err" title="failed">({s.failed})</span>{/if}</td>
-  {:else if k === 'cache'}<td class="num text-right" title={s?.cached_tokens ? `${s.cached_tokens.toLocaleString('en-US')} of ${s.prompt_tokens.toLocaleString('en-US')} prompt tokens` : ''}>{pct(s?.cache_rate)}</td>
-  {:else if k === 'out_tps'}<td class="num text-right" title={speedTitle(s, 'gen')}>{num(s?.current?.gen_per_second, 1)}</td>
-  {:else if k === 'in_tps'}<td class="num text-right" title={speedTitle(s, 'prompt')}>{num(s?.current?.prompt_per_second)}</td>
+  {:else if k === 'context'}<td class="num text-right text-muted">{#if m}{@render withUnit(m.context_length || null, 0, 't')}{/if}</td>
+  {:else if k === 'requests'}<td class="num text-right">{fixed(s?.requests ?? 0)}{#if s?.failed}{' '}<span class="text-err" title="failed">({fixed(s.failed)})</span>{/if}</td>
+  {:else if k === 'cache'}
+    {#if s?.cache_rate != null}
+      <!-- A bar under the number shows the share, as on the Requests page. -->
+      <td class="num relative text-right" title="{fixed(s.cached_tokens)} of {fixed(s.prompt_tokens)} prompt tokens from the cache">
+        {fixed(s.cache_rate * 100)}
+        <span class="absolute inset-x-1.5 bottom-0 h-0.5 rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{s.cache_rate * 100}%" style:background={colorful ? 'var(--color-primary)' : 'var(--color-dim)'}></span></span>
+      </td>
+    {:else}<td class="num text-right">–</td>{/if}
+  {:else if k === 'out_tps'}<td class="num text-right" title={speedTitle(s, 'gen')}>{@render withUnit(s?.current?.gen_per_second, 1, 't/s')}</td>
+  {:else if k === 'in_tps'}<td class="num text-right" title={speedTitle(s, 'prompt')}>{@render withUnit(s?.current?.prompt_per_second, 0, 't/s')}</td>
   {:else if k === 'load'}<td class="num text-right" title={s?.loads ? `${s.loads} timed loads` : ''}>{duration(s?.load_ms)}</td>
-  {:else if k === 'energy'}<td class="num text-right">{s?.energy_j != null ? joules(s.energy_j) : '–'}</td>
+  {:else if k === 'energy'}<td class="num text-right">{s?.energy_j != null ? fixed(s.energy_j / 3600, 2) : '–'}</td>
   {:else if k === 'last_used'}<td class="text-muted">{s?.last_used ? when(s.last_used) : '–'}</td>
   {/if}
 {/snippet}
@@ -394,6 +416,10 @@
   <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
     <input type="checkbox" checked={showUnlisted} onchange={toggleUnlisted} class="accent-primary" />
     Show unlisted ({unlistedCount})
+  </label>
+  <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted" title="Show t after token counts and t/s after speeds. The Requests page uses the same choice.">
+    <input type="checkbox" checked={units} onchange={toggleUnits} class="accent-primary" />
+    Show units
   </label>
   <details bind:this={picker} class="relative text-xs">
     <summary class="cursor-pointer list-none rounded border border-line bg-panel2 px-2 text-muted hover:text-text">Columns</summary>

@@ -29,6 +29,58 @@ export interface Chip {
   mono?: boolean
   /** Thinking: the start of the thinking text, shown after the lines. */
   sample?: string
+  /** Tool calls: each call's name and arguments, shown in place of the lines. */
+  calls?: ToolCall[]
+  /** Tool calls: how many there were, which can be more than calls lists. */
+  total?: number
+}
+
+export interface ToolCall {
+  name: string
+  /** Each argument; key is missing when the arguments aren't a JSON object. */
+  args: { key?: string; value: string }[]
+}
+
+/** The popover lists this many tool calls, then says how many more there were. */
+const maxCalls = 8
+
+/**
+ * Splits a tool_calls item, `name({"key":"value",...})`, into the name and
+ * each argument. The server cuts the arguments to 80 characters, so they may
+ * not parse as JSON; then the keys are found by their quotes. A live item is
+ * the name alone.
+ */
+export function toolCall(item: string): ToolCall {
+  const m = item.match(/^([^(]*)\(([\s\S]*)\)$/)
+  if (!m) return { name: item, args: [] }
+  const [, name, raw] = m
+  if (!raw) return { name, args: [] }
+  try {
+    const v = JSON.parse(raw)
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return { name, args: Object.entries(v).map(([key, x]) => ({ key, value: typeof x === 'string' ? x : JSON.stringify(x) })) }
+    }
+  } catch {
+    // Cut short; split it by hand below.
+  }
+  // A key cut off before its colon becomes a lone "…" at the end.
+  const cutKey = /,\s*"[^"]*…$/
+  const body = raw.replace(cutKey, '')
+  const parts = body.replace(/^\{/, '').replace(/\}$/, '').split(/(?:^|,)\s*"([^"\\]{1,40})":\s*/)
+  if (parts.length < 3 || parts[0].trim()) return { name, args: [{ value: raw }] }
+  const args: ToolCall['args'] = []
+  for (let i = 1; i < parts.length; i += 2) args.push({ key: parts[i], value: unquote(parts[i + 1]) })
+  if (body !== raw) args.push({ value: '…' })
+  return { name, args }
+}
+
+/** A JSON string value without its quotes and escapes; it may be cut short. */
+function unquote(s: string) {
+  return s
+    .replace(/^"/, '')
+    .replace(/"$/, '')
+    .replace(/\\([nrt])/g, ' ')
+    .replace(/\\(["\\/])/g, '$1')
 }
 
 const n = (v: number) => v.toLocaleString('en-US')
@@ -113,7 +165,16 @@ function baseChip(t: Tag, inFlight: boolean): Chip {
   const count = t.n && t.n > 1 ? n(t.n) : ''
   switch (t.kind) {
     case 'tool_calls':
-      return { kind: t.kind, icon: 'tool', label: count, bright: true, title: plural(t.n ?? 0, 'tool call'), lines: t.items ?? [], mono: true }
+      return {
+        kind: t.kind,
+        icon: 'tool',
+        label: count,
+        bright: true,
+        title: plural(t.n ?? 0, 'tool call'),
+        lines: [],
+        calls: (t.items ?? []).slice(0, maxCalls).map(toolCall),
+        total: Math.max(t.n ?? 0, t.items?.length ?? 0),
+      }
     case 'thinking': {
       const suffix = inFlight ? ' so far' : ''
       const lines = [t.text ? `Asked for: ${t.text}` : 'No thinking setting in the request']

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import { listRequests, getRequest, summaryFromStart, type ListFilter, type Summary } from '../lib/api'
-  import { shortBuild, when } from '../lib/format'
+  import { fixed, shortBuild, when } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
   import { issueKinds, issueMutes } from '../lib/issues.svelte'
   import { live, liveOutSpeed } from '../lib/live.svelte'
@@ -122,10 +122,6 @@
 
   // Each column uses one unit and one number of decimals for every row, so
   // big and small values can be told apart at a glance.
-  function fixed(v: number | null | undefined, digits = 0) {
-    if (v == null || !isFinite(v)) return '–'
-    return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  }
   const secs = (ms: number | null) => (ms == null ? '–' : fixed(ms / 1000, 2))
   const elapsed = (r: Summary) => Math.max(0, (r.finished_at ?? now) - r.started_at)
 
@@ -442,12 +438,13 @@
   }
 
   // Shows "t" after token counts and "t/s" after speeds. Saved per browser.
+  // On unless turned off.
   let units = $state(savedUnits())
   function savedUnits() {
     try {
-      return localStorage.getItem('requests_units') === 'true'
+      return localStorage.getItem('requests_units') !== 'false'
     } catch {
-      return false
+      return true
     }
   }
   function toggleUnits() {
