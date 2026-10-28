@@ -55,11 +55,11 @@ export interface Tag {
   kind: string
   /** A count: tool calls, images, words of thinking, or cached tokens. */
   n?: number
-  /** For cache_miss: the prompt's size. */
+  /** For cache_miss: the prompt's size. For tool_results: every tool result in the prompt. */
   of?: number
   /** What the request asked for, a schema name, or the path. */
   text?: string
-  /** Tool calls or image formats. */
+  /** Tool calls, tool results (name, a tab, and the output), or image formats. */
   items?: string[]
   /** For thinking: how many output tokens were thinking. */
   tokens?: number

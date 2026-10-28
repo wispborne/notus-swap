@@ -4,7 +4,7 @@ import type { Summary, Tag } from './api'
 import { issueKinds } from './issues.svelte'
 import type { LiveOutput } from './live.svelte'
 
-export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'audio' | 'warn' | 'nostream' | 'parallel'
+export type Icon = 'tool' | 'result' | 'think' | 'nothink' | 'image' | 'audio' | 'warn' | 'nostream' | 'parallel'
 
 export interface Chip {
   kind: string
@@ -29,9 +29,9 @@ export interface Chip {
   mono?: boolean
   /** Thinking: the start of the thinking text, shown after the lines. */
   sample?: string
-  /** Tool calls: each call's name and arguments, shown in place of the lines. */
+  /** Tool calls: each call's name and arguments, shown after the lines. Tool results: each tool's name and output. */
   calls?: ToolCall[]
-  /** Tool calls: how many there were, which can be more than calls lists. */
+  /** Tool calls or results: how many there were, which can be more than calls lists. */
   total?: number
 }
 
@@ -74,6 +74,13 @@ export function toolCall(item: string): ToolCall {
   return { name, args }
 }
 
+/** Splits a tool_results item, the tool's name, a tab, and its output. */
+function toolResult(item: string): ToolCall {
+  const tab = item.indexOf('	')
+  const [name, output] = tab < 0 ? ['', item] : [item.slice(0, tab), item.slice(tab + 1)]
+  return { name: name || 'Unknown tool', args: [{ value: output || '(empty)' }] }
+}
+
 /** A JSON string value without its quotes and escapes; it may be cut short. */
 function unquote(s: string) {
   return s
@@ -105,6 +112,7 @@ const paths: Record<string, [string, string]> = {
 /** Colors for the Colorful option; unlisted kinds stay grey. */
 const colors: Record<string, string> = {
   tool_calls: '#18ffff',
+  tool_results: '#18ffff',
   thinking: '#b69cff',
   images: '#40d7a3',
   json: '#6aa8ff',
@@ -175,6 +183,23 @@ function baseChip(t: Tag, inFlight: boolean): Chip {
         calls: (t.items ?? []).slice(0, maxCalls).map(toolCall),
         total: Math.max(t.n ?? 0, t.items?.length ?? 0),
       }
+    case 'tool_results': {
+      const earlier = (t.of ?? 0) - (t.n ?? 0)
+      const lines = ['The prompt ends with these answers to tool calls.']
+      if (earlier > 0) lines.push(`It holds ${plural(earlier, 'earlier tool result')} too.`)
+      return {
+        kind: t.kind,
+        icon: 'result',
+        label: count,
+        bright: false,
+        // Tool calls' cyan, dimmer, because these are in the request rather than the answer.
+        strength: { text: 70, fill: 10 },
+        title: plural(t.n ?? 0, 'tool result'),
+        lines,
+        calls: (t.items ?? []).slice(0, maxCalls).map(toolResult),
+        total: Math.max(t.n ?? 0, t.items?.length ?? 0),
+      }
+    }
     case 'thinking': {
       const suffix = inFlight ? ' so far' : ''
       const lines = [t.text ? `Asked for: ${t.text}` : 'No thinking setting in the request']

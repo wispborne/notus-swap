@@ -22,6 +22,9 @@
     {#if name === 'tool'}
       <!-- Filled, so it reads better at 11 px than the outline alone. -->
       <path d="M10.5 2.5a3 3 0 0 0-3.2 4.1L2.8 11.1a1.4 1.4 0 0 0 2 2l4.5-4.5a3 3 0 0 0 4.1-3.2l-1.9 1.9-1.8-.4-.4-1.8z" fill="currentColor" stroke-width="1" />
+    {:else if name === 'result'}
+      <!-- A solid arrow that rises and turns back left: an answer going back to the model. -->
+      <path d="M1 6 6 1.5v9zM6 4.5h5a4 4 0 0 1 4 4V14h-3V8.5a1 1 0 0 0-1-1H6z" fill="currentColor" stroke="none" />
     {:else if name === 'think' || name === 'nothink'}
       <path d="M4 9.5a3 3 0 0 1 .6-5.9 3.3 3.3 0 0 1 6.2-.4A2.9 2.9 0 0 1 12 9.5z" />
       <circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none" />

@@ -285,3 +285,47 @@ func TestReasoningTokens(t *testing.T) {
 		t.Errorf("no output count: %d", n)
 	}
 }
+
+func TestToolResults(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		body string
+		want []string
+		all  int64
+	}{
+		{"chat", "/v1/chat/completions", `{"messages":[
+			{"role":"user","content":"list files"},
+			{"role":"assistant","tool_calls":[{"id":"a","function":{"name":"ls"}}]},
+			{"role":"tool","tool_call_id":"a","content":"x.go"},
+			{"role":"assistant","tool_calls":[{"id":"b","function":{"name":"read"}},{"id":"c","function":{"name":"grep"}}]},
+			{"role":"tool","tool_call_id":"b","content":"package   main\n\nfunc"},
+			{"role":"tool","tool_call_id":"c","content":[{"type":"text","text":"no match"}]}]}`,
+			[]string{"read\tpackage main func", "grep\tno match"}, 3},
+		{"responses", "/v1/responses", `{"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},
+			{"type":"reasoning","summary":[]},
+			{"type":"function_call","call_id":"a","name":"shell","arguments":"{}"},
+			{"type":"function_call_output","call_id":"a","output":"ok"},
+			{"type":"custom_tool_call","call_id":"b","name":"apply_patch","input":"..."},
+			{"type":"custom_tool_call_output","call_id":"b","output":"Done"}]}`,
+			[]string{"shell\tok", "apply_patch\tDone"}, 2},
+		{"anthropic", "/v1/messages", `{"messages":[
+			{"role":"user","content":"hi"},
+			{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"done"}]},{"type":"text","text":"note"}]}]}`,
+			[]string{"Bash\tdone"}, 1},
+		{"answered since", "/v1/chat/completions", `{"messages":[
+			{"role":"assistant","tool_calls":[{"id":"a","function":{"name":"ls"}}]},
+			{"role":"tool","tool_call_id":"a","content":"x.go"},
+			{"role":"assistant","content":"There is one file."},
+			{"role":"user","content":"thanks"}]}`,
+			nil, 0},
+	}
+	for _, c := range cases {
+		got := find(RequestTags(c.path, []byte(c.body), true), TagToolResults)
+		if !reflect.DeepEqual(got.Items, c.want) || got.N != int64(len(c.want)) || got.Of != c.all {
+			t.Errorf("%s: got %+v, want items %q and %d in all", c.name, got, c.want, c.all)
+		}
+	}
+}

@@ -12,15 +12,16 @@ import (
 // Kinds of tag for the Requests page's Notable column. The UI has a label
 // and a popover for each.
 const (
-	TagToolCalls   = "tool_calls"  // tool calls returned in the answer; Items lists them
-	TagThinking    = "thinking"    // thinking requested or returned
-	TagNoThinking  = "no_thinking" // thinking disabled by the request, with no reasoning returned
-	TagImages      = "images"      // images in the request; Items lists their formats
-	TagJSON        = "json"        // the request asked for any JSON object
-	TagSchema      = "schema"      // the request asked for JSON matching a schema
-	TagResponses   = "responses"   // an OpenAI Responses API call
-	TagCompletions = "completions" // a plain text completion
-	TagFIM         = "fim"         // fill in the middle
+	TagToolCalls   = "tool_calls"   // tool calls returned in the answer; Items lists them
+	TagToolResults = "tool_results" // the prompt ends with tool results; Items lists them
+	TagThinking    = "thinking"     // thinking requested or returned
+	TagNoThinking  = "no_thinking"  // thinking disabled by the request, with no reasoning returned
+	TagImages      = "images"       // images in the request; Items lists their formats
+	TagJSON        = "json"         // the request asked for any JSON object
+	TagSchema      = "schema"       // the request asked for JSON matching a schema
+	TagResponses   = "responses"    // an OpenAI Responses API call
+	TagCompletions = "completions"  // a plain text completion
+	TagFIM         = "fim"          // fill in the middle
 	TagEmbeddings  = "embeddings"
 	TagRerank      = "rerank"
 	TagMessages    = "messages"     // an Anthropic Messages API call
@@ -30,7 +31,7 @@ const (
 
 // TagsVersion goes up whenever the tags change. At startup, stored requests
 // get their tags worked out again if the last run used an older version.
-const TagsVersion = 4
+const TagsVersion = 5
 
 // A prompt this big with under a tenth of it cached is a cache miss.
 const (
@@ -43,9 +44,9 @@ const (
 type Tag struct {
 	Kind  string   `json:"kind"`
 	N     int64    `json:"n,omitempty"`     // a count: tool calls, images, words of thinking, cached tokens
-	Of    int64    `json:"of,omitempty"`    // cache_miss: the prompt's size
+	Of    int64    `json:"of,omitempty"`    // cache_miss: the prompt's size; tool_results: every result in the prompt
 	Text  string   `json:"text,omitempty"`  // what the request asked for, a schema name, or the path
-	Items []string `json:"items,omitempty"` // tool calls or image formats
+	Items []string `json:"items,omitempty"` // tool calls, tool results, or image formats
 	// thinking: how many output tokens were thinking, and whether that
 	// number is an estimate (see Parsed.ReasoningTokens).
 	Tokens int64 `json:"tokens,omitempty"`
@@ -69,6 +70,9 @@ func RequestTags(path string, body []byte, streaming bool) []Tag {
 	}
 	if images := x.images(); len(images) > 0 {
 		tags = append(tags, Tag{Kind: TagImages, N: int64(len(images)), Items: images})
+	}
+	if last, all := x.toolResults(); len(last) > 0 {
+		tags = append(tags, Tag{Kind: TagToolResults, N: int64(len(last)), Of: int64(all), Items: last})
 	}
 	if t := x.format(); t.Kind != "" {
 		tags = append(tags, t)
@@ -190,8 +194,23 @@ type tagRequest struct {
 	Suffix      json.RawMessage `json:"suffix"`
 }
 
+// tagMessage is a Chat Completions or Anthropic message, or a Responses API
+// input item.
 type tagMessage struct {
-	Content json.RawMessage `json:"content"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content"`
+	ToolCallID string          `json:"tool_call_id"`
+	ToolCalls  []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	} `json:"tool_calls"`
+	// Responses API items.
+	Type   string          `json:"type"`
+	CallID string          `json:"call_id"`
+	Name   string          `json:"name"`
+	Output json.RawMessage `json:"output"`
 }
 
 func readTagRequest(b []byte) tagRequest {
@@ -271,12 +290,8 @@ func (x tagRequest) format() Tag {
 // images lists the format of each image in the request's messages, or in a
 // Responses API input.
 func (x tagRequest) images() []string {
-	messages := x.Messages
-	if len(messages) == 0 {
-		_ = json.Unmarshal(x.Input, &messages)
-	}
 	var out []string
-	for _, m := range messages {
+	for _, m := range x.messages() {
 		var parts []struct {
 			Type     string          `json:"type"`
 			ImageURL json.RawMessage `json:"image_url"`
@@ -310,6 +325,102 @@ func (x tagRequest) images() []string {
 		}
 	}
 	return out
+}
+
+// messages gives the request's messages, or its Responses API input items.
+func (x tagRequest) messages() []tagMessage {
+	if len(x.Messages) > 0 {
+		return x.Messages
+	}
+	var items []tagMessage
+	_ = json.Unmarshal(x.Input, &items)
+	return items
+}
+
+// toolResults lists the tool results at the end of the prompt, the answers
+// to the model's latest tool calls, and counts every tool result in the
+// prompt. Each item is the tool's name, a tab, and the start of its output.
+// A prompt that doesn't end with tool results has none listed.
+func (x tagRequest) toolResults() (last []string, all int) {
+	type result struct{ id, name, text string }
+	messages := x.messages()
+	names := map[string]string{} // tool call ID to tool name
+	results := make([][]result, len(messages))
+	calls := make([]bool, len(messages))
+	for i, m := range messages {
+		for _, tc := range m.ToolCalls {
+			names[tc.ID] = tc.Function.Name
+		}
+		switch {
+		case m.Role == "tool":
+			results[i] = []result{{m.ToolCallID, m.Name, plainText(m.Content)}}
+		case strings.HasSuffix(m.Type, "_call_output"): // Responses API
+			results[i] = []result{{m.CallID, "", plainText(m.Output)}}
+		case strings.HasSuffix(m.Type, "_call"):
+			calls[i] = true
+			name := m.Name
+			if name == "" {
+				name = strings.TrimSuffix(m.Type, "_call")
+			}
+			names[m.CallID] = name
+		default: // Anthropic puts tool calls and results in a message's content.
+			var parts []struct {
+				Type      string          `json:"type"`
+				ID        string          `json:"id"`
+				Name      string          `json:"name"`
+				ToolUseID string          `json:"tool_use_id"`
+				Content   json.RawMessage `json:"content"`
+			}
+			_ = json.Unmarshal(m.Content, &parts)
+			for _, p := range parts {
+				switch p.Type {
+				case "tool_use":
+					names[p.ID] = p.Name
+				case "tool_result":
+					results[i] = append(results[i], result{p.ToolUseID, "", plainText(p.Content)})
+				}
+			}
+		}
+		all += len(results[i])
+	}
+	// Walk back from the end over results. In the Responses API, each result
+	// can follow its own call.
+	start := len(messages)
+	for start > 0 && (len(results[start-1]) > 0 || calls[start-1]) {
+		start--
+	}
+	for _, rs := range results[start:] {
+		for _, r := range rs {
+			name := r.name
+			if name == "" {
+				name = names[r.id]
+			}
+			last = append(last, name+"\t"+clip(strings.Join(strings.Fields(r.text), " "), 80))
+		}
+	}
+	return last, all
+}
+
+// plainText reads a message's content, or a tool's output: a string, or a
+// list of parts whose text is joined. Anything else comes back as JSON.
+func plainText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Text *string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) == nil {
+		var texts []string
+		for _, p := range parts {
+			if p.Text != nil {
+				texts = append(texts, *p.Text)
+			}
+		}
+		return strings.Join(texts, " ")
+	}
+	return string(raw)
 }
 
 // imageFormat names an image from its URL: "PNG" for a data URL holding a
