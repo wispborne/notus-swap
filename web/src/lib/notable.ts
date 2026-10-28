@@ -4,7 +4,7 @@ import type { Summary, Tag } from './api'
 import { issueKinds } from './issues.svelte'
 import type { LiveOutput } from './live.svelte'
 
-export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'warn' | 'nostream' | 'parallel'
+export type Icon = 'tool' | 'think' | 'nothink' | 'image' | 'audio' | 'warn' | 'nostream' | 'parallel'
 
 export interface Chip {
   kind: string
@@ -87,7 +87,7 @@ const n = (v: number) => v.toLocaleString('en-US')
 const plural = (v: number, one: string, many = one + 's') => `${n(v)} ${v === 1 ? one : many}`
 
 /** 850, 7.2k, 14k: short enough for a chip. */
-function shortTokens(v: number) {
+export function shortTokens(v: number) {
   if (v < 1000) return String(v)
   if (v < 10_000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`
   return `${Math.round(v / 1000)}k`

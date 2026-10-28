@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
+  import ChipPopover from '../lib/ChipPopover.svelte'
   import { duration, fixed, shortBuild, when } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
+  import { capChips, contextChip, type ModelProps } from '../lib/models/caps'
   import ModelDetail from '../lib/models/ModelDetail.svelte'
   import TabIcon from '../lib/models/TabIcon.svelte'
   import { detailTabs, type DetailTab } from '../lib/models/tabs'
   import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
+  import NotableChips from '../lib/NotableChips.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status, type RunningModel } from '../lib/status.svelte'
 
@@ -41,13 +44,16 @@
   }
 
   let stats = $state<Map<string, Stat>>(new Map())
+  // What each model's llama-server last reported, by model ID.
+  let props = $state<Record<string, ModelProps>>({})
   let error = $state('')
   async function loadStats() {
     try {
       const res = await fetch('/notus/api/models')
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-      const body: { stats: Stat[] } = await res.json()
+      const body: { stats: Stat[]; props: Record<string, ModelProps> } = await res.json()
       stats = new Map(body.stats.map((s) => [s.model, s]))
+      props = body.props ?? {}
       error = ''
     } catch (e) {
       error = String(e)
@@ -184,7 +190,7 @@
   const columns = [
     { key: 'aliases', label: 'Aliases', title: "Other names clients can use for the model, from llama-swap's config" },
     { key: 'state', label: 'State', title: 'Whether llama-swap has the model loaded' },
-    { key: 'context', label: 'Context', num: true, title: 'Context size, from llama-swap' },
+    { key: 'caps', label: 'Capabilities', title: 'Context size, and what the model can take in and do, as its llama-server reported when it last loaded' },
     { key: 'requests', label: 'Requests', num: true, title: 'Requests captured, with failed ones in brackets' },
     { key: 'cache', label: 'Cache %', num: true, title: 'Share of prompt tokens reused from the cache, over all requests' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: "Median output speed for the model's current build and settings. Choose included requests in the Speed tab." },
@@ -295,6 +301,7 @@
 </script>
 
 <svelte:window onclick={windowClick} />
+<ChipPopover />
 
 <!-- The unit is dimmed, and left off when there is no number. -->
 {#snippet withUnit(v: number | null | undefined, digits: number, unit: string)}
@@ -332,7 +339,20 @@
         {/if}
       </td>
     {:else}<td class="text-dim">removed</td>{/if}
-  {:else if k === 'context'}<td class="num text-right text-muted">{#if m}{@render withUnit(m.context_length || null, 0, 't')}{/if}</td>
+  {:else if k === 'caps'}
+    {@const p = props[m?.model ?? s?.model ?? '']}
+    {@const ctx = contextChip(m?.context_length, p)}
+    <td>
+      <div class="flex items-center gap-[3px]">
+        <!-- As wide as the widest size, such as 250k, so the chips after it line up. -->
+        <div class="min-w-[38px]">{#if ctx}<NotableChips chips={[ctx]} {colorful} />{/if}</div>
+        {#if p?.caps}
+          <NotableChips chips={capChips(p.caps)} {colorful} />
+        {:else}
+          <span class="text-dim" title="Read from the model's llama-server when it next loads">–</span>
+        {/if}
+      </div>
+    </td>
   {:else if k === 'requests'}<td class="num text-right">{fixed(s?.requests ?? 0)}{#if s?.failed}{' '}<span class="text-err" title="failed">({fixed(s.failed)})</span>{/if}</td>
   {:else if k === 'cache'}
     {#if s?.cache_rate != null}
@@ -480,7 +500,7 @@
         </tr>
         {@render actions(m.model, m)}
         {#if open === m.model}
-          <tr><td colspan={span} class="p-0"><ModelDetail model={m.model} known={m} bind:picked={openTab} /></td></tr>
+          <tr><td colspan={span} class="p-0"><ModelDetail model={m.model} known={m} props={props[m.model]} bind:picked={openTab} /></td></tr>
         {/if}
       </tbody>
     {:else}
@@ -510,7 +530,7 @@
           </tr>
           {@render actions(s.model, undefined)}
           {#if open === s.model}
-            <tr><td colspan={span} class="p-0"><ModelDetail model={s.model} bind:picked={openTab} /></td></tr>
+            <tr><td colspan={span} class="p-0"><ModelDetail model={s.model} props={props[s.model]} bind:picked={openTab} /></td></tr>
           {/if}
         </tbody>
       {/each}

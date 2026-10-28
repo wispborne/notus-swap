@@ -144,6 +144,9 @@ var migrations = []string{
 	// overlap_n is how many other requests the server worked on during
 	// overlap_ms.
 	`ALTER TABLE requests ADD COLUMN overlap_n INTEGER;`,
+	// caps is what the model's llama-server says the model can take in and
+	// do, as JSON (llamaswap.Caps). NULL until the model loads again.
+	`ALTER TABLE model_props ADD COLUMN caps TEXT;`,
 }
 
 func Open(path string) (*Store, error) {

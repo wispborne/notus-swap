@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -433,7 +434,8 @@ func learnProps(ctx context.Context, log *slog.Logger, st *store.Store, monitor 
 		return
 	}
 	names := monitor.Names(model)
-	if err := st.SaveModelProps(ctx, names, store.ModelProps{NCtx: p.NCtx, NPredict: p.NPredict, Slots: p.Slots, Build: p.Build}, time.Now()); err != nil {
+	caps, _ := json.Marshal(p.Caps)
+	if err := st.SaveModelProps(ctx, names, store.ModelProps{NCtx: p.NCtx, NPredict: p.NPredict, Slots: p.Slots, Build: p.Build, Caps: caps}, time.Now()); err != nil {
 		log.Error("saving a model's limits", "model", model, "err", err)
 		return
 	}

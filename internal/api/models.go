@@ -25,14 +25,27 @@ func (a *API) registerModels(mux *http.ServeMux) {
 
 // models: GET /notus/api/models. notus-swap's own numbers for every model it
 // has seen, by model ID: requests that used an alias count toward its model.
-// The model list and states come from the status poll.
+// props is what each model's llama-server last reported about its limits and
+// capabilities, by model ID. The model list and states come from the status
+// poll.
 func (a *API) models(w http.ResponseWriter, r *http.Request) {
 	stats, err := a.Store.ModelStats(r.Context(), a.SpeedFilter(r.Context()), a.modelID)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"stats": stats})
+	all, err := a.Store.AllModelProps(r.Context())
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	// Oldest first, so a model's newest props win over those saved under an
+	// alias it no longer has.
+	props := map[string]store.ModelProps{}
+	for _, p := range all {
+		props[a.modelID(p.Model)] = p.ModelProps
+	}
+	writeJSON(w, map[string]any{"stats": stats, "props": props})
 }
 
 // modelEvents: GET /notus/api/models/{model}/events?limit=N, newest first.

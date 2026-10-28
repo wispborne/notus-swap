@@ -35,6 +35,10 @@
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
       <path d="M3 12.5 6.5 7.5l3 3.5 1.8-1.8 2.2 3.3z" fill="currentColor" stroke-width="1" />
       <circle cx="11" cy="5.8" r="1.4" fill="currentColor" stroke="none" />
+    {:else if name === 'audio'}
+      <!-- A solid speaker with one sound wave, for the Models page's Capabilities column. -->
+      <path d="M1.5 5.5h3l4-3.5v12l-4-3.5h-3z" fill="currentColor" stroke="none" />
+      <path d="M11 5a4 4 0 0 1 0 6" />
     {:else if name === 'nostream'}
       <!-- Lines of text arriving one by one, crossed out like "nothink". The first is solid and the rest dim, so they read as a stream. -->
       <rect x="1" y="2" width="9" height="3" fill="currentColor" stroke="none" />

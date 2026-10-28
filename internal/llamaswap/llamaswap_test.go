@@ -119,16 +119,35 @@ func waitFor(t *testing.T, ok func() bool) {
 
 func TestParseProps(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
-		{`{"default_generation_settings":{"n_ctx":8192,"params":{"n_predict":-1}},"total_slots":2,"build_info":"b11146-7fe450e19"}`, "{8192 -1 2 b11146-7fe450e19}"},
-		{`{"default_generation_settings":{"n_ctx":4096,"n_predict":512},"total_slots":1}`, "{4096 512 1 }"},
+		{`{"default_generation_settings":{"n_ctx":8192,"params":{"n_predict":-1}},"total_slots":2,"build_info":"b11146-7fe450e19"}`, "8192 -1 2 b11146-7fe450e19"},
+		{`{"default_generation_settings":{"n_ctx":4096,"n_predict":512},"total_slots":1}`, "4096 512 1 "},
 	} {
 		p, err := parseProps(strings.NewReader(tc.body))
-		if err != nil || fmt.Sprint(p) != tc.want {
+		if err != nil || fmt.Sprintf("%d %d %d %s", p.NCtx, p.NPredict, p.Slots, p.Build) != tc.want {
 			t.Errorf("%s: got %v %v, want %s", tc.body, p, err, tc.want)
 		}
 	}
 	if _, err := parseProps(strings.NewReader(`{"model_path":"x"}`)); err == nil {
 		t.Error("props without a context size should be an error")
+	}
+}
+
+func TestParsePropsCaps(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want Caps
+	}{
+		{`{"default_generation_settings":{"n_ctx":8192},"modalities":{"vision":true,"audio":false},"chat_template":"{{ message.reasoning_content }}","chat_template_caps":{"supports_tool_calls":true}}`,
+			Caps{Vision: true, Thinking: true, Template: map[string]bool{"supports_tool_calls": true}}},
+		{`{"default_generation_settings":{"n_ctx":8192},"chat_template_caps":{"supports_reasoning_effort":true}}`,
+			Caps{Thinking: true, Template: map[string]bool{"supports_reasoning_effort": true}}},
+		// Older llama-server versions send no modalities or template caps.
+		{`{"default_generation_settings":{"n_ctx":8192},"chat_template":"{{ message.content }}"}`, Caps{}},
+	} {
+		p, err := parseProps(strings.NewReader(tc.body))
+		if err != nil || fmt.Sprint(p.Caps) != fmt.Sprint(tc.want) {
+			t.Errorf("%s: got %+v %v, want %+v", tc.body, p.Caps, err, tc.want)
+		}
 	}
 }
 

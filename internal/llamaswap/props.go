@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -15,7 +16,23 @@ type Props struct {
 	NPredict int64 // default output limit; 0 or less for none
 	Slots    int64
 	Build    string // such as "b11146-7fe450e19"; "" when not reported
+	Caps     Caps
 }
+
+// Caps is what a model's llama-server says the model can take in and do.
+type Caps struct {
+	Vision bool `json:"vision"`
+	Audio  bool `json:"audio"`
+	// Thinking is set when the chat template handles thinking text.
+	Thinking bool `json:"thinking"`
+	// Template is llama-server's chat_template_caps, such as
+	// supports_tool_calls. Older llama-server versions don't send it.
+	Template map[string]bool `json:"template,omitempty"`
+}
+
+// thinkingMarks are bits of chat template that only a template that handles
+// thinking text contains.
+var thinkingMarks = []string{"<think>", "reasoning_content", "enable_thinking", "reasoning_effort", ".thinking"}
 
 // FetchProps reads a model's limits from llama-server's /props, through
 // llama-swap's /upstream/<model>/props.
@@ -49,6 +66,12 @@ func parseProps(r io.Reader) (Props, error) {
 		} `json:"default_generation_settings"`
 		TotalSlots int64  `json:"total_slots"`
 		BuildInfo  string `json:"build_info"`
+		Modalities struct {
+			Vision bool `json:"vision"`
+			Audio  bool `json:"audio"`
+		} `json:"modalities"`
+		Template     string          `json:"chat_template"`
+		TemplateCaps map[string]bool `json:"chat_template_caps"`
 	}
 	if err := json.NewDecoder(r).Decode(&x); err != nil {
 		return Props{}, fmt.Errorf("reading /props: %w", err)
@@ -57,6 +80,11 @@ func parseProps(r io.Reader) (Props, error) {
 		return Props{}, fmt.Errorf("/props has no context size")
 	}
 	p := Props{NCtx: x.Settings.NCtx, Slots: x.TotalSlots, Build: x.BuildInfo}
+	p.Caps = Caps{Vision: x.Modalities.Vision, Audio: x.Modalities.Audio, Template: x.TemplateCaps}
+	p.Caps.Thinking = x.TemplateCaps["supports_reasoning_effort"] || x.TemplateCaps["supports_preserve_reasoning"]
+	for _, s := range thinkingMarks {
+		p.Caps.Thinking = p.Caps.Thinking || strings.Contains(x.Template, s)
+	}
 	if n := x.Settings.Params.NPredict; n != nil {
 		p.NPredict = *n
 	} else if n := x.Settings.NPredict; n != nil {

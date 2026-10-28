@@ -1,19 +1,21 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { listRequests, type Summary } from '../api'
-  import { duration, num, pct, shortBuild, when } from '../format'
+  import { duration, fixed, num, pct, shortBuild, when } from '../format'
   import LogPanel from '../logs/LogPanel.svelte'
   import MarkPicker from '../MarkPicker.svelte'
   import { modelLabel, modelShow } from '../modelNames.svelte'
   import type { RunningModel } from '../status.svelte'
   import StatusPill from '../StatusPill.svelte'
+  import { capWords, type ModelProps } from './caps'
   import { cmdDiff, cmdLine } from './cmdDiff'
   import SpeedFilterPanel from './SpeedFilterPanel.svelte'
   import { loadSpeedFilter, sameFilter, type SpeedFilter } from './speedFilter'
   import type { DetailTab } from './tabs'
 
   // The parent owns the tab: the buttons on its row's second line pick it.
-  let { model, known, picked = $bindable('log') }: { model: string; known?: RunningModel; picked?: DetailTab } = $props()
+  let { model, known, props, picked = $bindable('log') }: { model: string; known?: RunningModel; props?: ModelProps; picked?: DetailTab } = $props()
+  const caps = $derived(props?.caps ? capWords(props.caps) : null)
 
   interface ModelEvent {
     at: number
@@ -139,6 +141,18 @@
       {#if known.description}<em>{known.description}</em>{/if}
     </div>
   {/if}
+
+  <!-- Context size and capabilities. llama-swap's number is the configured size; llama-server's is what one request can use. -->
+  <div class="py-1 text-xs text-muted">
+    {#if known?.context_length}<span>Context: <span class="text-text">{fixed(known.context_length)}</span> tokens. </span>{/if}
+    {#if props}<span>Each request can use up to <span class="text-text">{fixed(props.n_ctx)}</span> tokens, with {fixed(props.slots)} {props.slots === 1 ? 'slot' : 'slots'}. </span>{/if}
+    {#if caps}
+      {#if caps.yes.length}<span>Supports <span class="text-text">{caps.yes.join(', ')}</span>. </span>{/if}
+      {#if caps.no.length}<span>Doesn't support {caps.no.join(', ')}.</span>{/if}
+    {:else}
+      <span class="text-dim">Capabilities are read from llama-server when the model next loads.</span>
+    {/if}
+  </div>
 
   <div class="mb-2 flex items-center gap-2 py-1 text-xs text-muted">
     <span class="shrink-0">Colour and shape</span>

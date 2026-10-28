@@ -111,6 +111,9 @@ type ModelProps struct {
 	NPredict int64  `json:"n_predict"` // the server's default output limit; 0 or less for none
 	Slots    int64  `json:"slots"`
 	Build    string `json:"build,omitempty"` // such as "b11146-7fe450e19"; "" when not known
+	// Caps is what the model can take in and do, as JSON (llamaswap.Caps).
+	// Empty for props stored before it was read.
+	Caps json.RawMessage `json:"caps,omitempty"`
 }
 
 // SaveModelProps stores a model's props under each of its names (its ID and
@@ -123,8 +126,8 @@ func (s *Store) SaveModelProps(ctx context.Context, names []string, p ModelProps
 	defer tx.Rollback()
 	for _, n := range names {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO model_props (model, n_ctx, n_predict, slots, build, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			n, p.NCtx, p.NPredict, p.Slots, nilIfEmpty(p.Build), at.UnixMilli()); err != nil {
+			`INSERT OR REPLACE INTO model_props (model, n_ctx, n_predict, slots, build, caps, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			n, p.NCtx, p.NPredict, p.Slots, nilIfEmpty(p.Build), nilIfEmpty(string(p.Caps)), at.UnixMilli()); err != nil {
 			return err
 		}
 	}
@@ -146,6 +149,37 @@ func (s *Store) GetModelProps(ctx context.Context, model string) (*ModelProps, e
 	}
 	p.NPredict, p.Slots, p.Build = predict.Int64, slots.Int64, build.String
 	return &p, nil
+}
+
+// AllModelProps returns the props saved for every model name (IDs and
+// aliases), oldest first.
+func (s *Store) AllModelProps(ctx context.Context) ([]NamedModelProps, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT model, n_ctx, n_predict, slots, build, caps FROM model_props ORDER BY updated_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []NamedModelProps{}
+	for rows.Next() {
+		var p NamedModelProps
+		var predict, slots sql.NullInt64
+		var build, caps sql.NullString
+		if err := rows.Scan(&p.Model, &p.NCtx, &predict, &slots, &build, &caps); err != nil {
+			return nil, err
+		}
+		p.NPredict, p.Slots, p.Build = predict.Int64, slots.Int64, build.String
+		if caps.Valid {
+			p.Caps = json.RawMessage(caps.String)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// NamedModelProps is a model name's saved props.
+type NamedModelProps struct {
+	Model string
+	ModelProps
 }
 
 // CheckRow is a stored request with what the issue checks read.
