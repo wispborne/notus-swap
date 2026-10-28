@@ -47,6 +47,7 @@ clients → notus-swap (:8080) → llama-swap (127.0.0.1:8081) → model servers
 ```
 
 - notus-swap's own UI and API are under `/notus/`. Every other path goes to llama-swap unchanged, so llama-swap's own UI is still at `/ui/`.
+- Other programs can read the recorded requests, model stats and hardware history from the same JSON API the UI uses. `GET /notus/api/` lists every endpoint, and [docs/api.md](docs/api.md) describes them.
 - Only POST requests under `/v1/` and `/upstream/` are recorded. Everything else passes straight through.
 - Request metadata (model, timing, token counts, energy) is kept for good. Request and response bodies are deleted after 90 days, or once they pass 20 GB, whichever comes first. Both limits can be changed on the Settings page.
 - Everything is stored in one SQLite file.

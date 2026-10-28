@@ -467,7 +467,7 @@ func (s *Store) Get(ctx context.Context, id int64) (*Record, error) {
 // ListOptions filters List. Zero values mean "no filter".
 type ListOptions struct {
 	BeforeID int64 // only requests older than this one, for paging
-	Limit    int   // default 100, at most 500
+	Limit    int   // default 100, at most 20,000
 	// Models keeps requests for any of these names: a model's ID and its
 	// aliases, since requests may use any of them.
 	Models []string

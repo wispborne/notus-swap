@@ -65,30 +65,34 @@ type API struct {
 	// endpoint off.
 	ReadOnly *store.ReadOnly
 
-	colors modelColors
+	colors    modelColors
+	endpoints []Endpoint
 }
 
 func (a *API) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/health", a.health)
-	mux.HandleFunc("GET /notus/api/status", a.status)
-	mux.HandleFunc("GET /notus/api/requests", a.list)
-	mux.HandleFunc("GET /notus/api/requests/{id}", a.get)
-	mux.HandleFunc("POST /notus/api/requests/{id}/cancel", a.cancel)
-	mux.HandleFunc("POST /notus/api/requests/{id}/retry", a.retry)
-	mux.HandleFunc("GET /notus/api/live", a.live)
-	mux.HandleFunc("GET /notus/api/dashboard", a.dashboard)
-	mux.HandleFunc("GET /notus/api/settings/{key}", a.getSetting)
-	mux.HandleFunc("PUT /notus/api/settings/{key}", a.putSetting)
-	mux.HandleFunc("POST /notus/api/models/{model}/load", a.loadModel)
-	mux.HandleFunc("POST /notus/api/models/{model}/unload", a.unloadModel)
-	mux.HandleFunc("POST /notus/api/models/{model}/restart", a.restartModel)
-	mux.HandleFunc("POST /notus/api/query", a.query)
-	a.registerConfig(mux)
-	a.registerSystem(mux)
-	a.registerLlamaUpdates(mux)
-	a.registerModels(mux)
-	a.registerAutoLoad(mux)
-	a.registerDebug(mux)
+	r := &router{mux: mux}
+	r.handle("GET /notus/api/{$}", "This list of endpoints.", a.index)
+	r.handle("GET /notus/api/health", "Whether notus-swap is up, its version, and any restart waiting.", a.health)
+	r.handle("GET /notus/api/status", "Now: llama-swap's state and models, GPUs, CPU and system watts, RAM, requests in flight.", a.status)
+	r.handle("GET /notus/api/requests", "Request history without bodies, newest first. Query: limit, before (ID, for paging), since and until (unix ms), model, state, q (search), issue.", a.list)
+	r.handle("GET /notus/api/requests/{id}", "One request with its request and response bodies and the parsed output. Live output while in flight.", a.get)
+	r.handle("POST /notus/api/requests/{id}/cancel", "Cancel a request in flight.", a.cancel)
+	r.handle("POST /notus/api/requests/{id}/retry", "Send a finished request's stored body again. Returns the new request's ID.", a.retry)
+	r.handle("GET /notus/api/live", "Server-sent events: hello (requests in flight), then start, delta, progress, finish and settled.", a.live)
+	r.handle("GET /notus/api/dashboard", "Hardware samples, request timings, model events and energy over a range. Query: range (15m, 1h, 6h, 24h, 7d, 30d, all).", a.dashboard)
+	r.handle("GET /notus/api/settings/{key}", "Read a UI setting: dashboard_layout, hidden_models, show_hidden, retention, issue_mutes, app_title.", a.getSetting)
+	r.handle("PUT /notus/api/settings/{key}", "Save a UI setting, as JSON.", a.putSetting)
+	r.handle("POST /notus/api/models/{model}/load", "Load a model.", a.loadModel)
+	r.handle("POST /notus/api/models/{model}/unload", "Unload a model.", a.unloadModel)
+	r.handle("POST /notus/api/models/{model}/restart", "Unload a model and load it again.", a.restartModel)
+	r.handle("POST /notus/api/query", `Read-only SQL on the database. Body: {"sql": "SELECT ..."}.`, a.query)
+	a.registerConfig(r)
+	a.registerSystem(r)
+	a.registerLlamaUpdates(r)
+	a.registerModels(r)
+	a.registerAutoLoad(r)
+	a.registerDebug(r)
+	a.endpoints = r.endpoints
 }
 
 // Summary is one request without its bodies. Times are unix milliseconds.
@@ -174,7 +178,8 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, h)
 }
 
-// list: GET /notus/api/requests?before=ID&limit=N&model=M&state=S&q=TEXT&issue=KIND
+// list: GET /notus/api/requests?before=ID&limit=N&since=MS&until=MS&model=M&state=S&q=TEXT&issue=KIND
+// since and until are unix milliseconds and limit the start time.
 // issue=any keeps requests with any issue. model=M keeps requests that used
 // the model's ID or any of its aliases. The first page (no "before") also
 // lists every model seen by ID, for the filter.
@@ -188,6 +193,12 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o := store.ListOptions{BeforeID: before, Limit: limit, State: q.Get("state"), Search: q.Get("q"), Issue: q.Get("issue"), Mutes: mutes}
+	if ms, err := strconv.ParseInt(q.Get("since"), 10, 64); err == nil {
+		o.Since = time.UnixMilli(ms)
+	}
+	if ms, err := strconv.ParseInt(q.Get("until"), 10, 64); err == nil {
+		o.Until = time.UnixMilli(ms)
+	}
 	if m := q.Get("model"); m != "" {
 		o.Models = a.modelNames(m)
 	}

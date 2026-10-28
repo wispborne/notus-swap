@@ -36,17 +36,17 @@ func (a *API) RetentionSetting(ctx context.Context, def Retention) Retention {
 	return r
 }
 
-func (a *API) registerSystem(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/system", a.system)
-	mux.HandleFunc("POST /notus/api/update", a.update)
-	mux.HandleFunc("POST /notus/api/update/rollback", a.rollback)
-	mux.HandleFunc("POST /notus/api/restart/notus-swap", a.restartSelf)
-	mux.HandleFunc("POST /notus/api/restart/notus-swap/now", a.restartSelfNow)
-	mux.HandleFunc("POST /notus/api/restart/notus-swap/cancel", a.restartSelfCancel)
-	mux.HandleFunc("POST /notus/api/restart/llama-swap", a.restartLlamaSwap)
-	mux.HandleFunc("GET /notus/api/service/llama-swap", a.llamaSwapService)
-	mux.HandleFunc("POST /notus/api/start/llama-swap", a.startLlamaSwap)
-	mux.HandleFunc("POST /notus/api/stop/llama-swap", a.stopLlamaSwap)
+func (a *API) registerSystem(r *router) {
+	r.handle("GET /notus/api/system", "Version, update state, changelog, service mode, retention and database size.", a.system)
+	r.handle("POST /notus/api/update", "Update notus-swap and restart once no requests are in flight.", a.update)
+	r.handle("POST /notus/api/update/rollback", "Roll notus-swap back to the previous version.", a.rollback)
+	r.handle("POST /notus/api/restart/notus-swap", "Restart notus-swap once no requests are in flight.", a.restartSelf)
+	r.handle("POST /notus/api/restart/notus-swap/now", "Restart notus-swap now, without waiting.", a.restartSelfNow)
+	r.handle("POST /notus/api/restart/notus-swap/cancel", "Cancel a waiting restart, update or roll back.", a.restartSelfCancel)
+	r.handle("POST /notus/api/restart/llama-swap", "Restart llama-swap.", a.restartLlamaSwap)
+	r.handle("GET /notus/api/service/llama-swap", "How llama-swap is run (systemd, process or none) and whether it is running.", a.llamaSwapService)
+	r.handle("POST /notus/api/start/llama-swap", "Start llama-swap.", a.startLlamaSwap)
+	r.handle("POST /notus/api/stop/llama-swap", "Stop llama-swap.", a.stopLlamaSwap)
 }
 
 // SystemInfo is what the Settings page shows about updates and settings.

@@ -10,11 +10,11 @@ import (
 	"github.com/wispborne/notus-swap/internal/llamaupdate"
 )
 
-func (a *API) registerLlamaUpdates(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/llama-updates", a.llamaUpdates)
-	mux.HandleFunc("POST /notus/api/llama-updates/check", a.checkLlamaUpdates)
-	mux.HandleFunc("GET /notus/api/llama-updates/{component}/changelog", a.llamaChangelog)
-	mux.HandleFunc("POST /notus/api/llama-updates/{component}/{action}", a.startLlamaUpdate)
+func (a *API) registerLlamaUpdates(r *router) {
+	r.handle("GET /notus/api/llama-updates", "Installed and newest llama-swap and llama.cpp versions, and any install running.", a.llamaUpdates)
+	r.handle("POST /notus/api/llama-updates/check", "Check GitHub for llama-swap and llama.cpp releases now.", a.checkLlamaUpdates)
+	r.handle("GET /notus/api/llama-updates/{component}/changelog", "Recent releases of llama-swap or llama.cpp, with their notes.", a.llamaChangelog)
+	r.handle("POST /notus/api/llama-updates/{component}/{action}", `Install or roll back llama-swap or llama.cpp (action install or rollback). Body: {"tag": "..."}, empty for the newest.`, a.startLlamaUpdate)
 }
 
 // llamaUpdates returns installed versions, the last check, and install status

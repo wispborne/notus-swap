@@ -14,10 +14,10 @@ import (
 // The debug endpoints show settings, sensors and the log as plain data, so
 // they can be checked with curl instead of a shell on the server.
 
-func (a *API) registerDebug(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/debug/settings", a.debugSettings)
-	mux.HandleFunc("GET /notus/api/debug/sensors", a.debugSensors)
-	mux.HandleFunc("GET /notus/api/logs", a.logTail)
+func (a *API) registerDebug(r *router) {
+	r.handle("GET /notus/api/debug/settings", "Every flag and where its value came from, plus the OS and how restarts work. Secrets show only set or unset.", a.debugSettings)
+	r.handle("GET /notus/api/debug/sensors", "What the GPU, CPU and RAM samplers read right now, with the raw values.", a.debugSensors)
+	r.handle("GET /notus/api/logs", "notus-swap's own log as plain text. Query: tail (the last N lines).", a.logTail)
 }
 
 // Setting is one flag in effect.

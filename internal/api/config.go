@@ -10,15 +10,15 @@ import (
 )
 
 // registerConfig adds the config editor's endpoints.
-func (a *API) registerConfig(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/config", a.getConfig)
-	mux.HandleFunc("POST /notus/api/config/check", a.checkConfig)
-	mux.HandleFunc("PUT /notus/api/config", a.saveConfig)
-	mux.HandleFunc("GET /notus/api/config/held", a.heldConfig)
-	mux.HandleFunc("POST /notus/api/config/held/now", a.heldConfigNow)
-	mux.HandleFunc("DELETE /notus/api/config/held", a.heldConfigCancel)
-	mux.HandleFunc("GET /notus/api/config/backups", a.configBackups)
-	mux.HandleFunc("GET /notus/api/config/backups/{name}", a.configBackup)
+func (a *API) registerConfig(r *router) {
+	r.handle("GET /notus/api/config", "The llama-swap config file and its hash. 503 when NOTUS_LLAMA_SWAP_CONFIG isn't set.", a.getConfig)
+	r.handle("POST /notus/api/config/check", `Check a config without saving it. Body: {"content": "..."}.`, a.checkConfig)
+	r.handle("PUT /notus/api/config", "Save the llama-swap config. Waits (202) while requests are in flight.", a.saveConfig)
+	r.handle("GET /notus/api/config/held", "The config save waiting for requests to finish, and the last result.", a.heldConfig)
+	r.handle("POST /notus/api/config/held/now", "Write the waiting config save now.", a.heldConfigNow)
+	r.handle("DELETE /notus/api/config/held", "Cancel the waiting config save.", a.heldConfigCancel)
+	r.handle("GET /notus/api/config/backups", "The saved config backups.", a.configBackups)
+	r.handle("GET /notus/api/config/backups/{name}", "One config backup.", a.configBackup)
 }
 
 func (a *API) configOff(w http.ResponseWriter, err error) bool {

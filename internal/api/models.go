@@ -12,15 +12,15 @@ import (
 	"github.com/wispborne/notus-swap/internal/store"
 )
 
-func (a *API) registerModels(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/models", a.models)
-	mux.HandleFunc("GET /notus/api/models/{model}/events", a.modelEvents)
-	mux.HandleFunc("GET /notus/api/models/{model}/builds", a.modelBuilds)
-	mux.HandleFunc("GET /notus/api/speed-filter", a.getSpeedFilter)
-	mux.HandleFunc("PUT /notus/api/speed-filter", a.putSpeedFilter)
-	mux.HandleFunc("POST /notus/api/models/unload", a.unloadAll)
-	mux.HandleFunc("PUT /notus/api/models/{model}/mark", a.putMark)
-	mux.HandleFunc("GET /notus/api/logs/stream", a.logStream)
+func (a *API) registerModels(r *router) {
+	r.handle("GET /notus/api/models", "Per-model totals, load times and speeds (stats), and what each model's server reported (props).", a.models)
+	r.handle("GET /notus/api/models/{model}/events", "A model's state changes, newest first. Query: limit.", a.modelEvents)
+	r.handle("GET /notus/api/models/{model}/builds", "A model's speeds on each llama.cpp build and command. Query: filter (a speed filter as JSON).", a.modelBuilds)
+	r.handle("GET /notus/api/speed-filter", "Which requests count toward speeds, and the default.", a.getSpeedFilter)
+	r.handle("PUT /notus/api/speed-filter", "Save which requests count toward speeds.", a.putSpeedFilter)
+	r.handle("POST /notus/api/models/unload", "Unload every model.", a.unloadAll)
+	r.handle("PUT /notus/api/models/{model}/mark", "Set a model's colour and shape in the UI.", a.putMark)
+	r.handle("GET /notus/api/logs/stream", "notus-swap's own log as a plain-text stream: its history, then new lines.", a.logStream)
 }
 
 // models: GET /notus/api/models. notus-swap's own numbers for every model it

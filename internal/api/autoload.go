@@ -13,9 +13,9 @@ import (
 
 const defaultModelKey = "default_model"
 
-func (a *API) registerAutoLoad(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notus/api/default-model", a.getDefaultModel)
-	mux.HandleFunc("PUT /notus/api/default-model", a.putDefaultModel)
+func (a *API) registerAutoLoad(r *router) {
+	r.handle("GET /notus/api/default-model", "The default model setting: load a model after a while with none loaded.", a.getDefaultModel)
+	r.handle("PUT /notus/api/default-model", "Save the default model setting.", a.putDefaultModel)
 }
 
 // DefaultModelSetting reads the default model setting.
