@@ -122,8 +122,23 @@
   let busy = $state(false)
   let actionError = $state('')
 
+  // Cancel takes two clicks, like the Models page's buttons. The first turns
+  // the button into "Click to confirm cancel", and the second cancels. The
+  // button goes back after 5 s, or on a click anywhere else.
+  let armed = $state(false)
+  let disarm: ReturnType<typeof setTimeout> | undefined
+  function windowClick(e: MouseEvent) {
+    if (!(e.target as Element).closest?.('[data-confirm]')) armed = false
+  }
+
   async function cancel() {
-    if (!confirm(`Cancel request #${row.id}? Its client gets an error, or a stream that stops.`)) return
+    clearTimeout(disarm)
+    if (!armed) {
+      armed = true
+      disarm = setTimeout(() => (armed = false), 5000)
+      return
+    }
+    armed = false
     busy = true
     actionError = ''
     try {
@@ -165,6 +180,8 @@
   }
 </script>
 
+<svelte:window onclick={windowClick} />
+
 <div class="max-w-[1300px]">
   <div class="mb-2 flex flex-wrap items-center gap-2">
     <span class="font-mono text-[15px] font-semibold">#{row.id}</span>
@@ -184,8 +201,14 @@
     {/if}
     <span class="flex-1"></span>
     {#if inFlight}
-      <button class="rounded-md border border-line bg-panel2 px-2 py-0.5 text-xs hover:border-err hover:text-err" onclick={cancel} disabled={busy}>
-        Cancel
+      <button
+        class="rounded-md border border-line bg-panel2 px-2 py-0.5 text-xs hover:border-err hover:text-err {armed ? 'border-warn! bg-warn/10 text-warn' : ''}"
+        data-confirm
+        title="Its client gets an error, or a stream that stops."
+        onclick={cancel}
+        disabled={busy}
+      >
+        {armed ? 'Click to confirm cancel' : 'Cancel'}
       </button>
     {:else}
       <button
