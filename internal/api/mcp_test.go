@@ -164,13 +164,95 @@ func TestMCPRefusesBrowsersAndGets(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("a cross-site POST got %d, want 403", resp.StatusCode)
 	}
-	resp, err = http.Get(base + "/notus/mcp")
+}
+
+// mcpConnect connects a client using protocol ("" for the newest). With
+// answer set, the client can show the user questions, and answer gives the
+// user's reply.
+func mcpConnect(t *testing.T, ctx context.Context, base, protocol string, answer func(msg string) string) *mcp.ClientSession {
+	t.Helper()
+	var opts *mcp.ClientOptions
+	if answer != nil {
+		opts = &mcp.ClientOptions{ElicitationHandler: func(_ context.Context, r *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			return &mcp.ElicitResult{Action: answer(r.Params.Message)}, nil
+		}}
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, opts).Connect(ctx,
+		&mcp.StreamableClientTransport{Endpoint: base + "/notus/mcp"}, &mcp.ClientSessionOptions{ProtocolVersion: protocol})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("GET got %d, want 405", resp.StatusCode)
+	t.Cleanup(func() { cs.Close() })
+	return cs
+}
+
+// The user approves include_hidden in their MCP client. Newer clients repeat
+// the call with the answer; older ones are asked over their session.
+func TestMCPIncludeHidden(t *testing.T) {
+	base := mcpServer(t)
+	for _, protocol := range []string{"", "2025-06-18"} {
+		t.Run("protocol "+protocol, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			models := func(cs *mcp.ClientSession, args map[string]any) ([]string, *mcp.CallToolResult) {
+				t.Helper()
+				res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_requests", Arguments: args})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var out struct {
+					Requests []struct {
+						Model string `json:"model"`
+					} `json:"requests"`
+				}
+				b, _ := json.Marshal(res.StructuredContent)
+				json.Unmarshal(b, &out)
+				var names []string
+				for _, r := range out.Requests {
+					names = append(names, r.Model)
+				}
+				slices.Sort(names)
+				return names, res
+			}
+
+			var asked []string
+			reply := "accept"
+			cs := mcpConnect(t, ctx, base, protocol, func(msg string) string { asked = append(asked, msg); return reply })
+			if ir := cs.InitializeResult(); protocol != "" && (ir == nil || ir.ProtocolVersion != protocol) {
+				t.Fatalf("the session uses protocol %+v, want %s", ir, protocol)
+			}
+
+			if got, _ := models(cs, nil); !slices.Equal(got, []string{"qwen"}) {
+				t.Errorf("without include_hidden: %v", got)
+			}
+			if len(asked) != 0 {
+				t.Errorf("asked the user without include_hidden: %v", asked)
+			}
+			if got, res := models(cs, map[string]any{"include_hidden": true}); !slices.Equal(got, []string{"qwen", "secret"}) {
+				t.Errorf("approved: got %v, %+v", got, res.Content)
+			}
+			if len(asked) != 1 || strings.Contains(asked[0], "secret") || !strings.Contains(asked[0], "hidden") {
+				t.Errorf("the question was %q", asked)
+			}
+
+			// Only asks when the answer would show a hidden model.
+			res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "get_request", Arguments: map[string]any{"id": 1, "include_hidden": true}})
+			if err != nil || res.IsError || len(asked) != 1 {
+				t.Errorf("get_request for a shown model: err %v, result %+v, asked %d times", err, res, len(asked))
+			}
+
+			reply = "decline"
+			res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "get_request", Arguments: map[string]any{"id": 2, "include_hidden": true}})
+			if err != nil || !res.IsError || len(asked) != 2 {
+				t.Errorf("declined: err %v, result %+v, asked %d times", err, res, len(asked))
+			}
+
+			// A client that can't ask the user gets an error, not hidden models.
+			plain := mcpConnect(t, ctx, base, protocol, nil)
+			if got, res := models(plain, map[string]any{"include_hidden": true}); !res.IsError || len(got) != 0 {
+				t.Errorf("client without questions: got %v, %+v", got, res)
+			}
+		})
 	}
 }
 

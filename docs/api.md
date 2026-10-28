@@ -21,7 +21,7 @@ notus-swap is also an MCP server, at `/notus/mcp`. An agent that speaks MCP gets
 claude mcp add --transport http notus http://llm.example.com/notus/mcp
 ```
 
-Other clients take the same address as an HTTP (Streamable HTTP) server. It needs no login and keeps no sessions.
+Other clients take the same address as an HTTP (Streamable HTTP) server. It needs no login. Sessions are kept in memory for an hour after their last use; after notus-swap restarts, clients start a new one on their own.
 
 | Tool | What it gives |
 |---|---|
@@ -35,6 +35,10 @@ Other clients take the same address as an HTTP (Streamable HTTP) server. It need
 | `query_sql` | Read-only SQL, at most 1,000 rows. Only offered when the SQL API is on (see below). |
 
 The MCP tools leave out hidden models while the Settings page hides them, unlike the JSON endpoints. `query_sql` can't filter them. The tools can't change anything.
+
+To see hidden models, ask the agent to. It then calls a tool with `include_hidden`, and notus-swap asks you to approve in your MCP client, with a yes or no question that doesn't name the models. Each yes covers one call. If you decline, the call fails and nothing hidden is shown. notus-swap only asks when the answer would actually show a hidden model. A client that can't show such questions (MCP calls them elicitation) gets an error, and hidden models stay hidden.
+
+This keeps an agent from showing hidden models without you saying yes. It is not a security feature: the JSON endpoints show hidden models to anyone who asks.
 
 Request and response text comes from whoever sent the request. A stored prompt could hold text that tries to instruct an agent. The tools only read, so such text can't make them change anything. The server's instructions also tell the agent to treat that text as data.
 
