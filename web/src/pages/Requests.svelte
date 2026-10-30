@@ -82,28 +82,6 @@
     }
   })
 
-  // While the mouse is over the table, or the table is scrolled down, new
-  // requests wait in `pending` instead of pushing the rows down. They are
-  // added when the mouse leaves and the table is back at the top, or when
-  // the "Show new requests" button is clicked.
-  let box = $state<HTMLDivElement>()
-  let scrolled = $state(false)
-  let hovering = $state(false)
-  let pending = $state<Summary[]>([])
-  const holding = $derived(scrolled || hovering)
-  function addPending() {
-    const ids = new Set(rows.map((r) => r.id))
-    rows = [...pending.filter((r) => !ids.has(r.id)), ...rows]
-    pending = []
-  }
-  $effect(() => {
-    if (!holding && pending.length) untrack(addPending)
-  })
-  function showPending() {
-    addPending()
-    box?.scrollTo({ top: 0 })
-  }
-
   // Only the newest load's answer is used, so a slower, older one can't
   // replace it.
   let loadSeq = 0
@@ -116,7 +94,6 @@
       const res = await listRequests(filter, before, PAGE)
       if (seq !== loadSeq) return
       rows = reset ? res.requests : [...rows, ...res.requests]
-      if (reset) pending = []
       if (res.models) {
         models = res.models
       }
@@ -161,18 +138,14 @@
     const stop = live.on(async (e) => {
       if (e.type === 'start') {
         const r = summaryFromStart(e.start)
-        if (matches(r) && !rows.some((x) => x.id === r.id) && !pending.some((x) => x.id === r.id)) {
-          if (holding) pending = [r, ...pending]
-          else rows = [r, ...rows]
-        }
+        if (matches(r) && !rows.some((x) => x.id === r.id)) rows = [r, ...rows]
         const id = modelId(r.model)
         if (id && !models.includes(id)) models = [...models, id].sort()
       } else if (e.type === 'finish' || e.type === 'settled') {
-        if (!rows.some((x) => x.id === e.id) && !pending.some((x) => x.id === e.id)) return
+        if (!rows.some((x) => x.id === e.id)) return
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { request, response_raw, response, truncated, live: _, chunks, issue_details, ...done } = await getRequest(e.id)
         rows = rows.map((x) => (x.id === e.id ? done : x)).filter((x) => x.id === open || matches(x))
-        pending = pending.map((x) => (x.id === e.id ? done : x)).filter(matches)
       }
     })
     const tick = setInterval(() => (now = Date.now()), 1000)
@@ -653,15 +626,6 @@
     {/each}
   </div>
   <span class="flex-1"></span>
-  {#if pending.length}
-    <button
-      class="rounded-md border border-primary/50 px-2.5 py-1 text-xs text-primary hover:bg-primary/10"
-      onclick={showPending}
-      title="New requests wait here while the mouse is over the table or it is scrolled down, so the rows don't move under the mouse"
-    >
-      Show {pending.length} new {pending.length === 1 ? 'request' : 'requests'}
-    </button>
-  {/if}
   {#if !live.connected}<span class="text-xs text-warn">Live updates reconnecting…</span>{/if}
   <details bind:this={picker} class="relative">
     <summary class="cursor-pointer list-none rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:text-text">Columns</summary>
@@ -757,7 +721,7 @@
      scrolls sideways can't also let the header stick to the page. The height
      leaves room for the status bar (34px) and the page's bottom padding (4rem),
      so the whole box fits on screen. -->
-<div bind:this={box} class="max-h-[calc(100dvh-34px-4.5rem)] overflow-auto rounded-lg border border-line bg-panel" onscroll={() => (scrolled = (box?.scrollTop ?? 0) > 0)}>
+<div class="max-h-[calc(100dvh-34px-4.5rem)] overflow-auto rounded-lg border border-line bg-panel">
   <table class="w-full border-collapse">
     <colgroup>
       {#each visibleCols as c}<col class={edges.has(c.key) ? 'border-l border-line-soft' : ''} />{/each}
@@ -787,8 +751,7 @@
         {/each}
       </tr>
     </thead>
-    <!-- Only a mouse holds new rows back; a tap on a phone never sends pointerleave. -->
-    <tbody onpointerenter={(e) => (hovering = e.pointerType === 'mouse')} onpointerleave={() => (hovering = false)}>
+    <tbody>
       {#each shown as r (r.id)}
         {@const flight = r.state === 'in_flight' ? live.flights.get(r.id) : undefined}
         <tr
