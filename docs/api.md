@@ -88,6 +88,8 @@ Each request has, among other fields:
 - `path` (such as `/v1/chat/completions`), `model`, `streaming`, `state`, `status_code`, `error`
 - `prompt_tokens` (includes cached ones), `cached_tokens`, `completion_tokens`
 - `prompt_per_second`, `predicted_per_second` (output speed), `prompt_ms`, `predicted_ms`
+- `draft_n` and `draft_accepted`: tokens drafted by speculative decoding, and how many the model kept. `null` when the server didn't report them.
+- `server_stats`: Strata's own numbers for the request, or `null` for other servers: `expert_hit_rate` (the share of expert lookups found in VRAM), `pcie_share`, `disk_mb`, `first_token_ms` (on Strata's clock), `thinking_restarts` and `thinking_repeat`. They arrive a moment after the request finishes.
 - `energy_j` (GPU energy in joules), `queued_ms` (time spent waiting behind other requests)
 - `finish_reason`, `n_ctx` (the model's context size), `build` (the llama.cpp build)
 - `client_ip`, `user_agent`
@@ -130,7 +132,7 @@ A server-sent event stream that never ends on its own. Each event is one `data:`
 | `hello` | Sent first. `in_flight` lists the requests running now, with their output so far. |
 | `start` | A request arrived. `start` holds its model, path, prompt preview and tags. |
 | `delta` | New output: `content`, `reasoning`, and `tools` (names of tool calls that began). |
-| `progress` | Prompt processing progress while waiting for the first token. |
+| `progress` | Prompt processing progress while waiting for the first token: `processed` (tokens done, cached ones included), `cache`, `per_second`, and `total` (the prompt's full size). Each is left out when the server doesn't give it. llama-server gives all but `total`. Strata gives `total`, and `processed` only when its counter is this request's. |
 | `finish` | A request ended. Fetch `/notus/api/requests/{id}` for its final numbers. |
 | `settled` | A finished request's energy and wait times were worked out again. Fetch it again for the new numbers. |
 
@@ -147,7 +149,7 @@ Returns `{"stats": [...], "props": {...}}`. `stats` has each model's request cou
 | Endpoint | Returns |
 |---|---|
 | `GET /notus/api/models/{model}/events?limit=N` | The model's state changes, newest first: `at`, `from`, `to`, and `load_ms` when a load finished. |
-| `GET /notus/api/models/{model}/builds` | The model's speeds on each llama.cpp build and launch command, with each command's arguments. |
+| `GET /notus/api/models/{model}/builds` | The model's speeds on each llama.cpp build and launch command, with each command's arguments. For Strata, each row's `experts_in_vram` is the median share of expert work done from the VRAM cache, and its commands end with the engine's settings as `--strata.<name>=<value>`. |
 | `GET /notus/api/speed-filter` | Which requests count toward speeds. |
 
 Speeds are medians over requests that count. By default that means at least 128 output tokens for output speed, at least 2,048 new prompt tokens for prompt speed, and no other request running alongside.

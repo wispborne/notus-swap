@@ -18,6 +18,7 @@ const (
 	IssueThinkingBudget  = "thinking_budget"   // stopped early while still thinking, with no answer
 	IssueContextError    = "context_error"     // llama.cpp refused a prompt too long for the context
 	IssueContextNearFull = "context_near_full" // finished, but the prompt left little room
+	IssueThinkingLoop    = "thinking_loop"     // the server found the thinking repeating itself (Strata)
 )
 
 // IssueChecksVersion goes up whenever a check changes. At startup, stored
@@ -52,6 +53,10 @@ type IssueDetail struct {
 	Slots       int64  `json:"slots,omitempty"`
 	Room        int64  `json:"room,omitempty"` // context left after the prompt
 	Message     string `json:"message,omitempty"`
+	// For thinking_loop: how often the server restarted the thinking, and
+	// the share of recent thinking words in passages seen three times.
+	Restarts int64   `json:"restarts,omitempty"`
+	Repeat   float64 `json:"repeat,omitempty"`
 }
 
 // CheckInput is what the issue checks read.
@@ -63,12 +68,17 @@ type CheckInput struct {
 	Request    []byte
 	Response   Parsed
 	Props      *store.ModelProps // nil when the model's limits aren't known
+	Server     *ServerStats      // nil when the server gave none
 }
 
 // Check finds problems in a request's output. It only looks at chat and
 // text completions and Responses API calls, and only at responses that
-// arrived in full.
+// arrived in full. What the server reported counts either way.
 func Check(in CheckInput) []store.Issue {
+	return append(checkOutput(in), serverIssues(in.Server)...)
+}
+
+func checkOutput(in CheckInput) []store.Issue {
 	if !checkedPath(in.Path) || in.Truncated {
 		return nil
 	}
@@ -236,8 +246,15 @@ func Recheck(ctx context.Context, st *store.Store, props func(model string) *sto
 				p = &q
 			}
 			resp := ParseStored(r.ResponseBody)
+			var server *ServerStats
+			if r.ServerStats != nil {
+				server = &ServerStats{}
+				if json.Unmarshal(r.ServerStats, server) != nil {
+					server = nil
+				}
+			}
 			issues := Check(CheckInput{Path: r.Path, State: r.State, StatusCode: r.StatusCode, Truncated: r.Truncated,
-				Request: r.RequestBody, Response: resp, Props: p})
+				Request: r.RequestBody, Response: resp, Props: p, Server: server})
 			var nCtx *int64
 			if p != nil {
 				nCtx = &p.NCtx

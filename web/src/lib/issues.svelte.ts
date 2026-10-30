@@ -11,6 +11,7 @@ export const issueKinds: [string, string][] = [
   ['cut_off', 'Cut off, cause unknown'],
   ['context_error', 'Prompt too long'],
   ['context_near_full', 'Context nearly full'],
+  ['thinking_loop', 'Thinking repeated itself'],
 ]
 
 export interface Described {
@@ -105,6 +106,17 @@ export function describe(issue: Issue): Described {
         fix: 'The next message in this conversation may be cut off or refused. Raise --ctx-size, or start a new conversation.',
         config: true,
       }
+    case 'thinking_loop': {
+      const share = d.repeat ? ` At Strata's last check, ${Math.round(d.repeat * 100)}% of the recent thinking was in passages repeated three times.` : ''
+      return {
+        title: 'Thinking repeated itself',
+        what: d.restarts
+          ? `Strata found the thinking going in circles and restarted it ${d.restarts === 1 ? 'once' : `${n(d.restarts)} times`}, with a higher temperature and presence penalty.${share}`
+          : `Strata found the thinking going in circles.${share} It counts 25% or more as a loop.`,
+        fix: "Lower the reasoning effort, or raise the temperature or presence penalty. Strata's reasoning_loop_recovery setting decides whether it restarts the thinking or ends the answer.",
+        config: false,
+      }
+    }
     default:
       return { title: issue.kind, what: '', fix: '', config: false }
   }

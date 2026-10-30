@@ -152,6 +152,16 @@ var migrations = []string{
 	// they were kept, until FillPreviews reads their bodies.
 	`ALTER TABLE requests ADD COLUMN preview_end TEXT;
 	ALTER TABLE requests ADD COLUMN last_preview TEXT;`,
+	// draft_n is how many tokens speculative decoding drafted (llama.cpp's
+	// timings.draft_n), and draft_accepted how many of them the model kept.
+	// NULL when the server didn't report them.
+	`ALTER TABLE requests ADD COLUMN draft_n INTEGER;
+	ALTER TABLE requests ADD COLUMN draft_accepted INTEGER;`,
+	// server_stats is what the server knows about a request that its answer
+	// doesn't say, as JSON (capture.ServerStats), such as Strata's expert
+	// cache hit rate. engine is a Strata model's engine settings, as JSON.
+	`ALTER TABLE requests ADD COLUMN server_stats TEXT;
+	ALTER TABLE model_props ADD COLUMN engine TEXT;`,
 }
 
 func Open(path string) (*Store, error) {
@@ -231,6 +241,8 @@ type Finish struct {
 	PredictedMs        *float64
 	PromptPerSecond    *float64
 	PredictedPerSecond *float64
+	DraftN             *int64   // tokens drafted by speculative decoding
+	DraftAccepted      *int64   // drafted tokens the model kept
 	EnergyJ            *float64 // GPU energy used, in joules
 	QueuedMs           *int64   // time spent waiting behind other requests
 	OverlapMs          *int64   // time worked on alongside other requests
@@ -283,12 +295,12 @@ func (s *Store) Finish(ctx context.Context, id int64, f Finish) error {
 		   status_code = ?, error = ?, prompt_tokens = ?, completion_tokens = ?, prompt_ms = ?,
 		   predicted_ms = ?, prompt_per_second = ?, predicted_per_second = ?, response_bytes = ?,
 		   energy_j = ?, queued_ms = ?, overlap_ms = ?, overlap_n = ?, cached_tokens = ?, finish_reason = ?, n_ctx = ?, build = ?, cmd_hash = ?,
-		   tags = COALESCE(?, tags)
+		   draft_n = ?, draft_accepted = ?, tags = COALESCE(?, tags)
 		 WHERE id = ?`,
 		msOrNil(f.FirstByteAt), msOrNil(f.FirstTokenAt), f.FinishedAt.UnixMilli(), f.State,
 		f.StatusCode, nilIfEmpty(f.Error), f.PromptTokens, f.CompletionTokens, f.PromptMs,
 		f.PredictedMs, f.PromptPerSecond, f.PredictedPerSecond, f.ResponseBytes, f.EnergyJ, f.QueuedMs, f.OverlapMs, f.OverlapN, f.CachedTokens,
-		nilIfEmpty(f.FinishReason), f.NCtx, nilIfEmpty(f.Build), nilIfEmpty(f.CmdHash), nilIfEmpty(f.Tags), id); err != nil {
+		nilIfEmpty(f.FinishReason), f.NCtx, nilIfEmpty(f.Build), nilIfEmpty(f.CmdHash), f.DraftN, f.DraftAccepted, nilIfEmpty(f.Tags), id); err != nil {
 		return err
 	}
 	if err := writeIssues(ctx, tx, id, f.Issues); err != nil {
@@ -396,6 +408,11 @@ type Record struct {
 	PredictedMs        *float64
 	PromptPerSecond    *float64
 	PredictedPerSecond *float64
+	DraftN             *int64 // tokens drafted by speculative decoding
+	DraftAccepted      *int64 // drafted tokens the model kept
+	// ServerStats is JSON (capture.ServerStats), or nil when the server
+	// gave none.
+	ServerStats        *string
 	EnergyJ            *float64
 	QueuedMs           *int64
 	OverlapMs          *int64 // time worked on alongside other requests
@@ -432,7 +449,7 @@ const metaCols = `r.id, r.started_at, r.first_byte_at, r.first_token_at, r.finis
 	r.model, r.streaming, r.state, r.status_code, r.error, r.prompt_tokens, r.completion_tokens,
 	r.prompt_ms, r.predicted_ms, r.prompt_per_second, r.predicted_per_second, r.request_bytes,
 	r.response_bytes, r.prompt_preview, r.energy_j, r.cached_tokens, r.finish_reason, r.n_ctx, r.build, r.cmd_hash, r.tags, r.queued_ms, r.overlap_ms, r.overlap_n, r.retry_of,
-	r.client_ip, r.user_agent, COALESCE(r.preview_end, ''), COALESCE(r.last_preview, '')`
+	r.client_ip, r.user_agent, COALESCE(r.preview_end, ''), COALESCE(r.last_preview, ''), r.draft_n, r.draft_accepted, r.server_stats`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -444,7 +461,7 @@ func scanMeta(row scanner, r *Record, extra ...any) error {
 		&r.Model, &r.Streaming, &r.State, &r.StatusCode, &r.Error, &r.PromptTokens, &r.CompletionTokens,
 		&r.PromptMs, &r.PredictedMs, &r.PromptPerSecond, &r.PredictedPerSecond, &r.RequestBytes,
 		&r.ResponseBytes, &r.Preview, &r.EnergyJ, &r.CachedTokens, &r.FinishReason, &r.NCtx, &r.Build, &r.CmdHash, &r.Tags, &r.QueuedMs, &r.OverlapMs, &r.OverlapN, &r.RetryOf,
-		&r.ClientIP, &r.UserAgent, &r.PreviewEnd, &r.LastPreview}, extra...)
+		&r.ClientIP, &r.UserAgent, &r.PreviewEnd, &r.LastPreview, &r.DraftN, &r.DraftAccepted, &r.ServerStats}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return err
 	}
@@ -673,9 +690,9 @@ func nilIfZero(n int64) any {
 // existed, by reading each response body with cached. It runs once: a
 // setting records that it finished. It returns how many rows it filled.
 func (s *Store) FillCachedTokens(ctx context.Context, cached func(body []byte) *int64) (int, error) {
-	return s.fillFromBodies(ctx, "filled_cached_tokens", "cached_tokens", func(b []byte) any {
+	return s.fillFromBodies(ctx, "filled_cached_tokens", []string{"cached_tokens"}, func(b []byte) []any {
 		if n := cached(b); n != nil {
-			return *n
+			return []any{*n}
 		}
 		return nil
 	})
@@ -684,9 +701,21 @@ func (s *Store) FillCachedTokens(ctx context.Context, cached func(body []byte) *
 // FillBuilds sets build on requests stored before that column existed, by
 // reading each response body with build. It runs once, like FillCachedTokens.
 func (s *Store) FillBuilds(ctx context.Context, build func(body []byte) string) (int, error) {
-	return s.fillFromBodies(ctx, "filled_builds", "build", func(b []byte) any {
+	return s.fillFromBodies(ctx, "filled_builds", []string{"build"}, func(b []byte) []any {
 		if v := build(b); v != "" {
-			return v
+			return []any{v}
+		}
+		return nil
+	})
+}
+
+// FillDrafts sets draft_n and draft_accepted on requests stored before those
+// columns existed, by reading each response body with drafts. It runs once,
+// like FillCachedTokens.
+func (s *Store) FillDrafts(ctx context.Context, drafts func(body []byte) (n, accepted *int64)) (int, error) {
+	return s.fillFromBodies(ctx, "filled_drafts", []string{"draft_n", "draft_accepted"}, func(b []byte) []any {
+		if n, accepted := drafts(b); n != nil {
+			return []any{n, accepted}
 		}
 		return nil
 	})
@@ -744,10 +773,11 @@ func (s *Store) FillPreviews(ctx context.Context, previews func(body []byte) (en
 	return filled, s.SetSetting(ctx, done, "true")
 }
 
-// fillFromBodies sets column on each finished request where it is NULL and
-// the body is still kept, to value(response body). A nil value leaves the row
-// as it is. The setting done records that it has run.
-func (s *Store) fillFromBodies(ctx context.Context, done, column string, value func(body []byte) any) (int, error) {
+// fillFromBodies sets columns on each finished request where the first is
+// NULL and the body is still kept, to value(response body), one value per
+// column. A nil value leaves the row as it is. The setting done records that
+// it has run.
+func (s *Store) fillFromBodies(ctx context.Context, done string, columns []string, value func(body []byte) []any) (int, error) {
 	if v, err := s.Setting(ctx, done); err != nil || v != "" {
 		return 0, err
 	}
@@ -762,7 +792,7 @@ func (s *Store) fillFromBodies(ctx context.Context, done, column string, value f
 		// has a single connection.
 		rows, err := s.db.QueryContext(ctx,
 			`SELECT r.id, b.response_body FROM requests r JOIN bodies b ON b.request_id = r.id
-			 WHERE r.id > ? AND r.`+column+` IS NULL AND r.state != ? AND b.response_body IS NOT NULL
+			 WHERE r.id > ? AND r.`+columns[0]+` IS NULL AND r.state != ? AND b.response_body IS NOT NULL
 			 ORDER BY r.id LIMIT 20`, after, StateInFlight)
 		if err != nil {
 			return filled, err
@@ -789,7 +819,8 @@ func (s *Store) fillFromBodies(ctx context.Context, done, column string, value f
 			if v == nil {
 				continue
 			}
-			if _, err := s.db.ExecContext(ctx, `UPDATE requests SET `+column+` = ? WHERE id = ?`, v, r.id); err != nil {
+			set := strings.Join(columns, " = ?, ") + " = ?"
+			if _, err := s.db.ExecContext(ctx, `UPDATE requests SET `+set+` WHERE id = ?`, append(v, r.id)...); err != nil {
 				return filled, err
 			}
 			filled++

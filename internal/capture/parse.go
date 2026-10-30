@@ -41,6 +41,10 @@ type Timings struct {
 	PredictedN         *int64   `json:"predicted_n"`
 	PredictedMs        *float64 `json:"predicted_ms"`
 	PredictedPerSecond *float64 `json:"predicted_per_second"`
+	// Speculative decoding: tokens drafted, and how many the model kept.
+	// Only servers that draft send them.
+	DraftN         *int64 `json:"draft_n,omitempty"`
+	DraftNAccepted *int64 `json:"draft_n_accepted,omitempty"`
 }
 
 type ToolCall struct {

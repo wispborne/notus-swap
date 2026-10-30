@@ -36,8 +36,12 @@ type Start struct {
 // Progress is how far llama-server has got through a request's prompt, read
 // from its /slots while the request waits for its first token.
 type Progress struct {
-	Processed int64 `json:"processed"` // prompt tokens done so far, cached ones included
-	Cache     int64 `json:"cache"`     // prompt tokens reused from the cache
+	// Processed is the prompt tokens done so far, cached ones included. Nil
+	// when the server gives only the prompt's size.
+	Processed *int64 `json:"processed,omitempty"`
+	Cache     *int64 `json:"cache,omitempty"` // prompt tokens reused from the cache, when given
+	// Total is the prompt's full size, when the server gives it (Strata).
+	Total int64 `json:"total,omitempty"`
 	// PerSecond is the prompt speed, once two steps have been seen.
 	PerSecond *float64 `json:"per_second,omitempty"`
 }
@@ -85,6 +89,10 @@ type Hub struct {
 	// Cmd, if set, gives the hash of the command llama-swap started a model
 	// with, or "" when it isn't known.
 	Cmd func(model string) string
+	// Strata, when set, is called after a request on a Strata model is
+	// stored, with its prompt and output sizes, to read the server's own
+	// numbers for it.
+	Strata func(ctx context.Context, id int64, model string, start, end time.Time, prompt, output int64)
 
 	mu      sync.Mutex
 	flights map[int64]*flight
@@ -292,7 +300,8 @@ func (h *Hub) setProgress(id int64, p Progress, at time.Time) {
 		return
 	}
 	f.progress = &p
-	if f.began == 0 && p.Processed > 0 {
+	// A server that gives the prompt's size has started on it.
+	if f.began == 0 && (p.Processed != nil && *p.Processed > 0 || p.Total > 0) {
 		f.began = at.UnixMilli()
 	}
 	h.publish(Event{Type: "progress", ID: id, Progress: &p, At: at.UnixMilli()})

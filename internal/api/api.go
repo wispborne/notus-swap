@@ -119,7 +119,14 @@ type Summary struct {
 	PredictedMs        *float64 `json:"predicted_ms"`
 	PromptPerSecond    *float64 `json:"prompt_per_second"`
 	PredictedPerSecond *float64 `json:"predicted_per_second"`
-	EnergyJ            *float64 `json:"energy_j"`
+	// DraftN is how many tokens speculative decoding drafted, and
+	// DraftAccepted how many the model kept. Nil when the server didn't say.
+	DraftN        *int64   `json:"draft_n"`
+	DraftAccepted *int64   `json:"draft_accepted"`
+	EnergyJ       *float64 `json:"energy_j"`
+	// ServerStats is what the server reported about the request that its
+	// answer doesn't say (capture.ServerStats), or null. Only Strata gives it.
+	ServerStats json.RawMessage `json:"server_stats"`
 	// QueuedMs is how long the request waited while the server worked on
 	// other requests. Nil for requests stored before it was measured.
 	QueuedMs *int64 `json:"queued_ms"`
@@ -159,9 +166,12 @@ func summary(r *store.Record) Summary {
 		v := t.UnixMilli()
 		return &v
 	}
-	var tags json.RawMessage
+	var tags, server json.RawMessage
 	if r.Tags != nil {
 		tags = json.RawMessage(*r.Tags)
+	}
+	if r.ServerStats != nil {
+		server = json.RawMessage(*r.ServerStats)
 	}
 	return Summary{
 		Tags: tags, ID: r.ID, StartedAt: r.StartedAt.UnixMilli(), FirstByteAt: ms(r.FirstByteAt),
@@ -169,6 +179,7 @@ func summary(r *store.Record) Summary {
 		Model: r.Model, Streaming: r.Streaming, State: r.State, StatusCode: r.StatusCode, Error: r.Error,
 		PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens, CachedTokens: r.CachedTokens, PromptMs: r.PromptMs,
 		PredictedMs: r.PredictedMs, PromptPerSecond: r.PromptPerSecond, PredictedPerSecond: r.PredictedPerSecond,
+		DraftN: r.DraftN, DraftAccepted: r.DraftAccepted, ServerStats: server,
 		EnergyJ: r.EnergyJ, QueuedMs: r.QueuedMs, OverlapMs: r.OverlapMs, OverlapN: r.OverlapN, RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes, Preview: r.Preview,
 		PreviewEnd: r.PreviewEnd, LastPreview: r.LastPreview, HasBodies: r.HasBodies,
 		FinishReason: r.FinishReason, NCtx: r.NCtx, Build: r.Build, Issues: r.Issues, RetryOf: r.RetryOf,

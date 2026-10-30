@@ -77,7 +77,7 @@ func TestStreamPassesThroughLiveAndIsRecorded(t *testing.T) {
 		sse(w, `{"choices":[{"delta":{"content":"Hel"}}]}`)
 		<-release // hold the stream until the client proves it got "Hel"
 		sse(w, `{"choices":[{"delta":{"content":"lo"}}]}`)
-		sse(w, `{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3},"timings":{"prompt_ms":12.5,"predicted_ms":40,"prompt_per_second":400,"predicted_per_second":75}}`)
+		sse(w, `{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3},"timings":{"prompt_ms":12.5,"predicted_ms":40,"prompt_per_second":400,"predicted_per_second":75,"draft_n":20,"draft_n_accepted":10}}`)
 		sse(w, `[DONE]`)
 	}))
 
@@ -121,6 +121,9 @@ func TestStreamPassesThroughLiveAndIsRecorded(t *testing.T) {
 	}
 	if r.Build == nil || *r.Build != "b11146-7fe450e19" {
 		t.Errorf("build %v", r.Build)
+	}
+	if r.DraftN == nil || *r.DraftN != 20 || r.DraftAccepted == nil || *r.DraftAccepted != 10 {
+		t.Errorf("drafts %v %v", r.DraftN, r.DraftAccepted)
 	}
 	if r.FirstByteAt == nil || r.FirstTokenAt == nil || r.FirstTokenAt.Before(*r.FirstByteAt) {
 		t.Errorf("first byte %v, first token %v", r.FirstByteAt, r.FirstTokenAt)

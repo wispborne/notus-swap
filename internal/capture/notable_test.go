@@ -180,7 +180,7 @@ func TestSlotPollerMeasuresPromptSpeed(t *testing.T) {
 	<-events
 
 	slot := func(n int64) []llamaswap.Slot {
-		return []llamaswap.Slot{{TaskID: 1, Processing: true, Prompt: n + 1024, Processed: n, Cache: 0}}
+		return []llamaswap.Slot{{TaskID: 1, Processing: true, Prompt: n + 1024, Processed: n}}
 	}
 	// Prompt processing advances by 1,024 tokens every 2 s; poll every second.
 	f := &fakeSlots{answers: [][]llamaswap.Slot{slot(56701), slot(56701), slot(57725), slot(57725), slot(58749), slot(58749), slot(59773)}}
@@ -206,7 +206,7 @@ func TestSlotPollerMeasuresPromptSpeed(t *testing.T) {
 		t.Errorf("asked for %q, not the model's ID", asked)
 	}
 	// Steps at 2 s (57,725), 4 s (58,749) and 6 s (59,773): 2,048 tokens in 4 s.
-	if last.Processed != 59773 || *last.PerSecond != 512 {
+	if *last.Processed != 59773 || *last.PerSecond != 512 {
 		t.Errorf("last progress %+v, speed %v", last, *last.PerSecond)
 	}
 
@@ -217,6 +217,27 @@ func TestSlotPollerMeasuresPromptSpeed(t *testing.T) {
 	p.poll(context.Background(), time.Now)
 	if f.calls != calls {
 		t.Error("polled a request that already has its first token")
+	}
+}
+
+// Strata gives a prompt's size even when it can't say how much is done.
+func TestSlotPollerSizeOnly(t *testing.T) {
+	h := NewHub()
+	events, _, cancel := h.Subscribe()
+	defer cancel()
+	h.start(Start{ID: 1, Model: "m"}, nil)
+	<-events
+	f := &fakeSlots{answers: [][]llamaswap.Slot{{{ID: -1, Processing: true, Total: 5000, SizeOnly: true}}}}
+	p := &SlotPoller{Hub: h, Fetch: f.fetch, Ready: func(string) bool { return true }, ID: func(n string) string { return n },
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	p.poll(context.Background(), time.Now)
+	e := <-events
+	if e.Progress == nil || e.Progress.Processed != nil || e.Progress.Total != 5000 || e.Progress.PerSecond != nil {
+		t.Fatalf("got %+v", e.Progress)
+	}
+	// The server is reading the prompt, so the request counts as being worked on.
+	if h.began(1).IsZero() {
+		t.Error("began is not set")
 	}
 }
 
@@ -236,7 +257,7 @@ func TestSlotPollerSkipsUnclearMatches(t *testing.T) {
 	}}}
 	p := &SlotPoller{Hub: h, Fetch: f.fetch, Ready: func(string) bool { return true }, ID: func(n string) string { return n }, Log: quiet}
 	p.poll(context.Background(), time.Now)
-	if e := <-events; e.Progress == nil || e.Progress.Processed != 1024 {
+	if e := <-events; e.Progress == nil || *e.Progress.Processed != 1024 {
 		t.Errorf("got %+v", e)
 	}
 

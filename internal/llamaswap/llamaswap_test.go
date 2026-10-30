@@ -161,7 +161,10 @@ func TestParseSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Slot{ID: 0, TaskID: 124391, Processing: true, Prompt: 103805, Processed: 102781}
-	if len(s) != 1 || s[0] != want {
+	if len(s) != 1 || s[0].Cache == nil || *s[0].Cache != 0 {
+		t.Fatalf("got %+v", s)
+	}
+	if s[0].Cache = nil; s[0] != want {
 		t.Errorf("got %+v", s)
 	}
 
@@ -172,5 +175,113 @@ func TestParseSlots(t *testing.T) {
 
 	if _, err := parseSlots(strings.NewReader(`[{"id":0,"is_processing":false}]`)); err == nil {
 		t.Error("a build without the prompt fields should give an error")
+	}
+}
+
+// A Strata model through llama-swap: /slots lacks the prompt count, so it
+// comes from Strata's /metrics.
+func TestFetchSlotsFromStrata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/upstream/qwen/slots":
+			w.Write([]byte(`[{"id": 0, "n_ctx": 131072, "is_processing": true, "n_prompt_tokens": 611}]`))
+		case "/upstream/qwen/metrics":
+			if r.Header.Get("Accept") != "application/json" {
+				w.Write([]byte("# HELP vllm:num_requests_running"))
+				return
+			}
+			w.Write([]byte(`{"live": {"state": "reading", "prompt_tokens": 900, "prompt_read": 512, "prompt_total": 900}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	m := NewMonitor(u)
+	s, err := m.FetchSlots(context.Background(), "qwen")
+	if err != nil || len(s) != 1 || s[0].Processed != 512 || s[0].Total != 900 {
+		t.Errorf("slots: %+v, %v", s, err)
+	}
+}
+
+func TestParseStrataSlots(t *testing.T) {
+	// Trimmed from Strata 0.1.54's /metrics with --batch 3: one request reads
+	// its prompt on its own, one slot generates, one slot reads.
+	answer := func(total string) string {
+		return `{"engine": {}, "live": {"state": "reading", "phase": "reading the prompt", "prompt_tokens": 34302,
+			"prompt_read": 8192, "prompt_total": ` + total + `, "generated": 0, "elapsed_s": 3.1, "parallel": 3, "running": 3,
+			"slots": [{"slot": 0, "state": "idle", "held_tokens": 611},
+				{"slot": 1, "state": "generating", "prompt_tokens": 900, "prompt_read": null, "generated": 12},
+				{"slot": 2, "state": "reading", "prompt_tokens": 5000, "prompt_read": 8192, "generated": 0}]}}`
+	}
+	s, err := parseStrataSlots(strings.NewReader(answer("34302")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Slot{
+		{ID: -1, Processing: true, Total: 34302, Processed: 8192},
+		{ID: 1, Processing: true, Decoded: 12},
+		// The counter is never a slot's own.
+		{ID: 2, Processing: true, Total: 5000, SizeOnly: true},
+	}
+	if fmt.Sprint(s) != fmt.Sprint(want) {
+		t.Errorf("got %+v", s)
+	}
+
+	// The counter is another request's: only the size is known.
+	s, _ = parseStrataSlots(strings.NewReader(answer("116598")))
+	if !s[0].SizeOnly || s[0].Total != 34302 {
+		t.Errorf("got %+v", s[0])
+	}
+
+	// Seen with --batch 3 while another request generated: the request in
+	// "live" is in slot 1 too. It is listed once.
+	s, _ = parseStrataSlots(strings.NewReader(`{"live": {"state": "reading", "prompt_tokens": 38572, "prompt_read": 8192,
+		"prompt_total": 38572, "slots": [{"slot": 0, "state": "generating", "prompt_tokens": 120000, "generated": 541},
+		{"slot": 1, "state": "reading", "prompt_tokens": 38572, "prompt_read": 8192, "generated": 0}]}}`))
+	if fmt.Sprint(s) != fmt.Sprint([]Slot{{ID: -1, Processing: true, Total: 38572, Processed: 8192}, {ID: 0, Processing: true, Decoded: 541}}) {
+		t.Errorf("got %+v", s)
+	}
+
+	// A generating request whose first token isn't counted yet still counts as generating.
+	s, _ = parseStrataSlots(strings.NewReader(`{"live": {"state": "generating", "generated": 0}}`))
+	if len(s) != 1 || s[0].Decoded != 1 {
+		t.Errorf("got %+v", s)
+	}
+
+	// llama-server's Prometheus /metrics isn't JSON.
+	if _, err := parseStrataSlots(strings.NewReader("# HELP llamacpp:prompt_tokens_total")); err == nil {
+		t.Error("a non-JSON answer should give an error")
+	}
+	if _, err := parseStrataSlots(strings.NewReader(`{"other": 1}`)); err == nil {
+		t.Error("JSON without Strata's live block should give an error")
+	}
+}
+
+func TestParseStrata(t *testing.T) {
+	// Trimmed from Strata 0.1.54's /metrics.
+	body := `{"engine": {"model": "qwen", "max_context": 131072, "images": true, "version": "0.1.54", "kv": "int8",
+		"expert_cache_mib": 7671, "spec": 6, "pcie_frac": "0.55", "vram_free_mib": 305, "drafting": "mtp", "drafting_note": ""},
+		"live": {"state": "idle"},
+		"requests": [{"id": "67575f0929a1", "time": 1793397970.753632, "duration_s": 24.4, "finish": "stop", "prompt_tokens": 103100,
+			"output_tokens": 1718, "first_engine_token_s": 1.559, "reasoning_recoveries": 0, "reasoning_repeat_coverage": 0.0,
+			"hit_rate": 0.843, "pcie_share": 0.107, "file_mb": 0, "drafts_offered": 1583}]}`
+	s, err := parseStrata(strings.NewReader(body))
+	if err != nil || !s.Loaded() || len(s.Requests) != 1 || *s.Requests[0].HitRate != 0.843 || s.Requests[0].OutputTokens != 1718 {
+		t.Fatalf("got %+v, %v", s, err)
+	}
+	want := []string{"--strata.drafting=mtp", "--strata.expert_cache_mib=7671", "--strata.images=true", "--strata.kv=int8",
+		"--strata.max_context=131072", "--strata.pcie_frac=0.55", "--strata.spec=6"}
+	if got := s.SettingArgs(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("args %v", got)
+	}
+
+	// Before the engine loads, only three fields are known.
+	s, _ = parseStrata(strings.NewReader(`{"engine": {"model": "qwen", "max_context": 131072, "images": true}, "requests": []}`))
+	if s.Loaded() {
+		t.Error("an engine without a version counts as loaded")
+	}
+	if _, err := parseStrata(strings.NewReader(`{"live": {}}`)); err == nil {
+		t.Error("JSON without an engine block should give an error")
 	}
 }

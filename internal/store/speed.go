@@ -76,6 +76,9 @@ type speedRow struct {
 	client         string
 	images         bool
 	structured     bool
+	// vram is the share of the expert work done from the VRAM cache, on
+	// Strata only (see expertsInVRAM); nil for other servers.
+	vram *float64
 }
 
 // speedColumns must match the scan order in scanSpeedRows.
@@ -84,7 +87,8 @@ const speedColumns = `id, started_at, COALESCE(build, ''), COALESCE(cmd_hash, ''
 	prompt_per_second, predicted_per_second, COALESCE(prompt_ms, 0) + COALESCE(predicted_ms, 0),
 	COALESCE(overlap_ms, -1), COALESCE(user_agent, ''), retry_of IS NOT NULL,
 	COALESCE(instr(tags, '"kind":"images"') > 0, 0),
-	COALESCE(instr(tags, '"kind":"schema"') > 0 OR instr(tags, '"kind":"json"') > 0, 0)`
+	COALESCE(instr(tags, '"kind":"schema"') > 0 OR instr(tags, '"kind":"json"') > 0, 0),
+	json_extract(server_stats, '$.expert_hit_rate'), json_extract(server_stats, '$.pcie_share')`
 
 func scanSpeedRows(rows *sql.Rows) ([]speedRow, error) {
 	defer rows.Close()
@@ -93,11 +97,13 @@ func scanSpeedRows(rows *sql.Rows) ([]speedRow, error) {
 		var r speedRow
 		var ua string
 		var retry bool
+		var hit, pcie *float64
 		if err := rows.Scan(&r.id, &r.started, &r.build, &r.cmd, &r.prompt, &r.cached, &r.output, &r.promptPS, &r.genPS,
-			&r.workMs, &r.overlapMs, &ua, &retry, &r.images, &r.structured); err != nil {
+			&r.workMs, &r.overlapMs, &ua, &retry, &r.images, &r.structured, &hit, &pcie); err != nil {
 			return nil, err
 		}
 		r.client = source.Name(ua, retry)
+		r.vram = expertsInVRAM(hit, pcie)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -110,6 +116,20 @@ func (r speedRow) alone() bool {
 		return true
 	}
 	return r.workMs > 0 && float64(r.overlapMs) <= aloneShare*r.workMs
+}
+
+// expertsInVRAM is the share of Strata's expert work while generating that
+// was done from the VRAM cache. Strata's hit rate leaves out the share read
+// over PCIe, so it is scaled down by that share.
+func expertsInVRAM(hit, pcie *float64) *float64 {
+	if hit == nil {
+		return nil
+	}
+	v := *hit
+	if pcie != nil {
+		v *= 1 - *pcie
+	}
+	return &v
 }
 
 func (r speedRow) hasSpeeds() bool { return r.genPS != nil || r.promptPS != nil }
@@ -231,6 +251,10 @@ type BuildStat struct {
 	GenCounted      int      `json:"gen_counted"`
 	PromptPerSecond *float64 `json:"prompt_per_second"`
 	PromptCounted   int      `json:"prompt_counted"`
+	// ExpertsInVRAM is the median share of Strata's expert work done from
+	// the VRAM cache, over the requests that count for output speed. Nil
+	// for other servers.
+	ExpertsInVRAM *float64 `json:"experts_in_vram"`
 	// The change from the next row, the group started before this one,
 	// on the same kinds of requests (compareKinds), and how many requests
 	// that used. Nil when they share no kind.
@@ -240,6 +264,7 @@ type BuildStat struct {
 	PromptCompared int      `json:"prompt_compared"`
 
 	gen, prompt speeds
+	vram        []float64
 }
 
 // ClientCount is how many of a model's finished requests came from a client.
@@ -291,6 +316,9 @@ func (s *Store) ModelBuilds(ctx context.Context, names []string, f SpeedFilter) 
 		if f.countsGen(r) {
 			b.gen.add(genKind(r), *r.genPS)
 			out.GenCounted++
+			if r.vram != nil {
+				b.vram = append(b.vram, *r.vram)
+			}
 		}
 		if f.countsPrompt(r) {
 			b.prompt.add(promptKind(r), *r.promptPS)
@@ -310,6 +338,7 @@ func (s *Store) ModelBuilds(ctx context.Context, names []string, f SpeedFilter) 
 		gen, prompt := b.gen.all(), b.prompt.all()
 		b.GenPerSecond, b.GenCounted = median(gen), len(gen)
 		b.PromptPerSecond, b.PromptCounted = median(prompt), len(prompt)
+		b.ExpertsInVRAM = median(b.vram)
 		if i+1 < len(out.Rows) {
 			older := out.Rows[i+1]
 			b.GenChange, b.GenCompared = compareKinds(b.gen, older.gen)

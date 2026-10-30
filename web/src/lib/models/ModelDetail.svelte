@@ -7,7 +7,7 @@
   import { modelLabel, modelShow } from '../modelNames.svelte'
   import type { RunningModel } from '../status.svelte'
   import StatusPill from '../StatusPill.svelte'
-  import { capWords, type ModelProps } from './caps'
+  import { capWords, engineTitle, engineWords, type ModelProps } from './caps'
   import { cmdDiff, cmdLine } from './cmdDiff'
   import SpeedFilterPanel from './SpeedFilterPanel.svelte'
   import { loadSpeedFilter, sameFilter, type SpeedFilter } from './speedFilter'
@@ -41,6 +41,8 @@
     gen_compared: number
     prompt_change: number | null
     prompt_compared: number
+    /** Strata only: the median share of expert work done from the VRAM cache, over the output speed requests. */
+    experts_in_vram: number | null
   }
   interface Builds {
     rows: BuildStat[]
@@ -108,6 +110,7 @@
     return () => clearTimeout(t)
   })
   const rows = $derived(builds?.rows ?? [])
+  const showExperts = $derived(rows.some((b) => b.experts_in_vram != null))
   const count = (n: number) => n.toLocaleString('en-US')
 
   // Commands are numbered 1, 2, 3 in the order the model first used them.
@@ -153,6 +156,11 @@
       <span class="text-dim">Capabilities are read from llama-server when the model next loads.</span>
     {/if}
   </div>
+  {#if props?.engine}
+    <div class="py-1 text-xs text-muted" title={engineTitle(props.engine)}>
+      Strata engine{props.build ? ` ${props.build.replace(/^Strata\s*/, '')}` : ''}: <span class="text-text">{engineWords(props.engine).join(', ')}</span>.
+    </div>
+  {/if}
 
   <div class="mb-2 flex items-center gap-2 py-1 text-xs text-muted">
     <span class="shrink-0">Colour and shape</span>
@@ -218,6 +226,7 @@
               <th class="!text-right" title="Median speed and number of included requests">{c.label}</th>
               <th title="Change from the row below, grouped by {c.kinds}">Change</th>
             {/each}
+            {#if showExperts}<th class="!text-right" title="Strata only: the median share of the expert work while generating that was done from the VRAM cache, over the requests counted for output speed">Experts in VRAM</th>{/if}
           </tr>
         </thead>
         <tbody>
@@ -247,11 +256,12 @@
                   {/if}
                 </td>
               {/each}
+              {#if showExperts}<td class="num text-right">{#if b.experts_in_vram != null}{pct(b.experts_in_vram)}{:else}<span class="text-dim">–</span>{/if}</td>{/if}
             </tr>
             {#if diff.length}
               <tr>
                 <td></td>
-                <td colspan="7" class="!whitespace-normal pb-1 text-[11.5px] text-muted">
+                <td colspan={showExperts ? 8 : 7} class="!whitespace-normal pb-1 text-[11.5px] text-muted">
                   Settings changed from the row below: <span class="font-mono text-text">{diff.join(', ')}</span>
                 </td>
               </tr>

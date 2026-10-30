@@ -12,6 +12,8 @@ export interface ModelProps {
   build?: string
   /** Missing for props saved before notus-swap read capabilities. */
   caps?: Caps
+  /** A Strata model's engine settings, from its /metrics. Missing for other servers. */
+  engine?: Record<string, unknown>
 }
 
 /** llamaswap.Caps. */
@@ -72,4 +74,30 @@ export function capWords(caps: Caps): { yes: string[]; no: string[] } {
     ['thinking', caps.thinking],
   ]
   return { yes: all.filter(([, v]) => v === true).map(([w]) => w), no: all.filter(([, v]) => v === false).map(([w]) => w) }
+}
+
+/**
+ * A Strata engine's main settings in words, such as "KV cache int8". The
+ * rest are only in the tooltip (engineTitle).
+ */
+export function engineWords(e: Record<string, unknown>): string[] {
+  const num = (k: string) => (typeof e[k] === 'number' ? (e[k] as number) : undefined)
+  const str = (k: string) => (typeof e[k] === 'string' && e[k] ? (e[k] as string) : undefined)
+  const n = (v: number) => v.toLocaleString('en-US')
+  const out: string[] = []
+  if (str('kv')) out.push(`KV cache ${str('kv')}`)
+  const cache = num('expert_cache_mib')
+  if (cache != null) out.push(`expert cache ${n(cache)} MiB${num('expert_slots') != null ? ` (${n(num('expert_slots')!)} experts)` : ''}`)
+  if (str('drafting')) out.push(`drafting with ${str('drafting')}${num('spec') ? `, up to ${num('spec')} tokens` : ''}`)
+  if (num('prefill_cap')) out.push(`prompt read in chunks of ${n(num('prefill_cap')!)}`)
+  if (num('batch_slots')) out.push(`${num('batch_slots')} batch slots`)
+  if (num('vram_free_mib') != null) out.push(`${n(num('vram_free_mib')!)} MiB VRAM free at load`)
+  return out
+}
+
+/** Every engine setting, one per line, for a tooltip. */
+export function engineTitle(e: Record<string, unknown>) {
+  return Object.entries(e)
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    .join('\n')
 }

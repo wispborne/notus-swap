@@ -38,6 +38,11 @@ func writeIssues(ctx context.Context, db execer, id int64, issues []Issue) error
 	if _, err := db.ExecContext(ctx, `DELETE FROM request_issues WHERE request_id = ?`, id); err != nil {
 		return err
 	}
+	return addIssues(ctx, db, id, issues)
+}
+
+// addIssues stores issues for a request, keeping its other kinds.
+func addIssues(ctx context.Context, db execer, id int64, issues []Issue) error {
 	for _, is := range issues {
 		detail := is.Detail
 		if len(detail) == 0 {
@@ -114,6 +119,9 @@ type ModelProps struct {
 	// Caps is what the model can take in and do, as JSON (llamaswap.Caps).
 	// Empty for props stored before it was read.
 	Caps json.RawMessage `json:"caps,omitempty"`
+	// Engine is a Strata model's engine settings, as JSON. Empty for other
+	// servers.
+	Engine json.RawMessage `json:"engine,omitempty"`
 }
 
 // SaveModelProps stores a model's props under each of its names (its ID and
@@ -126,8 +134,8 @@ func (s *Store) SaveModelProps(ctx context.Context, names []string, p ModelProps
 	defer tx.Rollback()
 	for _, n := range names {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR REPLACE INTO model_props (model, n_ctx, n_predict, slots, build, caps, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			n, p.NCtx, p.NPredict, p.Slots, nilIfEmpty(p.Build), nilIfEmpty(string(p.Caps)), at.UnixMilli()); err != nil {
+			`INSERT OR REPLACE INTO model_props (model, n_ctx, n_predict, slots, build, caps, engine, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			n, p.NCtx, p.NPredict, p.Slots, nilIfEmpty(p.Build), nilIfEmpty(string(p.Caps)), nilIfEmpty(string(p.Engine)), at.UnixMilli()); err != nil {
 			return err
 		}
 	}
@@ -154,7 +162,7 @@ func (s *Store) GetModelProps(ctx context.Context, model string) (*ModelProps, e
 // AllModelProps returns the props saved for every model name (IDs and
 // aliases), oldest first.
 func (s *Store) AllModelProps(ctx context.Context) ([]NamedModelProps, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT model, n_ctx, n_predict, slots, build, caps FROM model_props ORDER BY updated_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT model, n_ctx, n_predict, slots, build, caps, engine FROM model_props ORDER BY updated_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -163,13 +171,16 @@ func (s *Store) AllModelProps(ctx context.Context) ([]NamedModelProps, error) {
 	for rows.Next() {
 		var p NamedModelProps
 		var predict, slots sql.NullInt64
-		var build, caps sql.NullString
-		if err := rows.Scan(&p.Model, &p.NCtx, &predict, &slots, &build, &caps); err != nil {
+		var build, caps, engine sql.NullString
+		if err := rows.Scan(&p.Model, &p.NCtx, &predict, &slots, &build, &caps, &engine); err != nil {
 			return nil, err
 		}
 		p.NPredict, p.Slots, p.Build = predict.Int64, slots.Int64, build.String
 		if caps.Valid {
 			p.Caps = json.RawMessage(caps.String)
+		}
+		if engine.Valid {
+			p.Engine = json.RawMessage(engine.String)
 		}
 		out = append(out, p)
 	}
@@ -190,6 +201,7 @@ type CheckRow struct {
 	StatusCode   int
 	Truncated    bool
 	NCtx         *int64 // the context size stored with the request, if known
+	ServerStats  []byte // JSON (capture.ServerStats), or nil
 	RequestBody  []byte
 	ResponseBody []byte
 }
@@ -198,7 +210,7 @@ type CheckRow struct {
 // their bodies, oldest first. With models set, only those models' requests
 // whose context size isn't known are returned.
 func (s *Store) CheckRows(ctx context.Context, after int64, limit int, models []string) ([]CheckRow, error) {
-	q := `SELECT r.id, r.path, r.model, r.state, COALESCE(r.status_code, 0), b.truncated, r.n_ctx, b.request_body, b.response_body
+	q := `SELECT r.id, r.path, r.model, r.state, COALESCE(r.status_code, 0), b.truncated, r.n_ctx, r.server_stats, b.request_body, b.response_body
 		FROM requests r JOIN bodies b ON b.request_id = r.id
 		WHERE r.id > ? AND r.state != ? AND b.response_body IS NOT NULL`
 	args := []any{after, StateInFlight}
@@ -217,12 +229,30 @@ func (s *Store) CheckRows(ctx context.Context, after int64, limit int, models []
 	var out []CheckRow
 	for rows.Next() {
 		var r CheckRow
-		if err := rows.Scan(&r.ID, &r.Path, &r.Model, &r.State, &r.StatusCode, &r.Truncated, &r.NCtx, &r.RequestBody, &r.ResponseBody); err != nil {
+		if err := rows.Scan(&r.ID, &r.Path, &r.Model, &r.State, &r.StatusCode, &r.Truncated, &r.NCtx, &r.ServerStats, &r.RequestBody, &r.ResponseBody); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SetServerStats stores what the server reported about a finished request
+// (JSON, capture.ServerStats) and the issues found in it, keeping the
+// request's other issues.
+func (s *Store) SetServerStats(ctx context.Context, id int64, stats []byte, issues []Issue) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE requests SET server_stats = ? WHERE id = ?`, string(stats), id); err != nil {
+		return err
+	}
+	if err := addIssues(ctx, tx, id, issues); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetChecked stores the result of checking a request again.

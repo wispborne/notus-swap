@@ -145,6 +145,42 @@ func TestListFilters(t *testing.T) {
 	}
 }
 
+func TestFillDrafts(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	add := func(body string) int64 {
+		id, err := st.Begin(ctx, Begin{StartedAt: time.Now(), Method: "POST", Path: "/v1/x"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Finish(ctx, id, Finish{FinishedAt: time.Now(), State: StateDone, ResponseBody: []byte(body)}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	drafted, plain := add("20 10"), add("none")
+	drafts := func(b []byte) (*int64, *int64) {
+		var n, kept int64
+		if _, err := fmt.Sscan(string(b), &n, &kept); err != nil {
+			return nil, nil
+		}
+		return &n, &kept
+	}
+	if n, err := st.FillDrafts(ctx, drafts); err != nil || n != 1 {
+		t.Fatalf("filled %d, err %v", n, err)
+	}
+	if r, _ := st.Get(ctx, drafted); r.DraftN == nil || *r.DraftN != 20 || *r.DraftAccepted != 10 {
+		t.Errorf("drafts %v %v", r.DraftN, r.DraftAccepted)
+	}
+	if r, _ := st.Get(ctx, plain); r.DraftN != nil || r.DraftAccepted != nil {
+		t.Error("a body without drafts got counts")
+	}
+}
+
 func TestFillCachedTokens(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "test.db"))

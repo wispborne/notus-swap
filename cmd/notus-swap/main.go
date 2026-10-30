@@ -259,6 +259,8 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	hub.Cmd = cmds.get
 	slots := &capture.SlotPoller{Hub: hub, Fetch: monitor.FetchSlots, Ready: monitor.Ready, ID: monitor.ID, Log: log}
 	go slots.Run(ctx)
+	strata := &capture.StrataStats{Store: st, Hub: hub, Fetch: monitor.FetchStrata, Ready: monitor.Ready, Log: log}
+	hub.Strata = strata.Finished
 	monitor.OnReady = func(model string) {
 		slots.Loaded(model)
 		go learnProps(ctx, log, st, monitor, props, model)
@@ -301,6 +303,17 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 			log.Error("could not fill in server builds for older requests", "err", err)
 		} else if n > 0 {
 			log.Info("filled in server builds for older requests", "count", n)
+		}
+		n, err = st.FillDrafts(ctx, func(b []byte) (*int64, *int64) {
+			if t := capture.ParseStored(b).Timings; t != nil {
+				return t.DraftN, t.DraftNAccepted
+			}
+			return nil, nil
+		})
+		if err != nil {
+			log.Error("could not fill in draft counts for older requests", "err", err)
+		} else if n > 0 {
+			log.Info("filled in draft counts for older requests", "count", n)
 		}
 		n, err = metrics.Recount(ctx, st, time.Now())
 		if err != nil {
@@ -444,7 +457,8 @@ func learnProps(ctx context.Context, log *slog.Logger, st *store.Store, monitor 
 	}
 	names := monitor.Names(model)
 	caps, _ := json.Marshal(p.Caps)
-	if err := st.SaveModelProps(ctx, names, store.ModelProps{NCtx: p.NCtx, NPredict: p.NPredict, Slots: p.Slots, Build: p.Build, Caps: caps}, time.Now()); err != nil {
+	saved := store.ModelProps{NCtx: p.NCtx, NPredict: p.NPredict, Slots: p.Slots, Build: p.Build, Caps: caps}
+	if err := st.SaveModelProps(ctx, names, saved, time.Now()); err != nil {
 		log.Error("saving a model's limits", "model", model, "err", err)
 		return
 	}
@@ -452,6 +466,38 @@ func learnProps(ctx context.Context, log *slog.Logger, st *store.Store, monitor 
 		log.Error("checking a model's older requests for issues", "model", model, "err", err)
 	} else if n > 0 {
 		log.Info("checked older requests again now that the context size is known", "model", model, "count", n)
+	}
+	if capture.IsStrata(&saved) {
+		if s, ok := strataEngine(ctx, monitor, model); ok {
+			saved.Engine, _ = json.Marshal(s.Engine)
+			if err := st.SaveModelProps(ctx, names, saved, time.Now()); err != nil {
+				log.Error("saving Strata's engine settings", "model", model, "err", err)
+			}
+		}
+	}
+}
+
+// strataEngine reads a Strata model's /metrics once its engine has loaded.
+// Strata answers llama-swap's health check before then, and its engine's
+// settings are only known after. ok is false for other servers, or when the
+// model stops first.
+func strataEngine(ctx context.Context, monitor *llamaswap.Monitor, model string) (s llamaswap.Strata, ok bool) {
+	for {
+		s, err := monitor.FetchStrata(ctx, model)
+		if err != nil {
+			return s, false
+		}
+		if s.Loaded() {
+			return s, true
+		}
+		select {
+		case <-ctx.Done():
+			return s, false
+		case <-time.After(5 * time.Second):
+		}
+		if !monitor.Ready(model) {
+			return s, false
+		}
 	}
 }
 
@@ -481,6 +527,11 @@ func learnCmd(ctx context.Context, log *slog.Logger, st *store.Store, monitor *l
 			continue
 		}
 		args := r.Args()
+		// A Strata command names only its config file, so its engine's
+		// settings are added. Other servers have no Strata /metrics.
+		if s, ok := strataEngine(ctx, monitor, model); ok {
+			args = append(args, s.SettingArgs()...)
+		}
 		hash := llamaswap.HashArgs(args)
 		if err := st.SaveModelCmd(ctx, hash, args, time.Now()); err != nil {
 			log.Error("saving a model's command", "model", model, "err", err)

@@ -36,11 +36,19 @@ function flags(args: string[]): Map<string, string> {
 
 const show = (key: string, value: string) => (key.startsWith('#') ? value : `${key} ${value}`.trim())
 
+// Strata's engine settings, which notus-swap adds to a Strata model's
+// command as --strata.<name>=<value> (llamaswap.Strata.SettingArgs).
+const strata = (args: string[]) => args.some((a) => a.startsWith('--strata.'))
+
 /** What changed from `before` to `after`, as short phrases like "-c 4096 → 8192". */
 export function cmdDiff(before: string[], after: string[]): string[] {
+  // Commands stored before notus-swap read Strata's settings have none of
+  // them. That isn't a change of settings, so the first record is one phrase.
+  const recorded = strata(after) && !strata(before)
+  if (recorded) after = after.filter((x) => !x.startsWith('--strata.'))
   const a = flags(before)
   const b = flags(after)
-  const out: string[] = []
+  const out: string[] = recorded ? ['Strata engine settings recorded'] : []
   for (const [k, v] of b) {
     if (!a.has(k)) out.push(`added ${show(k, v)}`)
     else if (a.get(k) !== v) out.push(k.startsWith('#') ? `${a.get(k)} → ${v}` : `${k} ${a.get(k)} → ${v}`)

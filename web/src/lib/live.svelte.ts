@@ -43,6 +43,22 @@ export function liveOutSpeed(f: LiveOutput | undefined) {
   return (f.chunks - 1) / ((f.lastAt - f.firstTokenAt) / 1000)
 }
 
+const count = (v: number) => v.toLocaleString('en-US')
+
+/** The prompt's tokens while the request waits for its first token, such as "8,192 of 34,302 tok (24%)". */
+export function liveIn(p: Progress) {
+  if (!p.total) return `${count(p.processed ?? 0)} tok so far`
+  if (p.processed == null) return `${count(p.total)} tok`
+  return `${count(p.processed)} of ${count(p.total)} tok (${Math.round((p.processed / p.total) * 100)}%)`
+}
+
+/** A longer form of liveIn, for a tooltip. */
+export function liveInTitle(p: Progress) {
+  if (!p.total) return `${count(p.processed ?? 0)} processed so far. The total is known when the request ends.`
+  if (p.processed == null) return `The prompt is ${count(p.total)} tokens. The server doesn't say how much of it is read.`
+  return `${count(p.processed)} of the prompt's ${count(p.total)} tokens read so far`
+}
+
 class Live {
   flights = new SvelteMap<number, LiveOutput>()
   connected = $state(false)

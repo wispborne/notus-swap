@@ -156,6 +156,45 @@ func TestModelBuilds(t *testing.T) {
 	}
 }
 
+// On Strata, each row has the median share of expert work done from VRAM,
+// over the requests that count for output speed.
+func TestModelBuildsExpertsInVRAM(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	start := time.Now()
+	for i, stats := range []string{
+		`{"expert_hit_rate": 0.8, "pcie_share": 0.5}`, // 40% of all expert work
+		`{"expert_hit_rate": 0.6}`,                    // an engine that doesn't read over PCIe
+		`{"expert_hit_rate": 0.2, "pcie_share": 0}`,
+		``, // not matched to Strata's record
+	} {
+		id, err := st.Begin(ctx, Begin{StartedAt: start.Add(time.Duration(i) * time.Second), Method: "POST", Path: "/v1/x", Model: "a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ct, gen := int64(500), 30.0
+		if err := st.Finish(ctx, id, Finish{FinishedAt: start, State: StateDone, Build: "Strata 0.1.54", CompletionTokens: &ct, PredictedPerSecond: &gen}); err != nil {
+			t.Fatal(err)
+		}
+		if stats != "" {
+			if err := st.SetServerStats(ctx, id, []byte(stats), nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	builds, err := st.ModelBuilds(ctx, []string{"a"}, DefaultSpeedFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := builds.Rows[0].ExpertsInVRAM; v == nil || math.Abs(*v-0.4) > 1e-9 {
+		t.Errorf("experts in VRAM %v", v)
+	}
+}
+
 // Builds are compared on the kinds of requests both have: here b2 is 10%
 // faster for each client, although most of b1's requests came from the
 // faster client.

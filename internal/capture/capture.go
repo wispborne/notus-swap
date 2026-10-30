@@ -162,6 +162,7 @@ func finish(st *store.Store, hub *Hub, log *slog.Logger, id int64, start time.Ti
 		if t := p.Timings; t != nil {
 			f.PromptMs, f.PredictedMs = t.PromptMs, t.PredictedMs
 			f.PromptPerSecond, f.PredictedPerSecond = t.PromptPerSecond, t.PredictedPerSecond
+			f.DraftN, f.DraftAccepted = t.DraftN, t.DraftNAccepted
 		}
 		f.FinishReason, f.Build = p.FinishReason, p.Build
 		var props *store.ModelProps
@@ -208,6 +209,10 @@ func finish(st *store.Store, hub *Hub, log *slog.Logger, id int64, start time.Ti
 	}
 	if err := st.Finish(context.WithoutCancel(r.Context()), id, f); err != nil {
 		log.Error("capture: could not store response", "id", id, "err", err)
+		return
+	}
+	if hub.Strata != nil && f.PromptTokens != nil && f.CompletionTokens != nil && hub.Props != nil && IsStrata(hub.Props(model)) {
+		go hub.Strata(context.WithoutCancel(r.Context()), id, model, start, end, *f.PromptTokens, *f.CompletionTokens)
 	}
 }
 

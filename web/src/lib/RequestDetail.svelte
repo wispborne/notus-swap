@@ -4,14 +4,17 @@
   import ModelMark from './ModelMark.svelte'
   import { describe, issueMutes } from './issues.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { live, liveOutSpeed } from './live.svelte'
+  import { live, liveIn, liveOutSpeed } from './live.svelte'
+  import { expertShares } from './experts'
   import Markdown from './Markdown.svelte'
   import { modelLabel, modelTitle, requestedLabel } from './modelNames.svelte'
   import RequestMessages from './RequestMessages.svelte'
   import StatusPill from './StatusPill.svelte'
   import { sourceLabel, sourceTitle } from './source'
 
-  let { row, onopen }: { row: Summary; onopen?: (id: number) => void } = $props()
+  // usualExperts is the model's median share of expert work done from VRAM,
+  // over the requests listed, when there are enough of them.
+  let { row, usualExperts, onopen }: { row: Summary; usualExperts?: number; onopen?: (id: number) => void } = $props()
 
   let detail = $state<Detail | null>(null)
   let error = $state('')
@@ -54,6 +57,7 @@
   const outTokens = $derived(flight ? flight.chunks : row.completion_tokens)
   const genSpeed = $derived(row.predicted_per_second ?? liveOutSpeed(flight))
   const progress = $derived(flight?.progress)
+  const server = $derived(row.server_stats)
   const tok = (v: number) => `${v.toLocaleString('en-US')} tok`
 
   // Timing bar: queued behind other requests, waiting (model load), prompt
@@ -78,16 +82,20 @@
     return segs.map((s) => ({ ...s, pct: (s.ms / total) * 100 }))
   })
 
+  const experts = $derived(expertShares(server))
+  // Each chip is a label and a value, with an optional tooltip, a warning
+  // colour, and a bar of shares that add up to 1.
+  type Chip = { k: string; v: string; title?: string; warn?: boolean; bar?: { share: number; color: string }[] }
   const chips = $derived(
     [
       ['TTFT', duration(ttft)],
       ['Queued', row.queued_ms ? duration(row.queued_ms) : null],
-      ['In', row.prompt_tokens != null ? tok(row.prompt_tokens) : progress ? `${tok(progress.processed)} so far` : null],
+      ['In', row.prompt_tokens != null ? tok(row.prompt_tokens) : progress ? liveIn(progress) : null],
       [
         'Cached',
         row.cached_tokens != null
           ? `${tok(row.cached_tokens)}${row.prompt_tokens ? ` (${pct(row.cached_tokens / row.prompt_tokens)})` : ''}`
-          : progress
+          : progress?.cache != null
             ? `${tok(progress.cache)} so far`
             : null,
       ],
@@ -102,13 +110,45 @@
             : null,
       ],
       ['Out speed', genSpeed != null ? `${num(genSpeed, 1)} tok/s${row.predicted_per_second == null ? ' so far' : ''}` : null],
+      ['Drafts kept', row.draft_n ? `${row.draft_accepted ?? 0} of ${tok(row.draft_n)} (${pct((row.draft_accepted ?? 0) / row.draft_n)})` : null],
       ['Duration', duration(end - row.started_at)],
       ['Energy', row.energy_j != null ? joules(row.energy_j) : null],
       ['Per token', row.energy_j != null && row.completion_tokens ? `${(row.energy_j / row.completion_tokens).toFixed(2)} J` : null],
       ['Sent', bytes(row.request_bytes)],
       ['Received', row.response_bytes ? bytes(row.response_bytes) : null],
-    ].filter(([, v]) => v != null) as [string, string][],
+    ]
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => ({ k, v }) as Chip)
+      .flatMap((c) => (c.k === 'Out speed' ? [c, ...serverChips] : [c])),
   )
+  // Strata's numbers sit after the output speed, which they explain.
+  const serverChips = $derived.by(() => {
+    const out: Chip[] = []
+    if (experts) {
+      const usual = usualExperts != null ? ` (usually ${pct(usualExperts)})` : ''
+      out.push({
+        k: 'Experts in VRAM',
+        v: `${pct(experts.vram)}${usual}`,
+        title:
+          `Where the model's experts came from while generating: ${pct(experts.vram)} from the VRAM cache, ` +
+          `${pct(experts.pcie)} read over PCIe, ${pct(experts.missed)} missed the cache.` +
+          (usualExperts != null ? ` This model's median over the requests listed is ${pct(usualExperts)} from VRAM.` : ''),
+        bar: [
+          { share: experts.vram, color: 'bg-primary' },
+          { share: experts.pcie, color: 'bg-secondary/70' },
+          { share: experts.missed, color: 'bg-warn/70' },
+        ],
+      })
+    }
+    if (server?.disk_mb)
+      out.push({
+        k: 'Read from disk',
+        v: `${num(server.disk_mb)} MB`,
+        title: 'Expert data read from disk, which is far slower than RAM. It usually means RAM was short.',
+        warn: true,
+      })
+    return out
+  })
 
   function curl() {
     const body = JSON.stringify(detail?.request ?? {}).replaceAll("'", "'\\''")
@@ -256,15 +296,18 @@
   {/if}
 
   <div class="flex flex-wrap gap-1.5">
-    {#each chips as [k, v]}
-      <span class="rounded-md border border-line bg-panel2 px-2 py-0.5 text-xs"><span class="mr-1 text-dim">{k}</span><b class="num font-semibold">{v}</b></span>
+    {#each chips as c}
+      <span class="flex items-center rounded-md border bg-panel2 px-2 py-0.5 text-xs {c.warn ? 'border-warn/60 text-warn' : 'border-line'}" title={c.title}
+        ><span class="mr-1 {c.warn ? '' : 'text-dim'}">{c.k}</span><b class="num font-semibold">{c.v}</b>
+        {#if c.bar}<span class="ml-1.5 flex h-[6px] w-[48px] overflow-hidden rounded-sm bg-line-soft">{#each c.bar as b}<span class="h-full {b.color}" style:width="{b.share * 100}%"></span>{/each}</span>{/if}</span
+      >
     {/each}
   </div>
 
   {#if timing.length}
     <div class="mt-2 flex h-4 overflow-hidden rounded text-[10px] text-sunken">
       {#each timing as s}
-        <div class="flex items-center justify-center overflow-hidden whitespace-nowrap {s.color}" style="width:{s.pct}%" title="{s.label} {duration(s.ms)}">
+        <div class="flex items-center justify-center overflow-hidden whitespace-nowrap {s.color}" style="width:{s.pct}%" title="{s.label} {duration(s.ms)}{['prompt', 'until first token', 'waiting'].includes(s.label) && server?.first_token_ms != null ? `. On Strata's own clock, the first token came ${duration(server.first_token_ms)} after it took the request.` : ''}">
           {s.pct > 14 ? `${s.label} ${duration(s.ms)}` : ''}
         </div>
       {/each}

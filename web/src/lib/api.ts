@@ -22,6 +22,11 @@ export interface Summary {
   predicted_ms: number | null
   prompt_per_second: number | null
   predicted_per_second: number | null
+  /** Tokens drafted by speculative decoding, and how many the model kept. Null when the server didn't say. */
+  draft_n: number | null
+  draft_accepted: number | null
+  /** What the server reported about the request that its answer doesn't say. Only Strata gives it. */
+  server_stats: ServerStats | null
   energy_j: number | null
   /** How long the request waited while the server worked on other requests. Null for older requests. */
   queued_ms: number | null
@@ -74,12 +79,31 @@ export interface Tag {
   sample?: string
 }
 
-/** How far llama-server has got through a prompt, while it waits for the first token. */
+/** How far the server has got through a prompt, while it waits for the first token. */
 export interface Progress {
-  /** Prompt tokens done so far, cached ones included. */
-  processed: number
-  cache: number
+  /** Prompt tokens done so far, cached ones included. Missing when the server gives only the prompt's size. */
+  processed?: number
+  /** Prompt tokens reused from the cache, when the server says. */
+  cache?: number
+  /** The prompt's full size, when the server says (Strata does, llama-server doesn't). */
+  total?: number
   per_second?: number
+}
+
+/** capture.ServerStats: Strata's own numbers for one request. Fields it didn't give are missing. */
+export interface ServerStats {
+  /** The share of expert lookups found in VRAM; the rest were read from RAM. */
+  expert_hit_rate?: number
+  /** The share of expert work read over PCIe or done by another GPU. */
+  pcie_share?: number
+  /** Time to the first token on the server's own clock. */
+  first_token_ms?: number
+  /** How often the server restarted the thinking because it repeated itself. */
+  thinking_restarts?: number
+  /** The share of recent thinking words in passages seen three times, at the last check. */
+  thinking_repeat?: number
+  /** Expert data read from disk, in MB. */
+  disk_mb?: number
 }
 
 /** The numbers behind an issue. Only the fields that apply are set. */
@@ -93,6 +117,9 @@ export interface IssueNumbers {
   slots?: number
   room?: number
   message?: string
+  /** For thinking_loop: how often the thinking was restarted, and the share of it that repeated. */
+  restarts?: number
+  repeat?: number
 }
 
 export interface Issue {
@@ -253,6 +280,9 @@ export function summaryFromStart(s: Start): Summary {
     predicted_ms: null,
     prompt_per_second: null,
     predicted_per_second: null,
+    draft_n: null,
+    draft_accepted: null,
+    server_stats: null,
     energy_j: null,
     queued_ms: null,
     overlap_ms: null,

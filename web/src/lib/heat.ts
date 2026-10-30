@@ -44,7 +44,7 @@ export function heatMap<R extends { model: string; state: string }>(rows: R[], c
       medians.set(`${key}\n${g}`, list.length % 2 ? list[mid] : (list[mid - 1] + list[mid]) / 2)
     }
   }
-  return (key: string, r: R): number => {
+  const heat = (key: string, r: R): number => {
     const col = cols[key]
     if (!col || r.state !== 'done') return 0
     const median = medians.get(`${key}\n${col.perModel ? modelId(r.model) : ''}`)
@@ -54,6 +54,9 @@ export function heatMap<R extends { model: string; state: string }>(rows: R[], c
     if (worse <= START) return 0
     return Math.min(1, Math.log(worse / START) / Math.log(col.full / START))
   }
+  /** The median a column compares a model's requests with, when there are enough of them. */
+  const median = (key: string, model: string) => medians.get(`${key}\n${cols[key]?.perModel ? modelId(model) : ''}`)
+  return Object.assign(heat, { median })
 }
 
 /**

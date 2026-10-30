@@ -4,10 +4,11 @@
   import { fixed, shortBuild, when } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
   import { issueKinds, issueMutes } from '../lib/issues.svelte'
-  import { live, liveOutSpeed } from '../lib/live.svelte'
+  import { live, liveInTitle, liveOutSpeed } from '../lib/live.svelte'
   import ChipPopover from '../lib/ChipPopover.svelte'
   import NotableChips from '../lib/NotableChips.svelte'
   import { heatColor, heatMap, type HeatColumn } from '../lib/heat'
+  import { expertShares } from '../lib/experts'
   import { rowChips } from '../lib/notable'
   import { privacy } from '../lib/privacy.svelte'
   import { modelId } from '../lib/modelIds.svelte'
@@ -182,6 +183,7 @@
     energy: { value: (r) => r.energy_j, high: true, full: 4, perModel: false },
     watts: { value: (r) => (r.energy_j != null && elapsed(r) > 0 ? r.energy_j / elapsed(r) : null), high: true, full: 1.5, perModel: true },
     jtok: { value: (r) => (r.energy_j != null && r.completion_tokens ? r.energy_j / r.completion_tokens : null), high: true, full: 2, perModel: true },
+    experts: { value: (r) => expertShares(r.server_stats)?.vram, high: false, full: 2, perModel: true },
   }
   const heat = $derived(heatMap(shown, heatCols))
   const heatFg = (k: string, r: Summary) => heatColor(heat(k, r), heatStrength)
@@ -204,6 +206,8 @@
     { key: 'out', label: 'Out', num: true, title: 'Generated tokens' },
     { key: 'in_tps', label: 'In t/s', num: true, title: 'Prompt processing speed, tokens per second' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: 'Generation speed, tokens per second' },
+    { key: 'drafts', label: 'Drafts %', num: true, title: 'Share of the tokens drafted by speculative decoding that the model kept' },
+    { key: 'experts', label: 'Experts %', num: true, title: "Strata only: the share of the model's expert work while generating that was done from the VRAM cache. Hover a value for the rest." },
     { key: 'ttft', label: 'TTFT s', num: true, title: 'Time to first token, in seconds' },
     { key: 'duration', label: 'Duration s', num: true, title: 'Total request time, in seconds' },
     { key: 'energy', label: 'Energy Wh', num: true, title: 'GPU energy used, in watt-hours' },
@@ -584,10 +588,14 @@
   {:else if k === 'notable'}<td><NotableChips chips={rowChips(r, flight)} {colorful} /></td>
   {:else if k === 'cache_pct'}{@render cachePct(r)}
   {:else if k === 'cache'}{@render maybeLive(r.cached_tokens, progress?.cache, 0, 'Reused from the cache so far')}
-  {:else if k === 'in'}{@render maybeLive(r.prompt_tokens, progress?.processed, 0, `${fixed(progress?.processed)} processed so far. The total is known when the request ends.`, 't', heatFg(k, r))}
+  {:else if k === 'in'}{@render maybeLive(r.prompt_tokens, progress?.total ?? progress?.processed, 0, progress ? liveInTitle(progress) : '', 't', heatFg(k, r))}
   {:else if k === 'out'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(flight ? flight.chunks : r.completion_tokens, 0, 't')}</td>
   {:else if k === 'in_tps'}{@render maybeLive(r.prompt_per_second, progress?.per_second, 0, 'Prompt speed so far', 't/s', heatFg(k, r))}
   {:else if k === 'out_tps'}{@render maybeLive(r.predicted_per_second, liveOutSpeed(flight), 1, 'Generation speed so far', 't/s', heatFg(k, r))}
+  {:else if k === 'experts'}
+    {@const ex = expertShares(r.server_stats)}
+    <td class="num text-right" style:color={heatFg(k, r)} title={ex ? `${fixed(ex.vram * 100)}% from the VRAM cache, ${fixed(ex.pcie * 100)}% read over PCIe, ${fixed(ex.missed * 100)}% missed the cache` : undefined}>{ex ? fixed(ex.vram * 100) : '–'}</td>
+  {:else if k === 'drafts'}<td class="num text-right" title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{r.draft_n ? fixed(((r.draft_accepted ?? 0) / r.draft_n) * 100) : '–'}</td>
   {:else if k === 'ttft'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(ttft(r))}</td>
   {:else if k === 'duration'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(elapsed(r))}</td>
   {:else if k === 'energy'}<td class="num text-right" style:color={heatFg(k, r)}>{r.energy_j != null ? fixed(r.energy_j / 3600, 2) : '–'}</td>
@@ -761,7 +769,7 @@
           {#each visibleCols as c}{@render cell(c.key, r, flight)}{/each}
         </tr>
         {#if open === r.id}
-          <tr><td colspan={visibleCols.length} class="border-b border-line-soft bg-[#252930] px-3.5 py-3"><RequestDetail row={r} onopen={(id) => (open = id)} /></td></tr>
+          <tr><td colspan={visibleCols.length} class="border-b border-line-soft bg-[#252930] px-3.5 py-3"><RequestDetail row={r} usualExperts={heat.median('experts', r.model)} onopen={(id) => (open = id)} /></td></tr>
         {/if}
       {:else}
         <tr><td colspan={visibleCols.length} class="px-3 py-6 text-center text-muted">{loading ? 'Loading…' : 'No matching requests.'}</td></tr>

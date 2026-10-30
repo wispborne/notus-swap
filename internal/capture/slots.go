@@ -12,6 +12,7 @@ import (
 // SlotPoller publishes prompt progress from llama-server's /slots once a
 // second while requests wait for their first token. /slots omits the full
 // prompt size, so progress has token counts and speed but no percentage.
+// Strata gives the size, and sometimes the count (see FetchSlots).
 type SlotPoller struct {
 	Hub *Hub
 	// Fetch reads a model's slots. Ready reports whether a model is loaded,
@@ -117,6 +118,9 @@ func (p *SlotPoller) poll(ctx context.Context, now func() time.Time) {
 func (p *SlotPoller) step(id int64, s llamaswap.Slot, at time.Time) Progress {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if s.SizeOnly {
+		return Progress{Total: s.Total}
+	}
 	t := p.tracks[id]
 	if t == nil || t.task != s.TaskID {
 		t = &track{task: s.TaskID, seen: s.Processed}
@@ -133,7 +137,7 @@ func (p *SlotPoller) step(id int64, s llamaswap.Slot, at time.Time) Progress {
 		t.lastN, t.lastAt = s.Processed, at
 		t.steps++
 	}
-	out := Progress{Processed: s.Processed, Cache: s.Cache}
+	out := Progress{Processed: &s.Processed, Cache: s.Cache, Total: s.Total}
 	if t.steps >= 2 {
 		if secs := t.lastAt.Sub(t.firstAt).Seconds(); secs > 0 {
 			v := float64(t.lastN-t.firstN) / secs

@@ -143,16 +143,20 @@ type mcpRequest struct {
 	QueuedMs     *int64   `json:"queued_ms,omitempty"`
 	PromptTPS    *float64 `json:"prompt_tokens_per_second,omitempty"`
 	OutputTPS    *float64 `json:"output_tokens_per_second,omitempty"`
-	EnergyJ      *float64 `json:"energy_j,omitempty"`
-	FinishReason *string  `json:"finish_reason,omitempty"`
-	Build        *string  `json:"llama_cpp_build,omitempty"`
-	Client       string   `json:"client,omitempty"`
-	ClientIP     *string  `json:"client_ip,omitempty"`
-	Notable      []string `json:"notable,omitempty"`
-	Issues       []string `json:"issues,omitempty"`
-	RetryOf      *int64   `json:"retry_of,omitempty"`
-	Preview      string   `json:"preview,omitempty"`
-	HasBodies    bool     `json:"has_bodies"`
+	DraftN       *int64   `json:"draft_tokens,omitempty"` // speculative decoding
+	DraftKept    *int64   `json:"draft_tokens_accepted,omitempty"`
+	// Server is the server's own numbers for the request (Strata only).
+	Server       json.RawMessage `json:"server_stats,omitempty"`
+	EnergyJ      *float64        `json:"energy_j,omitempty"`
+	FinishReason *string         `json:"finish_reason,omitempty"`
+	Build        *string         `json:"llama_cpp_build,omitempty"`
+	Client       string          `json:"client,omitempty"`
+	ClientIP     *string         `json:"client_ip,omitempty"`
+	Notable      []string        `json:"notable,omitempty"`
+	Issues       []string        `json:"issues,omitempty"`
+	RetryOf      *int64          `json:"retry_of,omitempty"`
+	Preview      string          `json:"preview,omitempty"`
+	HasBodies    bool            `json:"has_bodies"`
 }
 
 func toMCPRequest(s Summary) mcpRequest {
@@ -167,7 +171,7 @@ func toMCPRequest(s Summary) mcpRequest {
 		ID: s.ID, Started: msTime(s.StartedAt), Model: s.Model, Path: s.Path, State: s.State, StatusCode: s.StatusCode,
 		Error: s.Error, PromptTokens: s.PromptTokens, CachedTokens: s.CachedTokens, OutputTokens: s.CompletionTokens,
 		TTFTMs: since(s.FirstTokenAt), DurationMs: since(s.FinishedAt), QueuedMs: s.QueuedMs,
-		PromptTPS: round1(s.PromptPerSecond), OutputTPS: round1(s.PredictedPerSecond), EnergyJ: round1(s.EnergyJ),
+		PromptTPS: round1(s.PromptPerSecond), OutputTPS: round1(s.PredictedPerSecond), DraftN: s.DraftN, DraftKept: s.DraftAccepted, Server: s.ServerStats, EnergyJ: round1(s.EnergyJ),
 		FinishReason: s.FinishReason, Build: s.Build, ClientIP: s.ClientIP, Issues: s.Issues, RetryOf: s.RetryOf,
 		Preview: s.Preview, HasBodies: s.HasBodies,
 	}
@@ -353,6 +357,7 @@ func (a *API) mcpStatus(ctx context.Context, req *mcp.CallToolRequest, in hidden
 		Preview        string `json:"preview,omitempty"`
 		OutputChunks   int    `json:"output_chunks"`
 		PromptProgress *int64 `json:"prompt_tokens_done,omitempty"`
+		PromptSize     int64  `json:"prompt_tokens_total,omitempty"`
 	}
 	out := struct {
 		Version        string   `json:"version"`
@@ -386,7 +391,7 @@ func (a *API) mcpStatus(ctx context.Context, req *mcp.CallToolRequest, in hidden
 		}
 		fl := flight{ID: f.Start.ID, Started: msTime(f.Start.StartedAt), Model: f.Start.Model, Path: f.Start.Path, Preview: f.Start.Preview, OutputChunks: f.Chunks}
 		if f.Progress != nil {
-			fl.PromptProgress = &f.Progress.Processed
+			fl.PromptProgress, fl.PromptSize = f.Progress.Processed, f.Progress.Total
 		}
 		out.InFlight = append(out.InFlight, fl)
 	}
