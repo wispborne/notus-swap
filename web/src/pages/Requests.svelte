@@ -11,7 +11,7 @@
   import { rowChips } from '../lib/notable'
   import { privacy } from '../lib/privacy.svelte'
   import { modelId } from '../lib/modelIds.svelte'
-  import { modelLabel, modelTitle } from '../lib/modelNames.svelte'
+  import { modelLabel, modelTitle, requestedLabel } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
   import { sourceLabel, sourceTitle } from '../lib/source'
   import StatusPill from '../lib/StatusPill.svelte'
@@ -504,7 +504,7 @@
   {@const progress = flight?.progress}
   {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
-  {:else if k === 'model'}<td><ModelMark model={r.model} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} /><span title={modelTitle(r.model)}>{modelLabel(r.model) || '–'}</span></td>
+  {:else if k === 'model'}<td><ModelMark model={r.model} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} /><span title={modelTitle(r.model)}>{requestedLabel(r.model) || '–'}</span></td>
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
   {:else if k === 'source'}
     <td class="overflow-hidden text-ellipsis text-muted {sourceShow === 'agent' ? 'max-w-[260px]' : 'max-w-[180px]'}" title={sourceTitle(r)}>

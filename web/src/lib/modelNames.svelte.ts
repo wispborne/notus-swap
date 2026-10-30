@@ -56,6 +56,12 @@ export function modelLabel(model: string, show: ModelShow = modelShow.show): str
   return show === 'name' ? k.name || k.model : k.model
 }
 
+/** What to show for a request's model: the alias when the client sent one, or else `modelLabel`. */
+export function requestedLabel(model: string): string {
+  const k = model ? knownModel(model) : undefined
+  return k && k.model !== model ? model : modelLabel(model)
+}
+
 /** A tooltip with the model's name, ID, and the alias the request used. */
 export function modelTitle(model: string): string | undefined {
   if (!model) return undefined
