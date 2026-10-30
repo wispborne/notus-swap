@@ -79,7 +79,7 @@ Returns `{"requests": [...], "models": [...]}`, newest first, without the reques
 | `since`, `until` | Only requests that started at or after, or at or before, this time (unix ms). |
 | `model` | Only this model, by ID or alias. |
 | `state` | `in_flight`, `done`, `failed`, `client_gone`, `interrupted` or `cancelled`. |
-| `q` | Text to find in the start of the prompt or in the model name. |
+| `q` | Text to find in the prompt previews (`preview`, `preview_end`, `last_preview`) or in the model name. |
 | `issue` | Only requests flagged with this kind of problem, such as `token_limit` or `context_full`. `any` matches any kind. Muted kinds don't count. |
 
 Each request has, among other fields:
@@ -91,6 +91,7 @@ Each request has, among other fields:
 - `energy_j` (GPU energy in joules), `queued_ms` (time spent waiting behind other requests)
 - `finish_reason`, `n_ctx` (the model's context size), `build` (the llama.cpp build)
 - `client_ip`, `user_agent`
+- `preview` (the start of the last user message), `preview_end` (its end), `last_preview` (the start of the last message of any kind, such as `Tool result: ...`). The last two are empty for older requests whose bodies were deleted before they were kept.
 - `tags` (the Requests page's Notable chips) and `issues` (the kinds of problem found)
 - `has_bodies`: whether the bodies are still stored. Bodies are deleted after the retention period; the rest is kept for good.
 

@@ -147,6 +147,11 @@ var migrations = []string{
 	// caps is what the model's llama-server says the model can take in and
 	// do, as JSON (llamaswap.Caps). NULL until the model loads again.
 	`ALTER TABLE model_props ADD COLUMN caps TEXT;`,
+	// preview_end is the end of the last user message, and last_preview the
+	// start of the last message of any kind. NULL for requests stored before
+	// they were kept, until FillPreviews reads their bodies.
+	`ALTER TABLE requests ADD COLUMN preview_end TEXT;
+	ALTER TABLE requests ADD COLUMN last_preview TEXT;`,
 }
 
 func Open(path string) (*Store, error) {
@@ -200,6 +205,8 @@ type Begin struct {
 	Model        string
 	Streaming    bool
 	Preview      string // the start of the last user message, for lists
+	PreviewEnd   string // the end of the last user message
+	LastPreview  string // the start of the last message of any kind
 	RequestBody  []byte // may be cut short; see Truncated
 	RequestBytes int64  // full size, even when RequestBody is cut short
 	Truncated    bool
@@ -246,9 +253,9 @@ func (s *Store) Begin(ctx context.Context, b Begin) (int64, error) {
 	}
 	defer tx.Rollback()
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO requests (started_at, method, path, model, streaming, state, request_bytes, prompt_preview, tags, retry_of, client_ip, user_agent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.StartedAt.UnixMilli(), b.Method, b.Path, b.Model, b.Streaming, StateInFlight, b.RequestBytes, b.Preview, nilIfEmpty(b.Tags), nilIfZero(b.RetryOf),
+		`INSERT INTO requests (started_at, method, path, model, streaming, state, request_bytes, prompt_preview, preview_end, last_preview, tags, retry_of, client_ip, user_agent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		b.StartedAt.UnixMilli(), b.Method, b.Path, b.Model, b.Streaming, StateInFlight, b.RequestBytes, b.Preview, b.PreviewEnd, b.LastPreview, nilIfEmpty(b.Tags), nilIfZero(b.RetryOf),
 		nilIfEmpty(b.ClientIP), nilIfEmpty(b.UserAgent))
 	if err != nil {
 		return 0, err
@@ -396,6 +403,8 @@ type Record struct {
 	RequestBytes       int64
 	ResponseBytes      int64
 	Preview            string
+	PreviewEnd         string // empty for older requests without bodies
+	LastPreview        string // empty for older requests without bodies
 	HasBodies          bool
 	RequestBody        []byte
 	ResponseBody       []byte
@@ -423,7 +432,7 @@ const metaCols = `r.id, r.started_at, r.first_byte_at, r.first_token_at, r.finis
 	r.model, r.streaming, r.state, r.status_code, r.error, r.prompt_tokens, r.completion_tokens,
 	r.prompt_ms, r.predicted_ms, r.prompt_per_second, r.predicted_per_second, r.request_bytes,
 	r.response_bytes, r.prompt_preview, r.energy_j, r.cached_tokens, r.finish_reason, r.n_ctx, r.build, r.cmd_hash, r.tags, r.queued_ms, r.overlap_ms, r.overlap_n, r.retry_of,
-	r.client_ip, r.user_agent`
+	r.client_ip, r.user_agent, COALESCE(r.preview_end, ''), COALESCE(r.last_preview, '')`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -435,7 +444,7 @@ func scanMeta(row scanner, r *Record, extra ...any) error {
 		&r.Model, &r.Streaming, &r.State, &r.StatusCode, &r.Error, &r.PromptTokens, &r.CompletionTokens,
 		&r.PromptMs, &r.PredictedMs, &r.PromptPerSecond, &r.PredictedPerSecond, &r.RequestBytes,
 		&r.ResponseBytes, &r.Preview, &r.EnergyJ, &r.CachedTokens, &r.FinishReason, &r.NCtx, &r.Build, &r.CmdHash, &r.Tags, &r.QueuedMs, &r.OverlapMs, &r.OverlapN, &r.RetryOf,
-		&r.ClientIP, &r.UserAgent}, extra...)
+		&r.ClientIP, &r.UserAgent, &r.PreviewEnd, &r.LastPreview}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return err
 	}
@@ -471,8 +480,8 @@ type ListOptions struct {
 	// Models keeps requests for any of these names: a model's ID and its
 	// aliases, since requests may use any of them.
 	Models []string
-	State    string
-	Search   string // matched against the prompt preview and the model
+	State  string
+	Search string // matched against the prompt previews and the model
 	// Since and Until limit the start time; zero means no limit.
 	Since, Until time.Time
 	// Issue keeps only requests with an issue of this kind, or with any
@@ -523,9 +532,10 @@ func (s *Store) List(ctx context.Context, o ListOptions) ([]Record, error) {
 		args = append(args, o.Until.UnixMilli())
 	}
 	if o.Search != "" {
-		q += ` AND (r.prompt_preview LIKE ? ESCAPE '\' OR r.model LIKE ? ESCAPE '\')`
+		q += ` AND (r.prompt_preview LIKE ? ESCAPE '\' OR r.preview_end LIKE ? ESCAPE '\' OR r.last_preview LIKE ? ESCAPE '\'
+			OR r.model LIKE ? ESCAPE '\')`
 		like := "%" + likeEscaper.Replace(o.Search) + "%"
-		args = append(args, like, like)
+		args = append(args, like, like, like, like)
 	}
 	if o.Limit <= 0 {
 		o.Limit = 100
@@ -680,6 +690,58 @@ func (s *Store) FillBuilds(ctx context.Context, build func(body []byte) string) 
 		}
 		return nil
 	})
+}
+
+// FillPreviews sets preview_end and last_preview on requests stored before
+// those columns existed, from each request body that is still kept. previews
+// returns the two values. It runs once, like FillCachedTokens.
+func (s *Store) FillPreviews(ctx context.Context, previews func(body []byte) (end, last string)) (int, error) {
+	const done = "filled_previews"
+	if v, err := s.Setting(ctx, done); err != nil || v != "" {
+		return 0, err
+	}
+	type row struct {
+		id   int64
+		body []byte
+	}
+	filled := 0
+	var after int64
+	for {
+		// Read a small batch and close it before writing, because the store
+		// has a single connection.
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT r.id, b.request_body FROM requests r JOIN bodies b ON b.request_id = r.id
+			 WHERE r.id > ? AND r.last_preview IS NULL AND b.request_body IS NOT NULL
+			 ORDER BY r.id LIMIT 20`, after)
+		if err != nil {
+			return filled, err
+		}
+		var batch []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.id, &r.body); err != nil {
+				rows.Close()
+				return filled, err
+			}
+			batch = append(batch, r)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return filled, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, r := range batch {
+			after = r.id
+			end, last := previews(r.body)
+			if _, err := s.db.ExecContext(ctx, `UPDATE requests SET preview_end = ?, last_preview = ? WHERE id = ?`, end, last, r.id); err != nil {
+				return filled, err
+			}
+			filled++
+		}
+	}
+	return filled, s.SetSetting(ctx, done, "true")
 }
 
 // fillFromBodies sets column on each finished request where it is NULL and

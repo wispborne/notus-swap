@@ -6,6 +6,7 @@
   import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { base, C, cardColors, dots, line, xAxis, yAxis, type Window } from './charts'
   import { align, type DashboardData } from './data'
+  import { splitShared } from './shortNames'
   import UChart from './UChart.svelte'
 
   // Several charts stacked on one time axis. Hovering any of them moves the
@@ -31,20 +32,13 @@
   const modelKey = $derived(models.join(',') + marksKey())
 
   // Lane labels have room for about 13 characters, and show the full name
-  // on hover. Use each name's first part, such as "gemma4". When other names
-  // share it, leave out the parts they all share: "dev-swift" and
-  // "dev-swift-vision" for "qwen3.8-27b-dev-swift" and
-  // "qwen3.8-27b-dev-swift-vision". A name that is all shared parts uses its
-  // last part. If two labels still match, both use the full name.
+  // on hover. When names start with the same word, leave out the words they
+  // all share: "Q5_K_M" and "Q5_K_M (lowthink)" for "Glistening Gem 31B
+  // Q5_K_M" and "Glistening Gem 31B Q5_K_M (lowthink)". If two labels still
+  // match, both use the full name.
   function laneLabels(names: string[]): string[] {
-    const parts = names.map((n) => n.split(/[-:]/))
-    const out = parts.map((p) => {
-      const same = parts.filter((q) => q[0] === p[0])
-      if (same.length === 1) return p[0]
-      let k = 0
-      while (same.every((q) => q[k] != null && q[k] === p[k])) k++
-      return p.slice(k).join('-') || p[p.length - 1]
-    })
+    const split = splitShared(names)
+    const out = names.map((n) => split.get(n)![1])
     return out.map((l, i) => (out.indexOf(l) !== out.lastIndexOf(l) ? names[i] : l))
   }
   const labels = $derived(laneLabels(models.map((m) => modelLabel(m))))

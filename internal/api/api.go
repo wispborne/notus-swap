@@ -125,15 +125,20 @@ type Summary struct {
 	QueuedMs *int64 `json:"queued_ms"`
 	// OverlapMs is how long the server worked on the request while it also
 	// worked on others, and OverlapN how many others. Nil for older requests.
-	OverlapMs     *int64  `json:"overlap_ms"`
-	OverlapN      *int64  `json:"overlap_n"`
-	RequestBytes  int64   `json:"request_bytes"`
-	ResponseBytes int64   `json:"response_bytes"`
-	Preview       string  `json:"preview"`
-	HasBodies     bool    `json:"has_bodies"`
-	FinishReason  *string `json:"finish_reason"`
-	NCtx          *int64  `json:"n_ctx"` // the model's context size per slot, when known
-	Build         *string `json:"build"` // the server's build, from system_fingerprint
+	OverlapMs     *int64 `json:"overlap_ms"`
+	OverlapN      *int64 `json:"overlap_n"`
+	RequestBytes  int64  `json:"request_bytes"`
+	ResponseBytes int64  `json:"response_bytes"`
+	Preview       string `json:"preview"` // the start of the last user message
+	// PreviewEnd is the end of the last user message, and LastPreview the
+	// start of the last message of any kind. Empty for older requests whose
+	// bodies were deleted before these were kept.
+	PreviewEnd   string  `json:"preview_end"`
+	LastPreview  string  `json:"last_preview"`
+	HasBodies    bool    `json:"has_bodies"`
+	FinishReason *string `json:"finish_reason"`
+	NCtx         *int64  `json:"n_ctx"` // the model's context size per slot, when known
+	Build        *string `json:"build"` // the server's build, from system_fingerprint
 	// Tags is a list of capture.Tag, or null if the request has not been tagged.
 	Tags json.RawMessage `json:"tags"`
 	// Issues lists the kinds of issue found in the output, leaving out muted ones.
@@ -164,7 +169,8 @@ func summary(r *store.Record) Summary {
 		Model: r.Model, Streaming: r.Streaming, State: r.State, StatusCode: r.StatusCode, Error: r.Error,
 		PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens, CachedTokens: r.CachedTokens, PromptMs: r.PromptMs,
 		PredictedMs: r.PredictedMs, PromptPerSecond: r.PromptPerSecond, PredictedPerSecond: r.PredictedPerSecond,
-		EnergyJ: r.EnergyJ, QueuedMs: r.QueuedMs, OverlapMs: r.OverlapMs, OverlapN: r.OverlapN, RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes, Preview: r.Preview, HasBodies: r.HasBodies,
+		EnergyJ: r.EnergyJ, QueuedMs: r.QueuedMs, OverlapMs: r.OverlapMs, OverlapN: r.OverlapN, RequestBytes: r.RequestBytes, ResponseBytes: r.ResponseBytes, Preview: r.Preview,
+		PreviewEnd: r.PreviewEnd, LastPreview: r.LastPreview, HasBodies: r.HasBodies,
 		FinishReason: r.FinishReason, NCtx: r.NCtx, Build: r.Build, Issues: r.Issues, RetryOf: r.RetryOf,
 		ClientIP: r.ClientIP, UserAgent: r.UserAgent,
 	}

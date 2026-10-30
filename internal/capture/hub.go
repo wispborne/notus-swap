@@ -18,6 +18,10 @@ type Start struct {
 	Model     string `json:"model"`
 	Streaming bool   `json:"streaming"`
 	Preview   string `json:"preview"`
+	// PreviewEnd is the end of the last user message, and LastPreview the
+	// start of the last message of any kind; see Previews.
+	PreviewEnd  string `json:"preview_end"`
+	LastPreview string `json:"last_preview"`
 	// RequestBytes is the full size of the request body.
 	RequestBytes int64 `json:"request_bytes"`
 	// Tags are the tags known from the request alone.

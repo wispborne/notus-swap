@@ -25,7 +25,7 @@
     llama_swap_service: string
     /** What starts notus-swap again after a restart: "systemd", "supervisor", or "". */
     self_restart: string
-    database?: { path: string; file_bytes: number; wal_bytes: number; free_bytes: number; bodies_bytes: number; requests: number; with_bodies: number }
+    database?: { path: string; file_bytes: number; wal_bytes: number; free_bytes: number; bodies_bytes: number; requests: number; with_bodies: number; oldest_body: number | null }
     restarting?: Restarting
   }
   interface Restarting {
@@ -257,9 +257,17 @@
     return p < 10 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`
   }
 
+  /** "Oct 3", or "Oct 3, 2025" in another year. */
+  function keptSince(ms: number) {
+    const d = new Date(ms)
+    const sameYear = d.getFullYear() === new Date().getFullYear()
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric' })
+  }
+
   const msgColor ={ ok: 'border-l-primary', err: 'border-l-err', wait: 'border-l-secondary' }
   const btn = 'rounded-md border border-line bg-panel2 px-2.5 py-1 hover:border-primary disabled:opacity-50 disabled:hover:border-line'
-  const section = 'mb-4 rounded-lg border border-line bg-panel p-4'
+  // scroll-mt keeps a section's top clear of the status bar when a link at the top of the page jumps to it.
+  const section = 'mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4'
 </script>
 
 {#if error}<div class="mb-3 text-err">Could not load system information: {error}</div>{/if}
@@ -277,7 +285,7 @@
   </div>
 {/if}
 
-<section class={section}>
+<section id="updates" class={section}>
   <h2 class="text-sm font-semibold">notus-swap version</h2>
   {#if info}
     <p class="mt-1 text-[12.5px] text-muted">
@@ -347,7 +355,7 @@
 
 <LlamaUpdates />
 
-<section class={section}>
+<section id="services" class={section}>
   <h2 class="text-sm font-semibold">Services</h2>
   <div class="mt-2 flex flex-wrap gap-2">
     <button class={btn} disabled={!!busy || !serviceState || serviceChanging} onclick={toggleLlama}>
@@ -367,7 +375,7 @@
   {#if serviceError}<p class="mt-2 text-xs text-err">Could not read llama-swap's service state: {serviceError}</p>{/if}
 </section>
 
-<section class={section}>
+<section id="storage" class={section}>
   <h2 class="text-sm font-semibold">Keeping request and response text</h2>
   <p class="mt-1 text-[12.5px] text-muted">
     Request and response text is deleted oldest first to meet the retention limits. Timing, token counts and energy are kept.
@@ -400,6 +408,7 @@
           <td class="num text-right whitespace-nowrap">{bytes(d.bodies_bytes)}</td>
           <td class="text-dim">
             {percent(d.bodies_bytes / (info.retention.gb * 1024 ** 3))} of the {info.retention.gb} GB limit.
+            {#if d.oldest_body}Text is kept back to {keptSince(d.oldest_body)}.{/if}
             {d.with_bodies.toLocaleString()} of {d.requests.toLocaleString()} requests still have their text.
           </td>
         </tr>

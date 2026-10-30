@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -20,6 +22,9 @@ type DiskUsage struct {
 	BodiesBytes int64 `json:"bodies_bytes"`
 	Requests    int64 `json:"requests"`
 	WithBodies  int64 `json:"with_bodies"`
+	// OldestBody is when the oldest request that still has its text
+	// started, in unix ms, or nil when none has.
+	OldestBody *int64 `json:"oldest_body"`
 }
 
 // DiskUsage reads the file sizes and counts. It doesn't read every page, so
@@ -48,6 +53,13 @@ func (s *Store) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	).Scan(&u.BodiesBytes, &u.WithBodies); err != nil {
 		return u, err
 	}
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM requests`).Scan(&u.Requests)
+	// Bodies are deleted oldest first, and the lowest ID is the oldest.
+	err := s.db.QueryRowContext(ctx,
+		`SELECT r.started_at FROM bodies b JOIN requests r ON r.id = b.request_id ORDER BY b.request_id LIMIT 1`,
+	).Scan(&u.OldestBody)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return u, err
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM requests`).Scan(&u.Requests)
 	return u, err
 }

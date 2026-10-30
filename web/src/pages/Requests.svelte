@@ -11,7 +11,7 @@
   import { rowChips } from '../lib/notable'
   import { privacy } from '../lib/privacy.svelte'
   import { modelId } from '../lib/modelIds.svelte'
-  import { modelLabel, modelTitle, requestedLabel } from '../lib/modelNames.svelte'
+  import { knownModel, modelLabel, modelTitle, requestedLabel } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
   import { sourceLabel, sourceTitle } from '../lib/source'
   import StatusPill from '../lib/StatusPill.svelte'
@@ -24,26 +24,85 @@
     ['failed', 'Errors'],
   ] as const
 
+  // How far back the list goes, as [value, label, milliseconds].
+  const ranges = [
+    ['', 'Any time', 0],
+    ['1h', 'Last hour', 3_600_000],
+    ['6h', 'Last 6 hours', 6 * 3_600_000],
+    ['24h', 'Last 24 hours', 24 * 3_600_000],
+    ['7d', 'Last 7 days', 7 * 86_400_000],
+    ['30d', 'Last 30 days', 30 * 86_400_000],
+  ] as const
+
+  // The filters and the open request are kept in the URL, so a reload, a
+  // bookmark or a shared link comes back to the same place. Other pages link
+  // here with ?model=M (Models) and ?open=12 (Dashboard).
+  const params = new URLSearchParams(location.search)
   let rows = $state<Summary[]>([])
   let models = $state<string[]>([])
-  let q = $state('')
-  // /notus/requests?model=M starts filtered to model M (the Models page links here).
-  let model = $state(new URLSearchParams(location.search).get('model') ?? '')
-  let stateFilter = $state('')
-  let issue = $state('')
-  // /notus/requests?open=12 opens request 12 (the Dashboard links here).
-  let open = $state<number | null>(Number(new URLSearchParams(location.search).get('open')) || null)
+  let q = $state(params.get('q') ?? '')
+  let model = $state(params.get('model') ?? '')
+  let stateFilter = $state(states.some(([v]) => v === params.get('state')) ? params.get('state')! : '')
+  let issue = $state(params.get('issue') ?? '')
+  let range = $state(ranges.some(([v]) => v === params.get('range')) ? params.get('range')! : '')
+  let open = $state<number | null>(Number(params.get('open')) || null)
   let loading = $state(false)
   let more = $state(true)
   let error = $state('')
   let now = $state(Date.now())
 
-  const filter = $derived<ListFilter>({ q: q.trim(), model, state: stateFilter, issue })
+  const filter = $derived.by<ListFilter>(() => {
+    const ms = ranges.find(([v]) => v === range)?.[2]
+    return { q: q.trim(), model, state: stateFilter, issue, since: ms ? Date.now() - ms : undefined }
+  })
+
+  $effect(() => {
+    const p = new URLSearchParams()
+    if (q.trim()) p.set('q', q.trim())
+    if (model) p.set('model', model)
+    if (stateFilter) p.set('state', stateFilter)
+    if (issue) p.set('issue', issue)
+    if (range) p.set('range', range)
+    if (open) p.set('open', String(open))
+    const url = location.pathname + (p.size ? `?${p}` : '')
+    if (url !== location.pathname + location.search) history.replaceState(history.state, '', url)
+  })
 
   // In-flight requests first, then newest first.
   const visibleRows = $derived(rows.filter((r) => privacy.visible(r.model)))
   const shown = $derived([...visibleRows.filter((r) => r.state === 'in_flight'), ...visibleRows.filter((r) => r.state !== 'in_flight')])
-  const visibleModels = $derived(models.filter(privacy.visible))
+  // Models in llama-swap's config come first, by the label shown. Models
+  // only seen in older requests are listed after them.
+  const visibleModels = $derived.by(() => {
+    const byLabel = (a: string, b: string) => modelLabel(a).localeCompare(modelLabel(b), undefined, { numeric: true })
+    const list = models.filter(privacy.visible)
+    return {
+      config: list.filter((m) => knownModel(m)).sort(byLabel),
+      old: list.filter((m) => !knownModel(m)).sort(byLabel),
+    }
+  })
+
+  // While the mouse is over the table, or the table is scrolled down, new
+  // requests wait in `pending` instead of pushing the rows down. They are
+  // added when the mouse leaves and the table is back at the top, or when
+  // the "Show new requests" button is clicked.
+  let box = $state<HTMLDivElement>()
+  let scrolled = $state(false)
+  let hovering = $state(false)
+  let pending = $state<Summary[]>([])
+  const holding = $derived(scrolled || hovering)
+  function addPending() {
+    const ids = new Set(rows.map((r) => r.id))
+    rows = [...pending.filter((r) => !ids.has(r.id)), ...rows]
+    pending = []
+  }
+  $effect(() => {
+    if (!holding && pending.length) untrack(addPending)
+  })
+  function showPending() {
+    addPending()
+    box?.scrollTo({ top: 0 })
+  }
 
   // Only the newest load's answer is used, so a slower, older one can't
   // replace it.
@@ -57,6 +116,7 @@
       const res = await listRequests(filter, before, PAGE)
       if (seq !== loadSeq) return
       rows = reset ? res.requests : [...rows, ...res.requests]
+      if (reset) pending = []
       if (res.models) {
         models = res.models
       }
@@ -86,11 +146,12 @@
     const f = filter
     if (f.model && modelId(r.model) !== modelId(f.model)) return false
     if (f.state && r.state !== f.state) return false
+    if (f.since && r.started_at < f.since) return false
     // A request still in flight may yet have an issue, so it stays listed.
     if (f.issue && r.state !== 'in_flight' && !(f.issue === 'any' ? r.issues.length : r.issues.includes(f.issue))) return false
     if (f.q) {
       const s = f.q.toLowerCase()
-      if (!r.preview.toLowerCase().includes(s) && !r.model.toLowerCase().includes(s)) return false
+      if (![r.preview, r.preview_end, r.last_preview, r.model].some((t) => t?.toLowerCase().includes(s))) return false
     }
     return true
   }
@@ -100,14 +161,18 @@
     const stop = live.on(async (e) => {
       if (e.type === 'start') {
         const r = summaryFromStart(e.start)
-        if (matches(r) && !rows.some((x) => x.id === r.id)) rows = [r, ...rows]
+        if (matches(r) && !rows.some((x) => x.id === r.id) && !pending.some((x) => x.id === r.id)) {
+          if (holding) pending = [r, ...pending]
+          else rows = [r, ...rows]
+        }
         const id = modelId(r.model)
         if (id && !models.includes(id)) models = [...models, id].sort()
       } else if (e.type === 'finish' || e.type === 'settled') {
-        if (!rows.some((x) => x.id === e.id)) return
+        if (!rows.some((x) => x.id === e.id) && !pending.some((x) => x.id === e.id)) return
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { request, response_raw, response, truncated, live: _, chunks, issue_details, ...done } = await getRequest(e.id)
         rows = rows.map((x) => (x.id === e.id ? done : x)).filter((x) => x.id === open || matches(x))
+        pending = pending.map((x) => (x.id === e.id ? done : x)).filter(matches)
       }
     })
     const tick = setInterval(() => (now = Date.now()), 1000)
@@ -310,6 +375,20 @@
         title: 'The client is a short name worked out from the User-Agent, such as Codex or curl.',
       },
     ],
+    prompt: [
+      {
+        key: 'show',
+        label: 'Show',
+        options: [
+          ['last', 'Last message'],
+          ['user', 'Start of last user message'],
+          ['user_end', 'End of last user message'],
+        ],
+        default: 'last',
+        title:
+          'Clients often start every user message with the same text, and agents usually end with a tool result. Pick the part that tells requests apart.',
+      },
+    ],
   }
   let colValues = $state<Record<string, Record<string, string>>>(savedColValues())
   function savedColValues() {
@@ -335,6 +414,20 @@
   }
   let settingsFor = $state<Col | null>(null)
   const sourceShow = $derived(colSetting('source', 'show'))
+  const promptShow = $derived(colSetting('prompt', 'show'))
+  // The full text for the tooltip. Older requests without their bodies only
+  // have the start of the last user message.
+  function promptText(r: Summary) {
+    return (promptShow === 'last' ? r.last_preview : promptShow === 'user_end' ? r.preview_end : r.preview) || r.preview
+  }
+  // The end of the last user message shows its last characters, since the
+  // column is only about 20 characters wide.
+  function promptCell(r: Summary) {
+    const t = promptText(r)
+    if (promptShow !== 'user_end' || !r.preview_end) return t
+    const chars = Array.from(t)
+    return chars.length > 24 ? '…' + chars.slice(-24).join('') : t
+  }
   function dragStart(e: DragEvent, k: Col) {
     dragging = k
     e.dataTransfer!.effectAllowed = 'move'
@@ -514,7 +607,7 @@
       {/if}
     </td>
   {:else if k === 'build'}<td class="font-mono text-muted" title={r.build ?? undefined}>{r.build ? shortBuild(r.build) : '–'}</td>
-  {:else if k === 'prompt'}<td class="max-w-[140px] overflow-hidden text-ellipsis text-muted" title={r.preview}>{r.preview}</td>
+  {:else if k === 'prompt'}<td class="max-w-[140px] overflow-hidden text-ellipsis text-muted" title={promptText(r)}>{promptCell(r)}</td>
   {:else if k === 'notable'}<td><NotableChips chips={rowChips(r, flight)} {colorful} /></td>
   {:else if k === 'cache_pct'}{@render cachePct(r)}
   {:else if k === 'cache'}{@render maybeLive(r.cached_tokens, progress?.cache, 0, 'Reused from the cache so far')}
@@ -539,7 +632,15 @@
   />
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={model}>
     <option value="">All models</option>
-    {#each visibleModels as m}<option value={m}>{modelLabel(m)}</option>{/each}
+    {#each visibleModels.config as m}<option value={m}>{modelLabel(m)}</option>{/each}
+    {#if visibleModels.old.length}
+      <optgroup label="No longer in llama-swap's config">
+        {#each visibleModels.old as m}<option value={m}>{modelLabel(m)}</option>{/each}
+      </optgroup>
+    {/if}
+  </select>
+  <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={range} title="How far back to list requests">
+    {#each ranges as [v, label]}<option value={v}>{label}</option>{/each}
   </select>
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={issue} title="Problems found in the output">
     <option value="">All requests</option>
@@ -552,6 +653,15 @@
     {/each}
   </div>
   <span class="flex-1"></span>
+  {#if pending.length}
+    <button
+      class="rounded-md border border-primary/50 px-2.5 py-1 text-xs text-primary hover:bg-primary/10"
+      onclick={showPending}
+      title="New requests wait here while the mouse is over the table or it is scrolled down, so the rows don't move under the mouse"
+    >
+      Show {pending.length} new {pending.length === 1 ? 'request' : 'requests'}
+    </button>
+  {/if}
   {#if !live.connected}<span class="text-xs text-warn">Live updates reconnecting…</span>{/if}
   <details bind:this={picker} class="relative">
     <summary class="cursor-pointer list-none rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:text-text">Columns</summary>
@@ -647,7 +757,7 @@
      scrolls sideways can't also let the header stick to the page. The height
      leaves room for the status bar (34px) and the page's bottom padding (4rem),
      so the whole box fits on screen. -->
-<div class="max-h-[calc(100dvh-34px-4.5rem)] overflow-auto rounded-lg border border-line bg-panel">
+<div bind:this={box} class="max-h-[calc(100dvh-34px-4.5rem)] overflow-auto rounded-lg border border-line bg-panel" onscroll={() => (scrolled = (box?.scrollTop ?? 0) > 0)}>
   <table class="w-full border-collapse">
     <colgroup>
       {#each visibleCols as c}<col class={edges.has(c.key) ? 'border-l border-line-soft' : ''} />{/each}
@@ -677,7 +787,8 @@
         {/each}
       </tr>
     </thead>
-    <tbody>
+    <!-- Only a mouse holds new rows back; a tap on a phone never sends pointerleave. -->
+    <tbody onpointerenter={(e) => (hovering = e.pointerType === 'mouse')} onpointerleave={() => (hovering = false)}>
       {#each shown as r (r.id)}
         {@const flight = r.state === 'in_flight' ? live.flights.get(r.id) : undefined}
         <tr

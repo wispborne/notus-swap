@@ -8,6 +8,17 @@ export function when(ms: number) {
   return `${d.toLocaleString(undefined, { month: 'short' })} ${d.getDate()} ${time.slice(0, 5)}`
 }
 
+/** "today 14:03", "yesterday 22:10", or "Sep 23 14:03", for times that don't need seconds. */
+export function lastUsed(ms: number) {
+  const d = new Date(ms)
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const day = new Date()
+  if (d.toDateString() === day.toDateString()) return `today ${time}`
+  day.setDate(day.getDate() - 1)
+  if (d.toDateString() === day.toDateString()) return `yesterday ${time}`
+  return `${d.toLocaleString(undefined, { month: 'short' })} ${d.getDate()} ${time}`
+}
+
 export function duration(ms: number | null | undefined) {
   if (ms == null || !isFinite(ms)) return '–'
   if (ms < 1000) return `${Math.round(ms)} ms`
@@ -42,11 +53,12 @@ export function pct(v: number | null | undefined) {
   return `${Math.round(v * 100)}%`
 }
 
+/** Energy in watt-hours, the unit every page uses: "0.42 Wh", "668.7 Wh", "26.74 kWh". */
 export function joules(j: number) {
-  if (j >= 3_600_000) return `${(j / 3_600_000).toFixed(2)} kWh`
-  if (j >= 36_000) return `${(j / 3600).toFixed(1)} Wh`
-  if (j >= 1000) return `${(j / 1000).toFixed(1)} kJ`
-  return `${Math.round(j)} J`
+  const wh = j / 3600
+  if (wh >= 1000) return `${fixed(wh / 1000, 2)} kWh`
+  if (wh >= 100) return `${fixed(wh, 1)} Wh`
+  return `${fixed(wh, 2)} Wh`
 }
 
 export function bytes(n: number) {

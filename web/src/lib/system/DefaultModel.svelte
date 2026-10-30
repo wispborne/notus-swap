@@ -81,7 +81,7 @@
   const input = 'rounded-md border border-line bg-panel2 px-2 py-1 outline-none focus:border-primary'
 </script>
 
-<section class="mb-4 rounded-lg border border-line bg-panel p-4">
+<section id="default-model" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
   <h2 class="text-sm font-semibold">Default model</h2>
   <p class="mt-1 text-[12.5px] text-muted">
     Automatically load the selected model after {minutes} {minutes === 1 ? 'minute' : 'minutes'} with no models loaded.

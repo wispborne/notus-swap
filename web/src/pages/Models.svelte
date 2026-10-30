@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import ChipPopover from '../lib/ChipPopover.svelte'
-  import { fixed, loadTime, shortBuild, when } from '../lib/format'
+  import { fixed, joules, lastUsed, loadTime, shortBuild } from '../lib/format'
   import ModelMark from '../lib/ModelMark.svelte'
   import { capChips, contextChip, type ModelProps } from '../lib/models/caps'
   import ModelDetail from '../lib/models/ModelDetail.svelte'
@@ -191,12 +191,12 @@
     { key: 'aliases', label: 'Aliases', title: "Other names clients can use for the model, from llama-swap's config" },
     { key: 'state', label: 'State', title: 'Whether llama-swap has the model loaded' },
     { key: 'caps', label: 'Capabilities', title: 'Context size, and what the model can take in and do, as its llama-server reported when it last loaded' },
-    { key: 'requests', label: 'Requests', num: true, title: 'Requests captured, with failed ones in brackets' },
+    { key: 'requests', label: 'Requests', num: true, title: 'Requests captured, and how many of them failed' },
     { key: 'cache', label: 'Cache %', num: true, title: 'Share of prompt tokens reused from the cache, over all requests' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: "Median output speed for the model's current build and settings. Choose included requests in the Speed tab." },
     { key: 'in_tps', label: 'In t/s', num: true, title: "Median prompt speed for the model's current build and settings. Choose included requests in the Speed tab." },
     { key: 'load', label: 'Load time', num: true, title: 'Average time from starting to ready' },
-    { key: 'energy', label: 'Energy Wh', num: true, title: 'Total GPU energy for this model, in watt-hours' },
+    { key: 'energy', label: 'Energy', num: true, title: 'Total GPU energy for this model' },
     { key: 'last_used', label: 'Last used', title: 'When the model last got a request' },
   ] as const satisfies readonly Column[]
   type Col = (typeof columns)[number]['key']
@@ -353,7 +353,7 @@
         {/if}
       </div>
     </td>
-  {:else if k === 'requests'}<td class="num text-right">{fixed(s?.requests ?? 0)}{#if s?.failed}{' '}<span class="text-err" title="failed">({fixed(s.failed)})</span>{/if}</td>
+  {:else if k === 'requests'}<td class="num text-right">{fixed(s?.requests ?? 0)}{#if s?.failed}<span class="ml-1.5 text-err" title="Requests that ended with an error">{fixed(s.failed)} failed</span>{/if}</td>
   {:else if k === 'cache'}
     {#if s?.cache_rate != null}
       <!-- A bar under the number shows the share, as on the Requests page. -->
@@ -365,8 +365,8 @@
   {:else if k === 'out_tps'}<td class="num text-right" title={speedTitle(s, 'gen')}>{@render withUnit(s?.current?.gen_per_second, 1, 't/s')}</td>
   {:else if k === 'in_tps'}<td class="num text-right" title={speedTitle(s, 'prompt')}>{@render withUnit(s?.current?.prompt_per_second, 0, 't/s')}</td>
   {:else if k === 'load'}<td class="num text-right" title={s?.loads ? `${s.loads} timed loads` : ''}>{loadTime(s?.load_ms)}</td>
-  {:else if k === 'energy'}<td class="num text-right">{s?.energy_j != null ? fixed(s.energy_j / 3600, 2) : '–'}</td>
-  {:else if k === 'last_used'}<td class="text-muted">{s?.last_used ? when(s.last_used) : '–'}</td>
+  {:else if k === 'energy'}<td class="num text-right">{s?.energy_j != null ? joules(s.energy_j) : '–'}</td>
+  {:else if k === 'last_used'}<td class="text-muted">{s?.last_used ? lastUsed(s.last_used) : '–'}</td>
   {/if}
 {/snippet}
 

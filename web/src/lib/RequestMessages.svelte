@@ -57,7 +57,9 @@
     if (n === openedFor) return
     openedFor = n
     if (n <= FEW) {
-      open = new Set(messages.keys())
+      // A long system message starts collapsed, so the messages after it are in view.
+      const longSystem = (m: Msg) => (m.role === 'system' || m.role === 'developer') && plain(m).length > LONG
+      open = new Set([...messages.keys()].filter((i) => !longSystem(messages[i])))
       return
     }
     const start = new Set([n - 1])

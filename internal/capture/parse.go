@@ -486,18 +486,41 @@ func chunk(data []byte) (x body, content, reasoning string, output bool) {
 	return x, content, reasoning, output || content != "" || reasoning != ""
 }
 
-// peekRequest reads the model name, the stream flag, and a short preview of
-// the prompt from a request body.
-func peekRequest(b []byte) (model string, stream bool, preview string) {
+// Previews are short pieces of the prompt for the Requests list. Clients
+// often start every user message with the same text, or end a conversation
+// with a tool result, so the list can show any of the three.
+type Previews struct {
+	User    string // the start of the last user message
+	UserEnd string // the end of the last user message
+	Last    string // the start of the last message of any kind
+}
+
+// previewChars is how much of the text each preview keeps.
+const previewChars = 200
+
+// peekRequest reads the model name, the stream flag, and the previews of the
+// prompt from a request body.
+func peekRequest(b []byte) (model string, stream bool, p Previews) {
+	type message struct {
+		Type      string          `json:"type"` // Responses API items only
+		Role      string          `json:"role"`
+		Content   json.RawMessage `json:"content"`
+		ToolCalls []struct {
+			Function struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_calls"`
+		Name      string          `json:"name"`
+		Arguments string          `json:"arguments"`
+		Output    json.RawMessage `json:"output"`
+	}
 	var x struct {
-		Model    string `json:"model"`
-		Stream   bool   `json:"stream"`
-		Messages []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-		Prompt json.RawMessage `json:"prompt"`
-		Input  json.RawMessage `json:"input"`
+		Model    string          `json:"model"`
+		Stream   bool            `json:"stream"`
+		Messages []message       `json:"messages"`
+		Prompt   json.RawMessage `json:"prompt"`
+		Input    json.RawMessage `json:"input"`
 	}
 	_ = json.Unmarshal(b, &x)
 	messages := x.Messages
@@ -506,18 +529,53 @@ func peekRequest(b []byte) (model string, stream bool, preview string) {
 		// sit among tool calls and their results.
 		_ = json.Unmarshal(x.Input, &messages)
 	}
-	for i := len(messages) - 1; i >= 0 && preview == ""; i-- {
+	var user string
+	for i := len(messages) - 1; i >= 0 && user == ""; i-- {
 		if messages[i].Role == "user" {
-			preview = text(messages[i].Content)
+			user = text(messages[i].Content)
 		}
 	}
-	if preview == "" {
-		preview = text(x.Prompt)
+	if user == "" {
+		user = text(x.Prompt)
 	}
-	if preview == "" {
-		preview = text(x.Input)
+	if user == "" {
+		user = text(x.Input)
 	}
-	return x.Model, x.Stream, clip(strings.Join(strings.Fields(preview), " "), 200)
+	last := user
+	if n := len(messages); n > 0 {
+		m := messages[n-1]
+		switch {
+		case m.Type == "function_call":
+			last = "Tool call: " + m.Name + "(" + m.Arguments + ")"
+		case m.Type == "function_call_output":
+			last = "Tool result: " + text(m.Output)
+		case len(m.ToolCalls) > 0:
+			calls := make([]string, len(m.ToolCalls))
+			for i, c := range m.ToolCalls {
+				calls[i] = c.Function.Name + "(" + c.Function.Arguments + ")"
+			}
+			last = "Tool call: " + strings.Join(calls, ", ")
+		case m.Role == "tool":
+			last = "Tool result: " + text(m.Content)
+		case m.Role == "assistant":
+			last = "Assistant: " + text(m.Content)
+		case m.Role == "system" || m.Role == "developer":
+			last = "System: " + text(m.Content)
+		}
+	}
+	user = strings.Join(strings.Fields(user), " ")
+	return x.Model, x.Stream, Previews{
+		User:    clip(user, previewChars),
+		UserEnd: clipStart(user, previewChars),
+		Last:    clip(strings.Join(strings.Fields(last), " "), previewChars),
+	}
+}
+
+// RequestPreviews works out the previews from a stored request body, for
+// requests stored before every preview was kept.
+func RequestPreviews(b []byte) Previews {
+	_, _, p := peekRequest(b)
+	return p
 }
 
 // text flattens a string, a list of strings, or a list of content parts.
@@ -553,4 +611,13 @@ func clip(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n]) + "…"
+}
+
+// clipStart keeps the last n characters of s.
+func clipStart(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return "…" + string(r[len(r)-n:])
 }

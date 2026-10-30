@@ -39,7 +39,12 @@
   const loaders: Record<string, (() => Promise<unknown>) | undefined> = { dashboard: loadDashboard, config: loadConfig, models: loadModels, logs: loadLogs }
   loaders[first]?.()
   if (first === 'dashboard') prefetchDashboard()
-  if (first === 'requests') prefetchRequests({ model: new URLSearchParams(location.search).get('model') ?? '' })
+  if (first === 'requests') {
+    // The same filters the page reads from the URL. A time range changes the
+    // list's start time by the moment the page asks, so it isn't prefetched.
+    const p = new URLSearchParams(location.search)
+    if (!p.get('range')) prefetchRequests({ q: p.get('q') ?? '', model: p.get('model') ?? '', state: p.get('state') ?? '', issue: p.get('issue') ?? '' })
+  }
 
   const ordered = $derived(navOrder.list.map((id) => pages.find((p) => p.path === id)!))
 
@@ -63,10 +68,6 @@
   }
   let collapsed = $state(localStorageGet('sidebar') === 'collapsed')
 
-  function go(path: string) {
-    history.pushState(null, '', `/notus/${path}`)
-    page = path
-  }
   function toggle() {
     collapsed = !collapsed
     try {
@@ -116,8 +117,12 @@
       : 'w-[176px]'}"
   >
     <div class="flex flex-col gap-[2px]">
+      <!-- Links, so a page can be opened in a new tab. The click handler in
+           onMount changes page without a reload. -->
       {#each ordered as p (p.path)}
-        <button
+        <a
+          href="/notus/{p.path}"
+          data-nav
           draggable="true"
           ondragstart={(e) => dragStart(e, p.path as PageId)}
           ondragover={(e) => dragOver(e, p.path as PageId, 'y')}
@@ -128,14 +133,13 @@
             ? 'bg-primary/12 text-primary before:absolute before:top-[7px] before:-left-[6px] before:h-[16px] before:w-[3px] before:rounded-r-sm before:bg-primary'
             : 'text-muted hover:bg-hover hover:text-text'}"
           title={collapsed ? p.label : undefined}
-          onclick={() => go(p.path)}
         >
           {@render icon(p, collapsed)}
           {#if !collapsed}
             <span class="overflow-hidden">{p.label}</span>
             {@render badge(p)}
           {/if}
-        </button>
+        </a>
       {/each}
     </div>
     {#if !collapsed && !navOrder.isDefault}
@@ -170,7 +174,9 @@
 <!-- The side menu is hidden below 768 px wide, so small windows get this bar along the bottom instead. -->
 <nav class="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-[#1e2127] pb-[env(safe-area-inset-bottom)] md:hidden">
   {#each ordered as p (p.path)}
-    <button
+    <a
+      href="/notus/{p.path}"
+      data-nav
       draggable="true"
       ondragstart={(e) => dragStart(e, p.path as PageId)}
       ondragover={(e) => dragOver(e, p.path as PageId, 'x')}
@@ -178,10 +184,9 @@
       ondragend={dragEnd}
       class="{dragging === p.path ? 'opacity-40' : ''} flex min-w-0 flex-1 flex-col items-center gap-[2px] py-[6px] text-[11px] leading-[14px] {page === p.path ? 'text-primary' : 'text-muted hover:text-text'}"
       aria-label={p.label}
-      onclick={() => go(p.path)}
     >
       {@render icon(p, true)}<span class="max-w-full truncate">{p.label}</span>
-    </button>
+    </a>
   {/each}
 </nav>
 

@@ -19,7 +19,25 @@
   })
 
   const known = $derived(status.current?.llama_swap.known ?? [])
-  const all = $derived([...new Set([...known.filter((m) => !m.unlisted).map((m) => m.model), ...seen])].sort())
+  // Models in llama-swap's config first, by the label shown, then models only seen in older requests.
+  const all = $derived.by(() => {
+    const inConfig = new Set(known.map((m) => m.model))
+    return [...new Set([...known.filter((m) => !m.unlisted).map((m) => m.model), ...seen])].sort(
+      (a, b) => Number(inConfig.has(b)) - Number(inConfig.has(a)) || modelLabel(a).localeCompare(modelLabel(b), undefined, { numeric: true }),
+    )
+  })
+
+  // Links to each section, since the page is long.
+  const sections = [
+    ['updates', 'Updates'],
+    ['services', 'Services'],
+    ['storage', 'Request text'],
+    ['default-model', 'Default model'],
+    ['app-title', 'App title'],
+    ['theme', 'Theme'],
+    ['model-labels', 'Model labels'],
+    ['models', 'Models'],
+  ] as const
   const shownModels = $derived(all.filter((m) => !privacy.isHidden(m)))
   const hiddenModels = $derived(all.filter((m) => privacy.isHidden(m)).concat(privacy.hidden.filter((m) => !all.includes(m))))
 
@@ -47,13 +65,16 @@
 </script>
 
 <div class="max-w-[760px]">
-  <h1 class="mb-3 text-[17px] font-semibold">Settings</h1>
+  <h1 class="mb-1.5 text-[17px] font-semibold">Settings</h1>
+  <nav class="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px]" aria-label="Sections">
+    {#each sections as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
+  </nav>
 
   <Manage />
 
   <DefaultModel />
 
-  <section class="mb-4 rounded-lg border border-line bg-panel p-4">
+  <section id="app-title" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">App title</h2>
     <p class="mt-1 text-[12.5px] text-muted">Shown in the top left corner and on the browser tab. Leave it empty for "{defaultTitle}". Saved on the server, for every browser.</p>
     <form
@@ -85,7 +106,7 @@
     {#if titleError}<p class="mt-2 text-[12.5px] text-err">{titleError}</p>{/if}
   </section>
 
-  <section class="mb-4 rounded-lg border border-line bg-panel p-4">
+  <section id="theme" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Theme</h2>
     <p class="mt-1 text-[12.5px] text-muted">Colour themes from TriOS. Saved in this browser only.</p>
     <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Theme">
@@ -105,7 +126,7 @@
     </div>
   </section>
 
-  <section class="mb-4 rounded-lg border border-line bg-panel p-4">
+  <section id="model-labels" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Model labels</h2>
     <p class="mt-1 text-[12.5px] text-muted">
       Show models by the name in llama-swap's config, or by their ID. A model without a name shows its ID either way. Hovering a model shows both. Saved in this browser only.
@@ -124,7 +145,7 @@
     </div>
   </section>
 
-  <section class="rounded-lg border border-line bg-panel p-4">
+  <section id="models" class="scroll-mt-12 rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Models</h2>
     <p class="mt-1 text-[12.5px] text-muted">
       Click a model's dot to choose its colour and shape. They are used on every page, and saved on the server for every browser.

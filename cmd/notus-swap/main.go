@@ -314,6 +314,15 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 		} else if n > 0 {
 			log.Info("worked out overlap for older requests", "count", n)
 		}
+		n, err = st.FillPreviews(ctx, func(b []byte) (string, string) {
+			p := capture.RequestPreviews(b)
+			return p.UserEnd, p.Last
+		})
+		if err != nil {
+			log.Error("could not fill in prompt previews for older requests", "err", err)
+		} else if n > 0 {
+			log.Info("filled in prompt previews for older requests", "count", n)
+		}
 		n, err = capture.Remeasure(ctx, st)
 		if err != nil {
 			log.Error("could not measure speeds again for older requests", "err", err)

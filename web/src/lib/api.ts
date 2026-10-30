@@ -31,7 +31,12 @@ export interface Summary {
   overlap_n: number | null
   request_bytes: number
   response_bytes: number
+  /** The start of the last user message. */
   preview: string
+  /** The end of the last user message. Empty for older requests whose bodies were deleted first. */
+  preview_end: string
+  /** The start of the last message of any kind, such as a tool result. Empty like preview_end. */
+  last_preview: string
   has_bodies: boolean
   finish_reason: string | null
   /** The model's context size per slot, when known. */
@@ -128,6 +133,8 @@ export interface Start {
   model: string
   streaming: boolean
   preview: string
+  preview_end: string
+  last_preview: string
   request_bytes: number
   /** The tags known from the request alone. */
   tags: Tag[]
@@ -161,6 +168,8 @@ export interface ListFilter {
   state?: string
   /** An issue kind, or "any". */
   issue?: string
+  /** Only requests started at or after this time, in unix ms. */
+  since?: number
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -177,6 +186,7 @@ function listURL(f: ListFilter, before?: number, limit = 100) {
   if (f.model) p.set('model', f.model)
   if (f.state) p.set('state', f.state)
   if (f.issue) p.set('issue', f.issue)
+  if (f.since) p.set('since', String(f.since))
   if (before) p.set('before', String(before))
   p.set('limit', String(limit))
   return `/notus/api/requests?${p}`

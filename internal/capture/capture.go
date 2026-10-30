@@ -63,7 +63,7 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 		// Ask for an uncompressed response, so the stored copy is readable.
 		r.Header.Del("Accept-Encoding")
 
-		model, streaming, preview := peekRequest(reqBody)
+		model, streaming, previews := peekRequest(reqBody)
 		if model == "" {
 			model = upstreamModel(r.URL.Path)
 		}
@@ -80,7 +80,7 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 		ip, agent := ClientIP(r), r.UserAgent()
 		id, err := st.Begin(r.Context(), store.Begin{
 			StartedAt: start, Method: r.Method, Path: r.URL.Path, Model: model, Streaming: streaming,
-			Preview: preview, RequestBody: stored, RequestBytes: int64(len(reqBody)), Truncated: truncated,
+			Preview: previews.User, PreviewEnd: previews.UserEnd, LastPreview: previews.Last, RequestBody: stored, RequestBytes: int64(len(reqBody)), Truncated: truncated,
 			Tags: MarshalTags(tags), RetryOf: retryOf, ClientIP: ip, UserAgent: agent,
 		})
 		if err != nil {
@@ -94,7 +94,7 @@ func Handler(st *store.Store, hub *Hub, next http.Handler, log *slog.Logger) htt
 		ctx, cancel := context.WithCancelCause(r.Context())
 		defer cancel(nil)
 		hub.start(Start{ID: id, StartedAt: start.UnixMilli(), Method: r.Method, Path: r.URL.Path,
-			Model: model, Streaming: streaming, Preview: preview, RequestBytes: int64(len(reqBody)), Tags: tags,
+			Model: model, Streaming: streaming, Preview: previews.User, PreviewEnd: previews.UserEnd, LastPreview: previews.Last, RequestBytes: int64(len(reqBody)), Tags: tags,
 			RetryOf: retryOf, ClientIP: ip, UserAgent: agent}, cancel)
 		if retry != nil {
 			retry.id <- id

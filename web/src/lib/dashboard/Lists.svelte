@@ -5,6 +5,7 @@
   import { modelLabel, modelTitle } from '../modelNames.svelte'
   import { privacy } from '../privacy.svelte'
   import type { DashboardData } from './data'
+  import { splitShared } from './shortNames'
 
   let { kind, data }: { kind: 'inflight' | 'swaps' | 'energy'; data: DashboardData } = $props()
 
@@ -22,6 +23,8 @@
     }
     return [...m].map(([model, e]) => ({ model, jpt: e.j / e.tok })).sort((a, b) => a.jpt - b.jpt)
   })
+  // Names that start alike cut the shared start short, so the end that tells them apart stays in view.
+  const jptNames = $derived(splitShared(perToken.map((p) => modelLabel(p.model))))
   const maxJpt = $derived(Math.max(...perToken.map((p) => p.jpt), 0.0001))
   const dot = (m: string) => `background:${modelColor(m)}`
 </script>
@@ -58,9 +61,12 @@
     {/each}
   {:else}
     {#each perToken as p}
+      {@const [head, tail] = jptNames.get(modelLabel(p.model)) ?? ['', modelLabel(p.model)]}
       <div class="my-1.5 flex items-center gap-2">
         <ModelMark model={p.model} />
-        <span class="max-w-[60%] flex-none truncate" title={modelTitle(p.model)}>{modelLabel(p.model)}</span>
+        <span class="flex max-w-[60%] min-w-0 flex-none" title={modelTitle(p.model)}
+          >{#if head}<span class="min-w-0 truncate whitespace-pre">{head}</span>{/if}<span class="max-w-full truncate whitespace-pre {head ? 'flex-none' : ''}">{tail}</span></span
+        >
         <div class="h-2.5 min-w-10 flex-1 overflow-hidden rounded bg-panel2">
           <div class="h-full rounded" style="width:{(p.jpt / maxJpt) * 100}%;{dot(p.model)}"></div>
         </div>
