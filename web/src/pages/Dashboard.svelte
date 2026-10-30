@@ -4,9 +4,12 @@
   import { onMount, tick, untrack } from 'svelte'
   import { duration, num, pct, when } from '../lib/format'
   import { C } from '../lib/dashboard/charts'
-  import { byModelId, cacheRate, fetchDashboard, fetchLayout, median, RANGES, savedRange, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
+  import { byModelId, cacheRate, fetchDashboard, fetchLayout, median, modelStats, RANGES, savedRange, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
   import Gauge from '../lib/dashboard/Gauge.svelte'
   import Lists from '../lib/dashboard/Lists.svelte'
+  import { splitShared } from '../lib/dashboard/shortNames'
+  import ModelMark from '../lib/ModelMark.svelte'
+  import { modelLabel, modelTitle } from '../lib/modelNames.svelte'
   import ModelScatter from '../lib/dashboard/ModelScatter.svelte'
   import ModelsTable from '../lib/dashboard/ModelsTable.svelte'
   import PowerChart from '../lib/dashboard/PowerChart.svelte'
@@ -321,12 +324,12 @@
   const withCard = (label: string, card: string) => (card ? `${label} · ${card}` : label)
 
   const done = $derived((data?.requests ?? []).filter((r) => r.state === 'done'))
-  const genSpeed = $derived.by(() => {
-    let tok = 0, sec = 0
-    for (const r of done)
-      if (r.predicted_per_second && r.completion_tokens) (tok += r.completion_tokens), (sec += r.completion_tokens / r.predicted_per_second)
-    return sec ? tok / sec : null
-  })
+  // Models run at very different speeds, so the tile shows each model's own
+  // speed, most used first, rather than one average over all of them.
+  const genSpeeds = $derived(
+    [...modelStats(data?.requests ?? []).values()].filter((s) => s.genSpeed != null).sort((a, b) => b.requests - a.requests),
+  )
+  const genNames = $derived(splitShared(genSpeeds.map((s) => modelLabel(s.model))))
   const ttftP50 = $derived(median(done.map(ttftOf).filter((v): v is number => v != null)))
   const cacheHit = $derived(cacheRate(done))
   const cacheTokens = $derived(done.reduce((s, r) => s + (r.cached_tokens ?? 0), 0))
@@ -419,8 +422,31 @@
             </div>
             <div class="text-[11px] text-muted">Range total: {kwh(data?.energy.range_system_wh ?? data?.energy.range_gpu_wh)}</div>
           {:else if it.id === 't_speed'}
-            <div class="text-[26px] leading-tight font-semibold num">{num(genSpeed, 1)} <span class="text-sm font-normal text-muted">tok/s</span></div>
-            <div class="text-[11px] text-muted">Average for this range</div>
+            {#if genSpeeds.length <= 1}
+              <div class="text-[26px] leading-tight font-semibold num">{num(genSpeeds[0]?.genSpeed, 1)} <span class="text-sm font-normal text-muted">tok/s</span></div>
+              {#if genSpeeds[0]}
+                <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-muted" title={modelTitle(genSpeeds[0].model)}>
+                  <ModelMark model={genSpeeds[0].model} /><span class="truncate">{modelLabel(genSpeeds[0].model)}</span>
+                </div>
+              {/if}
+              <div class="text-[11px] text-muted">Average for this range</div>
+            {:else}
+              <!-- One line per model. Names that start alike cut the shared start short, so the end that tells them apart stays in view. -->
+              <div class="min-h-0 overflow-auto text-[12.5px]">
+                {#each genSpeeds as s (s.model)}
+                  {@const [head, tail] = genNames.get(modelLabel(s.model)) ?? ['', modelLabel(s.model)]}
+                  <div class="flex items-center gap-1.5 py-px">
+                    <ModelMark model={s.model} />
+                    <span class="flex min-w-0 flex-1" title={modelTitle(s.model)}
+                      >{#if head}<span class="min-w-0 truncate whitespace-pre text-muted">{head}</span>{/if}<span class="max-w-full truncate whitespace-pre {head ? 'flex-none' : ''}">{tail}</span></span
+                    >
+                    <span class="num flex-none font-semibold">{num(s.genSpeed, 1)}</span>
+                    <span class="flex-none text-[11px] text-muted">tok/s</span>
+                  </div>
+                {/each}
+              </div>
+              <div class="text-[11px] text-muted">Average per model for this range</div>
+            {/if}
           {:else if it.id === 't_ttft'}
             <div class="text-[26px] leading-tight font-semibold num">{duration(ttftP50)}</div>
             <div class="text-[11px] text-muted">Median for this range</div>
