@@ -4,6 +4,7 @@
   import { api } from '../servers.svelte'
   import LlamaUpdates from './LlamaUpdates.svelte'
   import Changelog from './Changelog.svelte'
+  import UpdateSource from './UpdateSource.svelte'
 
   /** The server these sections act on. '' is this server. */
   let { server = '' }: { server?: string } = $props()
@@ -112,6 +113,7 @@
   // Releases newer than the running one (the list ends at the running one).
   const newer = $derived(info ? info.releases.filter((r) => r.tag !== info!.version) : [])
   let showChangelog = $state(false)
+  let showSource = $state(false)
 
   const upToDate = $derived(!!info && info.current_known && newer.length === 0)
 
@@ -296,7 +298,7 @@
       Running <b class="font-mono text-text">{info.version}</b>.
       {#if info.update_source && !info.release_error}Releases come from {info.update_source}.{/if}
       {#if !info.update_configured}
-        Updates are off, because NOTUS_GITHUB_REPO is empty in notus-swap's env file.
+        Updates are off.
       {:else if info.release_error}
         <span class="text-err">Couldn't fetch releases from {info.update_source}: {info.release_error}</span>
       {:else if upToDate}
@@ -345,7 +347,11 @@
       </button>
       <button class={btn} disabled={!!busy} onclick={load}>Check for updates</button>
       <button class={btn} disabled={!info.update_configured} onclick={() => (showChangelog = !showChangelog)}>{showChangelog ? 'Hide changelog' : 'Changelog'}</button>
+      <button class={btn} onclick={() => (showSource = !showSource)}>{showSource ? 'Hide update source' : 'Change update source'}</button>
     </div>
+    {#if showSource}
+      <UpdateSource {server} onsaved={load} />
+    {/if}
     {#if showChangelog}
       <Changelog entries={info.changelog} error={info.release_error} markdown={false} isNew={(tag) => newer.some((r) => r.tag === tag)} />
     {/if}

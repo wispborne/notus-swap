@@ -92,6 +92,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	r.handle("POST /notus/api/query", `Read-only SQL on the database. Body: {"sql": "SELECT ..."}.`, a.query)
 	a.registerConfig(r)
 	a.registerSystem(r)
+	a.registerUpdateSource(r)
 	a.registerLlamaUpdates(r)
 	a.registerModels(r)
 	a.registerAutoLoad(r)

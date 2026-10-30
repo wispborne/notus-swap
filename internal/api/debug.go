@@ -171,6 +171,10 @@ func (a *API) debugSettings(w http.ResponseWriter, r *http.Request) {
 		// The Settings page can change these after start-up.
 		out["retention_in_effect"] = a.RetentionSetting(r.Context(), a.RetentionDefault)
 	}
+	if a.Updater != nil {
+		out["update_source"] = a.Updater.Source()
+		out["update_source_saved"] = a.Updater.Override().Kind != ""
+	}
 	writeJSON(w, out)
 }
 

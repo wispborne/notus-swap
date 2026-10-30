@@ -178,6 +178,7 @@ Samples are kept every second for 24 hours, every minute for 30 days, and every 
 | `GET /notus/api/health` | `{"ok": true, "version": "..."}`, plus `restarting` while a restart waits for requests to finish. Also `server_id` (made the first time the server starts), `peer_api`, `name` (the app title, or empty) and `now` (the server's clock, unix ms), which other notus-swap servers read. |
 | `GET /notus/api/peers` | The Servers list, in order: `{"self": "<this server's ID>", "servers": [...]}`. Each server has `id`, `name`, `url` (empty for this server), `self`, `state` (`online`, `checking`, `offline`, `wrong_server`, `not_notus` or `needs_update`), and, for other servers, `since`, `last_seen`, `version`, `clock_gap_ms` and `error`. The first server is the primary. |
 | `GET /notus/api/system` | notus-swap's version, update state, changelog, retention settings and database size. |
+| `GET /notus/api/update-source` | Where notus-swap's own updates come from. `kind` is `""` (the environment's settings), `gitea`, `github` or `off`, with the saved `gitea_url`, `gitea_repo`, `gitea_user`, `github_repo`, and `gitea_token_set` in place of the token. `env_source` names the source the environment gives, and `source` the one in use, such as `GitHub (wispborne/notus-swap)`. |
 | `GET /notus/api/logs?tail=N` | notus-swap's own log as plain text. |
 
 ## SQL

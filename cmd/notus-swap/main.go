@@ -294,6 +294,8 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	loader.Load = a.LoadModel
 	go loader.Run(ctx)
 	go prune(ctx, log, st, func() api.Retention { return a.RetentionSetting(ctx, keep) }, pruneNow)
+	// A source saved on the Settings page replaces the environment's.
+	updater.SetOverride(a.UpdateSourceSetting(ctx))
 	// Checks for new releases, so the sidebar can mark System when one is out.
 	go updater.Watch(ctx, 15*time.Minute)
 	// GitHub allows 60 API calls an hour without a token; this uses 3.

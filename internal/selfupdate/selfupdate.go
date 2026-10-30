@@ -3,7 +3,8 @@
 //
 // Releases come from a Gitea server when all four GITEA_ settings are set,
 // and otherwise from GitHub (NOTUS_GITHUB_REPO, wispborne/notus-swap by
-// default). Setting NOTUS_GITHUB_REPO to nothing turns updates off.
+// default). Setting NOTUS_GITHUB_REPO to nothing turns updates off. A source
+// saved on the Settings page (SetOverride) replaces these.
 //
 // Installing: the release binary and its .sha256 are downloaded next to the
 // running binary and checked. The running binary is renamed to
@@ -54,6 +55,8 @@ type Updater struct {
 	Client  *http.Client
 
 	mu       sync.Mutex
+	override Override
+	gen      int // counts SetOverride calls, so a list from an old source isn't cached
 	cache    []Release
 	cachedAt time.Time
 }
@@ -78,42 +81,72 @@ func FromEnv(version string) *Updater {
 	}
 }
 
+// conn is where releases come from: the env settings, or the override saved
+// on the Settings page.
+type conn struct {
+	giteaURL, repo, user, token string
+	githubRepo, githubToken     string
+}
+
+func (u *Updater) envConn() conn {
+	return conn{u.GiteaURL, u.Repo, u.User, u.Token, u.GitHubRepo, u.GitHubToken}
+}
+
+// conn returns the settings in use now.
+func (u *Updater) conn() conn {
+	u.mu.Lock()
+	o := u.override
+	u.mu.Unlock()
+	c := u.envConn()
+	switch o.Kind {
+	case "gitea":
+		c = conn{giteaURL: strings.TrimRight(o.GiteaURL, "/"), repo: o.GiteaRepo, user: o.GiteaUser, token: o.GiteaToken}
+	case "github":
+		c = conn{githubRepo: o.GitHubRepo, githubToken: u.GitHubToken}
+	case "off":
+		c = conn{}
+	}
+	return c
+}
+
 // useGitea reports whether the Gitea settings are all present.
-func (u *Updater) useGitea() bool {
-	return u.GiteaURL != "" && u.Repo != "" && u.User != "" && u.Token != ""
+func (c conn) useGitea() bool {
+	return c.giteaURL != "" && c.repo != "" && c.user != "" && c.token != ""
 }
 
-// Configured reports whether there is anywhere to get releases from.
-func (u *Updater) Configured() bool {
-	return u.useGitea() || u.GitHubRepo != ""
-}
+func (c conn) configured() bool { return c.useGitea() || c.githubRepo != "" }
 
-// Source names where releases come from, such as "GitHub
-// (wispborne/notus-swap)". It is empty when updates are off.
-func (u *Updater) Source() string {
+func (c conn) name() string {
 	switch {
-	case u.useGitea():
-		return "Gitea (" + u.Repo + ")"
-	case u.GitHubRepo != "":
-		return "GitHub (" + u.GitHubRepo + ")"
+	case c.useGitea():
+		return "Gitea (" + c.repo + ")"
+	case c.githubRepo != "":
+		return "GitHub (" + c.githubRepo + ")"
 	}
 	return ""
 }
 
+// Configured reports whether there is anywhere to get releases from.
+func (u *Updater) Configured() bool { return u.conn().configured() }
+
+// Source names where releases come from, such as "GitHub
+// (wispborne/notus-swap)". It is empty when updates are off.
+func (u *Updater) Source() string { return u.conn().name() }
+
 // releasesURL is the API address that lists recent releases.
-func (u *Updater) releasesURL() string {
-	if u.useGitea() {
-		return u.GiteaURL + "/api/v1/repos/" + u.Repo + "/releases?limit=30"
+func (u *Updater) releasesURL(c conn) string {
+	if c.useGitea() {
+		return c.giteaURL + "/api/v1/repos/" + c.repo + "/releases?limit=30"
 	}
-	return u.GitHubAPI + "/repos/" + u.GitHubRepo + "/releases?per_page=30"
+	return u.GitHubAPI + "/repos/" + c.githubRepo + "/releases?per_page=30"
 }
 
 // downloadURL is the address of one file in a release. Gitea and GitHub use
 // the same layout.
-func (u *Updater) downloadURL(tag, file string) string {
-	base, repo := u.GitHubURL, u.GitHubRepo
-	if u.useGitea() {
-		base, repo = u.GiteaURL, u.Repo
+func (u *Updater) downloadURL(c conn, tag, file string) string {
+	base, repo := u.GitHubURL, c.githubRepo
+	if c.useGitea() {
+		base, repo = c.giteaURL, c.repo
 	}
 	return base + "/" + repo + "/releases/download/" + url.PathEscape(tag) + "/" + file
 }
@@ -147,7 +180,9 @@ func (u *Updater) Releases(ctx context.Context) ([]Release, error) {
 		defer u.mu.Unlock()
 		return u.cache, nil
 	}
+	gen := u.gen
 	u.mu.Unlock()
+	c := u.conn()
 
 	var raw []struct {
 		TagName     string    `json:"tag_name"`
@@ -156,7 +191,7 @@ func (u *Updater) Releases(ctx context.Context) ([]Release, error) {
 		Draft       bool      `json:"draft"`
 		Prerelease  bool      `json:"prerelease"`
 	}
-	if err := u.getJSON(ctx, u.releasesURL(), &raw); err != nil {
+	if err := u.getJSON(ctx, c, u.releasesURL(c), &raw); err != nil {
 		return nil, err
 	}
 	out := []Release{}
@@ -167,20 +202,22 @@ func (u *Updater) Releases(ctx context.Context) ([]Release, error) {
 	}
 	slices.SortStableFunc(out, func(a, b Release) int { return b.Published.Compare(a.Published) })
 	u.mu.Lock()
-	u.cache, u.cachedAt = out, time.Now()
+	// The source changed while this list was fetched, so it is from the old one.
+	if u.gen == gen {
+		u.cache, u.cachedAt = out, time.Now()
+	}
 	u.mu.Unlock()
 	return out, nil
 }
 
 // Watch checks for releases now and then every interval, so
-// UpdateAvailable has something to answer from. It does nothing when updates
-// aren't set up.
+// UpdateAvailable has something to answer from. It skips the check while
+// updates are off.
 func (u *Updater) Watch(ctx context.Context, every time.Duration) {
-	if !u.Configured() {
-		return
-	}
 	for {
-		u.Releases(ctx)
+		if u.Configured() {
+			u.Releases(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -200,20 +237,20 @@ func (u *Updater) UpdateAvailable() bool {
 // get fetches address, signed in to Gitea, or to GitHub when GITHUB_TOKEN is
 // set. GitHub's downloads redirect to another host, and Go drops the
 // Authorization header on that hop.
-func (u *Updater) get(ctx context.Context, address string) (*http.Response, error) {
-	if !u.Configured() {
-		return nil, errors.New("updates are off: NOTUS_GITHUB_REPO is empty in the env file")
+func (u *Updater) get(ctx context.Context, c conn, address string) (*http.Response, error) {
+	if !c.configured() {
+		return nil, errors.New("updates are off")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", address, nil)
 	if err != nil {
 		return nil, err
 	}
 	server := "GitHub"
-	if u.useGitea() {
+	if c.useGitea() {
 		server = "Gitea"
-		req.SetBasicAuth(u.User, u.Token)
-	} else if u.GitHubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+u.GitHubToken)
+		req.SetBasicAuth(c.user, c.token)
+	} else if c.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.githubToken)
 	}
 	resp, err := u.Client.Do(req)
 	if err != nil {
@@ -226,8 +263,8 @@ func (u *Updater) get(ctx context.Context, address string) (*http.Response, erro
 	return resp, nil
 }
 
-func (u *Updater) getJSON(ctx context.Context, path string, v any) error {
-	resp, err := u.get(ctx, path)
+func (u *Updater) getJSON(ctx context.Context, c conn, path string, v any) error {
+	resp, err := u.get(ctx, c, path)
 	if err != nil {
 		return err
 	}
@@ -298,7 +335,8 @@ func (u *Updater) Pending() *Marker {
 // so systemd starts the new binary.
 func (u *Updater) Install(ctx context.Context, tag string) error {
 	dir := filepath.Dir(u.Exe)
-	sumResp, err := u.get(ctx, u.downloadURL(tag, Asset()+".sha256"))
+	c := u.conn()
+	sumResp, err := u.get(ctx, c, u.downloadURL(c, tag, Asset()+".sha256"))
 	if err != nil {
 		return err
 	}
@@ -313,7 +351,7 @@ func (u *Updater) Install(ctx context.Context, tag string) error {
 	}
 	want := strings.ToLower(fields[0])
 
-	binResp, err := u.get(ctx, u.downloadURL(tag, Asset()))
+	binResp, err := u.get(ctx, c, u.downloadURL(c, tag, Asset()))
 	if err != nil {
 		return err
 	}

@@ -40,7 +40,7 @@ These steps assume llama-swap is in `C:\llama-swap`, with `llama-swap.exe` and `
 
 Clients keep using port 8080. llama-swap's own UI is still at http://localhost:8080/ui/.
 
-To set other settings, add `set` lines before the `notus-swap.exe` line, such as `set NOTUS_LLAMA_CPP_DIR=C:\llama.cpp`. The settings are listed in the [README](../README.md#running).
+To set other settings, add `set` lines before the `notus-swap.exe` line, such as `set NOTUS_LLAMA_CPP_DIR=C:\llama.cpp`. Don't put quotes around the value, or they become part of it. The settings are listed in the [README](../README.md#running). Where updates come from can also be set on the Settings page, with "Change update source".
 
 ## Let notus-swap update llama.cpp on Windows
 

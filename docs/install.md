@@ -396,7 +396,11 @@ Restart notus-swap to pick up the change:
 sudo systemctl restart notus-swap.service
 ```
 
-When all four lines are set, the update button and `update-notus-swap.sh` use Gitea instead of GitHub. To download the script from Gitea:
+When all four lines are set, the update button and `update-notus-swap.sh` use Gitea instead of GitHub.
+
+You can also set the source on the Settings page instead: in the notus-swap version section, click "Change update source". A source saved there replaces the `env` lines for the update button, with no restart. The token is then stored in notus-swap's database, and the page never shows it again. `update-notus-swap.sh` can't read the database, so it still uses `env`.
+
+To download the script from Gitea:
 
 ```bash
 cd ~/Applications/notus-swap && set -a; . ./env; set +a && curl -sSf -u "$GITEA_USER:$GITEA_TOKEN" -o update-notus-swap.sh "$GITEA_URL/api/v1/repos/$GITEA_REPO/raw/scripts/update-notus-swap.sh?ref=main" && chmod +x update-notus-swap.sh

@@ -137,7 +137,7 @@ Every push to `main` is built and published as a [GitHub release](https://github
 
 The update button on the Settings page downloads the newest release for this system, checks its SHA-256, swaps the binary, and restarts. systemd starts it again, or, without systemd, notus-swap's own supervisor does. If the new version doesn't stay up for 30 seconds, it rolls back on its own. A Roll back button goes back to the previous version by hand. `scripts/update-notus-swap.sh` does the same from a shell, for when the web UI can't be reached.
 
-If you build notus-swap on your own Gitea server, it can update from there instead. See "Getting updates from your own Gitea" in [docs/install.md](docs/install.md).
+If you build notus-swap on your own Gitea server, it can update from there instead. See "Getting updates from your own Gitea" in [docs/install.md](docs/install.md). The Settings page's "Change update source" button sets the source too, and replaces the environment settings.
 
 ### llama-swap and llama.cpp
 
