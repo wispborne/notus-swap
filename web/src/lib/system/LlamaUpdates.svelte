@@ -3,7 +3,15 @@
   import Markdown from '../Markdown.svelte'
   import Changelog, { type Entry } from './Changelog.svelte'
   import { bytes, when } from '../format'
+  import { api, RemoteStatus } from '../servers.svelte'
   import { status } from '../status.svelte'
+  import { privacy } from '../privacy.svelte'
+
+  /** The server this section acts on. '' is this server. */
+  let { server = '' }: { server?: string } = $props()
+  // svelte-ignore state_referenced_locally
+  const remote = server ? new RemoteStatus(server, () => privacy.showHidden) : null
+  onMount(() => remote?.start())
 
   interface Release {
     tag: string
@@ -58,7 +66,7 @@
 
   async function load(url = '/notus/api/llama-updates', method = 'GET') {
     try {
-      const res = await fetch(url, { method })
+      const res = await fetch(api(server, url), { method })
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
       info = await res.json()
       error = ''
@@ -79,7 +87,7 @@
 
   async function start(component: Job['component'], action: Job['action'], tag = '', question = '') {
     if (question && !confirm(question)) return
-    const res = await fetch(`/notus/api/llama-updates/${component}/${action}`, { method: 'POST', body: JSON.stringify({ tag }) })
+    const res = await fetch(api(server, `/notus/api/llama-updates/${component}/${action}`), { method: 'POST', body: JSON.stringify({ tag }) })
     if (!res.ok) {
       error = (await res.text()).trim() || res.statusText
       return
@@ -96,7 +104,7 @@
     if (!shown || logs[component]) return
     logError = ''
     try {
-      const res = await fetch(`/notus/api/llama-updates/${component}/changelog`)
+      const res = await fetch(api(server, `/notus/api/llama-updates/${component}/changelog`))
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
       logs[component] = await res.json()
     } catch (e) {
@@ -106,7 +114,7 @@
 
   let unloaded = $state(false)
   async function unloadAll() {
-    await fetch('/notus/api/models/unload', { method: 'POST' })
+    await fetch(api(server, '/notus/api/models/unload'), { method: 'POST' })
     unloaded = true
   }
 
@@ -114,7 +122,7 @@
   const busy = $derived(!!job?.running)
   const swap = $derived(info?.llama_swap)
   const cpp = $derived(info?.llama_cpp)
-  const loadedModels = $derived(status.current?.llama_swap.models.length ?? 0)
+  const loadedModels = $derived((remote ? remote.current : status.current)?.llama_swap.models.length ?? 0)
   const checked = $derived(info?.checked_at ? `GitHub was last checked at ${when(Date.parse(info.checked_at))}, and is checked every hour.` : '')
 
   /** "today", or a date such as "Sep 23". */

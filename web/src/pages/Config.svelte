@@ -4,6 +4,9 @@
   import YamlEditor from '../lib/config/YamlEditor.svelte'
   import { when } from '../lib/format'
   import { privacy } from '../lib/privacy.svelte'
+  import ServerPicker from '../lib/ServerPicker.svelte'
+  import ServerAsleep from '../lib/ServerAsleep.svelte'
+  import { api, pageServer, reachable, RemoteStatus, servers } from '../lib/servers.svelte'
 
   interface File {
     path: string
@@ -37,6 +40,11 @@
 
   const dirty = $derived(!!file && text !== file.content)
 
+  // The server whose config this is. '' is this server. Set once the
+  // Servers list is known; choosing another server reloads the page.
+  let server = $state('')
+  let remote = $state<RemoteStatus | null>(null)
+
   // ---- Unsaved edits ----
   // Keep the base hash so restored drafts still detect changes on disk.
   interface Draft {
@@ -44,7 +52,8 @@
     base: File
     at: number
   }
-  const draftKey = 'config_draft'
+  // Each server's file has its own draft.
+  const draftKey = $derived(server ? `config_draft:${server}` : 'config_draft')
   function readDraft(): Draft | null {
     try {
       return JSON.parse(localStorage.getItem(draftKey) ?? 'null')
@@ -64,7 +73,7 @@
 
   async function load() {
     loadError = ''
-    const res = await fetch('/notus/api/config')
+    const res = await fetch(api(server, '/notus/api/config'))
     if (res.status === 503) {
       off = (await res.json()).error
       return
@@ -90,9 +99,31 @@
     runCheck(text)
   }
   onMount(() => {
+    let stop: (() => void) | undefined
+    servers.load().then(() => {
+      if (destroyed) return
+      server = pageServer()
+      if (server) {
+        remote = new RemoteStatus(server, () => privacy.showHidden)
+        stop = remote.start()
+      }
+      started = true
+    })
+    return () => stop?.()
+  })
+  // A server that is asleep is loaded once it answers.
+  let started = $state(false)
+  let loaded = false
+  const asleep = $derived(!!server && !reachable(servers.get(server)))
+  $effect(() => {
+    if (!started || asleep || loaded) return
+    loaded = true
     load()
     loadHeld()
+    loadBackups()
   })
+  // Hidden models are those of the server whose file this is.
+  const hidesModels = $derived(remote ? remote.hides && !privacy.showHidden : privacy.hidden.length > 0 && !privacy.showHidden)
 
   // Check while typing, a moment after the last key.
   let checkTimer: ReturnType<typeof setTimeout>
@@ -106,7 +137,7 @@
     const seq = ++checkSeq
     checking = true
     try {
-      const res = await fetch('/notus/api/config/check', { method: 'POST', body: JSON.stringify({ content: t }) })
+      const res = await fetch(api(server, '/notus/api/config/check'), { method: 'POST', body: JSON.stringify({ content: t }) })
       const c: Check = await res.json()
       if (seq === checkSeq) check = c
     } finally {
@@ -135,7 +166,7 @@
     if (!file) return
     saving = true
     try {
-      const res = await fetch('/notus/api/config', {
+      const res = await fetch(api(server, '/notus/api/config'), {
         method: 'PUT',
         body: JSON.stringify({ content: text, base_hash: file.hash, skip_llama_swap: skipCheck, overwrite }),
       })
@@ -189,7 +220,7 @@
   onDestroy(() => (destroyed = true))
 
   async function heldStatus(): Promise<HeldStatus | null> {
-    const res = await fetch('/notus/api/config/held', { cache: 'no-store' }).catch(() => null)
+    const res = await fetch(api(server, '/notus/api/config/held'), { cache: 'no-store' }).catch(() => null)
     return res?.ok ? res.json() : null
   }
 
@@ -240,11 +271,11 @@
 
   async function heldNow() {
     if (!confirm('Save now? Reloading the config can interrupt active responses.')) return
-    await fetch('/notus/api/config/held/now', { method: 'POST' })
+    await fetch(api(server, '/notus/api/config/held/now'), { method: 'POST' })
   }
 
   async function heldCancel() {
-    const res = await fetch('/notus/api/config/held', { method: 'DELETE' })
+    const res = await fetch(api(server, '/notus/api/config/held'), { method: 'DELETE' })
     if (res.ok) {
       held = null
       notice = { kind: 'warn', text: 'Save cancelled. Your edits are still here.' }
@@ -273,15 +304,12 @@
   let backups = $state<Backup[]>([])
   let showBackups = $state(false)
   async function loadBackups() {
-    const res = await fetch('/notus/api/config/backups')
+    const res = await fetch(api(server, '/notus/api/config/backups'))
     if (res.ok) backups = await res.json()
   }
-  onMount(() => {
-    loadBackups()
-  })
   async function openBackup(b: Backup) {
     showBackups = false
-    const res = await fetch(`/notus/api/config/backups/${encodeURIComponent(b.name)}`)
+    const res = await fetch(api(server, `/notus/api/config/backups/${encodeURIComponent(b.name)}`))
     if (!res.ok) return
     const { content } = await res.json()
     text = content
@@ -297,6 +325,7 @@
 <div class="flex h-[calc(100vh-34px-14px-40px)] min-h-[420px] flex-col">
   <div class="mb-2 flex flex-wrap items-center gap-3">
     <h1 class="text-[17px] font-semibold">Model Config</h1>
+    <ServerPicker current={server} />
     {#if file}<span class="font-mono text-xs text-dim" title="Last changed {when(file.modified)}">{file.path}</span>{/if}
     {#if dirty}<span class="rounded-full bg-warn/15 px-2 text-[11px] font-semibold text-warn">unsaved changes</span>{/if}
     <span class="flex-1"></span>
@@ -318,13 +347,15 @@
     <button class="rounded-md border border-primary bg-primary px-3 py-1 font-semibold text-sunken disabled:opacity-40" disabled={!dirty} onclick={review}>Save…</button>
   </div>
 
-  {#if privacy.hidden.length && !privacy.showHidden}
+  {#if hidesModels}
     <div class="mb-2 rounded-md border border-l-3 border-line border-l-warn bg-panel2 px-3 py-1.5 text-xs text-muted">
       This page shows the config file as it is, so hidden models appear here. Avoid it in screenshots.
     </div>
   {/if}
 
-  {#if off}
+  {#if asleep}
+    <ServerAsleep server={servers.get(server)} />
+  {:else if off}
     <div class="rounded-md border border-line bg-panel p-4 text-muted">
       The config editor is off: {off}. Add <code class="text-text">NOTUS_LLAMA_SWAP_CONFIG=/path/to/config.yaml</code> to notus-swap's env file and restart it.
     </div>

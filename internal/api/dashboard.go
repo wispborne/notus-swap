@@ -10,6 +10,7 @@ import (
 
 	"github.com/wispborne/notus-swap/internal/gpu"
 	"github.com/wispborne/notus-swap/internal/llamaswap"
+	"github.com/wispborne/notus-swap/internal/peers"
 	"github.com/wispborne/notus-swap/internal/store"
 )
 
@@ -45,6 +46,9 @@ type Status struct {
 	// UpdateAvailable is true when the last check found a newer release of
 	// notus-swap, llama-swap, or llama.cpp. The sidebar puts a dot on System.
 	UpdateAvailable bool `json:"update_available"`
+	// Servers is the Servers list with each one's last check. See
+	// internal/peers.
+	Servers []peers.Server `json:"servers"`
 }
 
 // status: GET /notus/api/status. It answers from values the background
@@ -66,6 +70,9 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ModelColors = a.statusColors(r.Context(), known, s.Privacy)
 	s.ModelMarks = a.statusMarks(r.Context(), s.Privacy)
+	if a.Peers != nil {
+		s.Servers = a.Peers.List()
+	}
 	for _, g := range s.GPUs {
 		if g.Watts != nil && !g.SocketPower() {
 			t := *g.Watts

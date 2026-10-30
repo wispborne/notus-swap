@@ -21,6 +21,7 @@ import (
 	"github.com/wispborne/notus-swap/internal/llamaupdate"
 	"github.com/wispborne/notus-swap/internal/logbuf"
 	"github.com/wispborne/notus-swap/internal/metrics"
+	"github.com/wispborne/notus-swap/internal/peers"
 	"github.com/wispborne/notus-swap/internal/restart"
 	"github.com/wispborne/notus-swap/internal/selfupdate"
 	"github.com/wispborne/notus-swap/internal/service"
@@ -64,8 +65,11 @@ type API struct {
 	// ReadOnly runs queries sent to POST /notus/api/query. Nil turns that
 	// endpoint off.
 	ReadOnly *store.ReadOnly
+	// Peers is the Servers list, and forwards calls to the other servers.
+	// Nil turns it off.
+	Peers *peers.Set
 
-	colors    modelColors
+	colors   modelColors
 	endpoints []Endpoint
 }
 
@@ -92,6 +96,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerModels(r)
 	a.registerAutoLoad(r)
 	a.registerDebug(r)
+	a.registerPeers(r)
 	m := a.mcpHandler()
 	r.handle("POST /notus/mcp", "MCP server (Streamable HTTP) with read-only tools over this data, for AI agents.", m.ServeHTTP)
 	mux.Handle("/notus/mcp", m) // other methods: the MCP library answers 405
@@ -189,9 +194,13 @@ func summary(r *store.Record) Summary {
 
 // health: GET /notus/api/health. "restarting" is set while a restart waits
 // for requests to finish; the Settings page uses it to tell the old process
-// from the new one.
+// from the new one. Other servers read server_id, peer_api, name and now
+// (unix ms) to tell which notus-swap answers and how far its clock is off.
 func (a *API) health(w http.ResponseWriter, r *http.Request) {
-	h := map[string]any{"ok": true, "version": a.Version}
+	h := map[string]any{"ok": true, "version": a.Version, "peer_api": peers.APIVersion, "name": a.appTitle(r.Context()), "now": time.Now().UnixMilli()}
+	if a.Peers != nil {
+		h["server_id"] = a.Peers.SelfID
+	}
 	if p := a.pendingRestart(); p != nil {
 		h["restarting"] = p
 	}

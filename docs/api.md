@@ -175,7 +175,8 @@ Samples are kept every second for 24 hours, every minute for 30 days, and every 
 | Endpoint | Returns |
 |---|---|
 | `GET /notus/api/status` | llama-swap's state and each model's state, each GPU's reading, CPU and system watts, RAM, and requests in flight. Cheap to call often; the web UI calls it every 2 seconds. |
-| `GET /notus/api/health` | `{"ok": true, "version": "..."}`, plus `restarting` while a restart waits for requests to finish. |
+| `GET /notus/api/health` | `{"ok": true, "version": "..."}`, plus `restarting` while a restart waits for requests to finish. Also `server_id` (made the first time the server starts), `peer_api`, `name` (the app title, or empty) and `now` (the server's clock, unix ms), which other notus-swap servers read. |
+| `GET /notus/api/peers` | The Servers list, in order: `{"self": "<this server's ID>", "servers": [...]}`. Each server has `id`, `name`, `url` (empty for this server), `self`, `state` (`online`, `checking`, `offline`, `wrong_server`, `not_notus` or `needs_update`), and, for other servers, `since`, `last_seen`, `version`, `clock_gap_ms` and `error`. The first server is the primary. |
 | `GET /notus/api/system` | notus-swap's version, update state, changelog, retention settings and database size. |
 | `GET /notus/api/logs?tail=N` | notus-swap's own log as plain text. |
 
@@ -198,6 +199,16 @@ curl -s http://llm.example.com/notus/api/query \
   -H 'Content-Type: application/json' \
   -d '{"sql": "SELECT name, sql FROM sqlite_master WHERE type = '\''table'\''"}'
 ```
+
+## Other servers
+
+A notus-swap can show other notus-swap servers, added on its Settings page. Calls to another server go through this one at `/notus/peer/<id>/`, followed by the other server's own path. Only `/notus/api/...` paths and llama-swap's `/logs/...` streams are passed on. For example, another server's status:
+
+```bash
+curl -s http://llm.example.com/notus/peer/<id>/notus/api/status
+```
+
+A server that doesn't answer gets a 503 at once, such as "PC is asleep or off". A call that already came through another notus-swap gets a 508, so calls go one step at most.
 
 ## Endpoints that change things
 

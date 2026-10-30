@@ -2,6 +2,7 @@ import { appTitle } from './appTitle.svelte'
 import { privacy } from './privacy.svelte'
 import { setModelColors, setModelMarks, type Mark } from './modelColors.svelte'
 import { setModelAliases } from './modelIds.svelte'
+import { servers, type Server } from './servers.svelte'
 
 // Polls /notus/api/status every 2 seconds for the status bar. The server
 // answers from values its own monitors keep, so polling is cheap.
@@ -53,6 +54,8 @@ export interface Status {
   model_marks: Record<string, Mark>
   /** A newer release was seen on the server's last check (every 15 minutes). */
   update_available: boolean
+  /** The Servers list. See servers.svelte.ts. */
+  servers?: Server[]
 }
 
 /**
@@ -79,6 +82,7 @@ class StatusPoller {
         setModelColors(next.model_colors ?? {})
         setModelMarks(next.model_marks ?? {})
         setModelAliases(next.llama_swap.known ?? [])
+        servers.apply(next.servers)
         this.current = next
         this.reachable = true
       } catch {

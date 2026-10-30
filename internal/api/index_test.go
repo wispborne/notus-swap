@@ -42,7 +42,7 @@ func TestIndexListsEndpoints(t *testing.T) {
 		}
 		found[e.Method+" "+e.Path] = e
 	}
-	for _, want := range []string{"GET /notus/api/", "GET /notus/api/requests", "GET /notus/api/requests/{id}", "GET /notus/api/dashboard", "GET /notus/api/logs", "POST /notus/api/llama-updates/{component}/{action}"} {
+	for _, want := range []string{"GET /notus/api/", "GET /notus/api/requests", "GET /notus/api/requests/{id}", "GET /notus/api/dashboard", "GET /notus/api/logs", "POST /notus/api/llama-updates/{component}/{action}", "GET /notus/api/peers", "ANY /notus/peer/{id}/{path...}"} {
 		if _, ok := found[want]; !ok {
 			t.Errorf("%s is not listed", want)
 		}

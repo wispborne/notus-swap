@@ -24,7 +24,10 @@ type router struct {
 
 func (r *router) handle(pattern, about string, h http.HandlerFunc) {
 	r.mux.HandleFunc(pattern, h)
-	method, path, _ := strings.Cut(pattern, " ")
+	method, path, ok := strings.Cut(pattern, " ")
+	if !ok {
+		method, path = "ANY", pattern
+	}
 	path = strings.TrimSuffix(path, "{$}") // ServeMux's mark for an exact match
 	r.endpoints = append(r.endpoints, Endpoint{Method: method, Path: path, About: about})
 }

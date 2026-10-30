@@ -51,6 +51,20 @@ This works as on Linux (see step 8 of the [install guide](install.md)), with the
 - CUDA builds need the CUDA runtime. notus-swap downloads it too and puts its files in the build's folder.
 - llama-swap's `config.yaml` starts models from `current`, such as `C:/llama.cpp/current/llama-server.exe`.
 
+## Show this server on another notus-swap
+
+Another notus-swap can show this one, added on its Settings page under Servers. That server calls this one's port directly, so Windows Firewall must let it in. In PowerShell as administrator, with the other server's address:
+
+```powershell
+New-NetFirewallRule -DisplayName "notus-swap" -Direction Inbound -Protocol TCP -LocalPort 8080 -RemoteAddress 192.168.1.10 -Action Allow
+```
+
+Limiting the rule to that one address means only that server can reach this one. Everyone else reaches it through that server.
+
+Give this computer an address that doesn't change, such as a DHCP reservation on your router or a name in your local DNS. If the address does change, edit it under Servers on the other server.
+
+A computer that sleeps shows as "Asleep or off" on the other server, and its pages come back by themselves once it wakes.
+
 ## Settings for this setup
 
 | Flag | Env variable | Default | What it does |

@@ -9,6 +9,10 @@
   import { status } from '../lib/status.svelte'
   import DefaultModel from '../lib/system/DefaultModel.svelte'
   import Manage from '../lib/system/Manage.svelte'
+  import Servers from '../lib/system/Servers.svelte'
+  import ServerPicker from '../lib/ServerPicker.svelte'
+  import ServerAsleep from '../lib/ServerAsleep.svelte'
+  import { pageServer, reachable, serverName, servers } from '../lib/servers.svelte'
   import { theme, themes } from '../lib/theme.svelte'
 
   let seen = $state<string[]>([])
@@ -16,6 +20,14 @@
     status.start()
     // Models from past requests, including ones no longer in llama-swap's config.
     listRequests({}, undefined, 1).then((r) => (seen = r.models ?? []), () => {})
+    servers.load()
+  })
+
+  // The server that Updates, Services, Request text and Default model act
+  // on. '' is this server. Choosing another server reloads the page.
+  let server = $state<string | null>(null)
+  $effect(() => {
+    if (server === null && servers.ready) server = pageServer()
   })
 
   const known = $derived(status.current?.llama_swap.known ?? [])
@@ -33,6 +45,7 @@
     ['services', 'Services'],
     ['storage', 'Request text'],
     ['default-model', 'Default model'],
+    ['servers', 'Servers'],
     ['app-title', 'App title'],
     ['theme', 'Theme'],
     ['model-labels', 'Model labels'],
@@ -70,9 +83,24 @@
     {#each sections as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
   </nav>
 
-  <Manage />
+  {#if servers.many}
+    <div class="mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-muted">
+      <ServerPicker current={server ?? ''} />
+      <span>Updates, services, request text and the default model below are for {serverName(server ? servers.get(server) : servers.list.find((s) => s.self))}.</span>
+    </div>
+  {/if}
 
-  <DefaultModel />
+  {#if server && !reachable(servers.get(server))}
+    <ServerAsleep server={servers.get(server)} />
+  {:else if server !== null}
+    {#key server}
+      <Manage {server} />
+
+      <DefaultModel {server} />
+    {/key}
+  {/if}
+
+  <Servers />
 
   <section id="app-title" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">App title</h2>

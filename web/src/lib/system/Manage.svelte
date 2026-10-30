@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
   import { bytes, when } from '../format'
+  import { api } from '../servers.svelte'
   import LlamaUpdates from './LlamaUpdates.svelte'
   import Changelog from './Changelog.svelte'
+
+  /** The server these sections act on. '' is this server. */
+  let { server = '' }: { server?: string } = $props()
 
   interface Release {
     tag: string
@@ -43,7 +47,7 @@
 
   async function load() {
     try {
-      const res = await fetch('/notus/api/system')
+      const res = await fetch(api(server, '/notus/api/system'))
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
       info = await res.json()
       days = info!.retention.days
@@ -66,7 +70,7 @@
   let destroyed = false
   async function loadService() {
     try {
-      const res = await fetch('/notus/api/service/llama-swap', { cache: 'no-store' })
+      const res = await fetch(api(server, '/notus/api/service/llama-swap'), { cache: 'no-store' })
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
       const body = await res.json()
       if (destroyed) return
@@ -121,7 +125,7 @@
     let until = Date.now() + 90_000
     while (Date.now() < until) {
       try {
-        const h = await (await fetch('/notus/api/health', { cache: 'no-store' })).json()
+        const h = await (await fetch(api(server, '/notus/api/health'), { cache: 'no-store' })).json()
         if (cancelled) return
         if (h.restarting) {
           waiting = h.restarting
@@ -177,7 +181,7 @@
   }
 
   async function post(url: string, body?: unknown) {
-    const res = await fetch(url, { method: 'POST', body: body ? JSON.stringify(body) : undefined })
+    const res = await fetch(api(server, url), { method: 'POST', body: body ? JSON.stringify(body) : undefined })
     if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
     return res.status === 204 || res.status === 202 ? null : res.json()
   }
@@ -241,7 +245,7 @@
   const retentionDirty = $derived(!!info && (days !== info.retention.days || gb !== info.retention.gb))
   async function saveRetention() {
     const value = { days: Math.max(1, Math.round(days)), gb: Math.max(1, Math.round(gb)) }
-    await fetch('/notus/api/settings/retention', { method: 'PUT', body: JSON.stringify(value) })
+    await fetch(api(server, '/notus/api/settings/retention'), { method: 'PUT', body: JSON.stringify(value) })
     info!.retention = value
     savedRetention = true
     setTimeout(() => {
@@ -353,7 +357,7 @@
   {/if}
 </section>
 
-<LlamaUpdates />
+<LlamaUpdates {server} />
 
 <section id="services" class={section}>
   <h2 class="text-sm font-semibold">Services</h2>

@@ -3,7 +3,14 @@
   import { duration } from '../format'
   import { modelLabel } from '../modelNames.svelte'
   import { privacy } from '../privacy.svelte'
+  import { api, RemoteStatus } from '../servers.svelte'
   import { status } from '../status.svelte'
+
+  /** The server this section acts on. '' is this server. */
+  let { server = '' }: { server?: string } = $props()
+  // svelte-ignore state_referenced_locally
+  const remote = server ? new RemoteStatus(server, () => privacy.showHidden) : null
+  onMount(() => remote?.start())
 
   interface State {
     enabled: boolean
@@ -25,7 +32,7 @@
 
   async function load(fill = false) {
     try {
-      const res = await fetch('/notus/api/default-model')
+      const res = await fetch(api(server, '/notus/api/default-model'))
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
       saved = await res.json()
       error = ''
@@ -50,7 +57,7 @@
   async function save() {
     busy = true
     try {
-      const res = await fetch('/notus/api/default-model', {
+      const res = await fetch(api(server, '/notus/api/default-model'), {
         method: 'PUT',
         body: JSON.stringify({ enabled, model, minutes: Math.round(minutes) }),
       })
@@ -66,13 +73,14 @@
   }
 
   // Keep the selected model available even when hidden; label() masks its name.
+  const visible = (m: string) => (remote ? remote.visible(m) : privacy.visible(m))
   const choices = $derived(
-    (status.current?.llama_swap.known ?? [])
+    ((remote ? remote.current : status.current)?.llama_swap.known ?? [])
       .map((m) => m.model)
-      .filter((m) => privacy.visible(m) || m === model)
+      .filter((m) => visible(m) || m === model)
       .sort(),
   )
-  const label = (m: string) => (privacy.visible(m) ? modelLabel(m) : 'a hidden model')
+  const label = (m: string) => (!visible(m) ? 'a hidden model' : remote ? remote.label(m) : modelLabel(m))
 
   const ttl = $derived(saved?.ttls?.[model] ?? 0)
   const left = $derived(saved?.loads_at ? Math.max(0, saved.loads_at - now) : 0)

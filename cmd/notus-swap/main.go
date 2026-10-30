@@ -31,6 +31,7 @@ import (
 	"github.com/wispborne/notus-swap/internal/llamaupdate"
 	"github.com/wispborne/notus-swap/internal/logbuf"
 	"github.com/wispborne/notus-swap/internal/metrics"
+	"github.com/wispborne/notus-swap/internal/peers"
 	"github.com/wispborne/notus-swap/internal/proxy"
 	"github.com/wispborne/notus-swap/internal/rapl"
 	"github.com/wispborne/notus-swap/internal/restart"
@@ -268,13 +269,19 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	}
 	go monitor.Run(ctx, 2*time.Second)
 
+	servers, err := peers.Open(ctx, st, log)
+	if err != nil {
+		return false, err
+	}
+	go servers.Run(ctx)
+
 	pruneNow := make(chan struct{}, 1)
 	plan := restart.New(hub.Idle)
 	a := &api.API{
 		Store: st, Hub: hub, LlamaSwap: monitor, Metrics: rec, Config: cfg,
 		ConfigHeld: &llamaconfig.Held{Editor: cfg, Wait: &idlewait.Waiter{Idle: hub.Idle}, Log: log}, Upstream: up, Log: log, Version: version,
 		Updater: updater, LlamaUpdates: llamaUpdates, Logs: logs, Restart: plan, RetentionDefault: keep, AutoLoad: loader,
-		LlamaSwapService: svc, SelfRestart: selfRestart(), ReadOnly: ro, Flags: flags,
+		LlamaSwapService: svc, SelfRestart: selfRestart(), ReadOnly: ro, Flags: flags, Peers: servers,
 		PruneNow: func() {
 			select {
 			case pruneNow <- struct{}{}:
