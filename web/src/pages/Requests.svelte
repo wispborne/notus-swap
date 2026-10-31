@@ -106,6 +106,11 @@
   const more = $derived(Object.values(cursors).some((c) => c.more))
   const cutoff = $derived(Math.max(-Infinity, ...Object.values(cursors).filter((c) => c.more).map((c) => c.oldest)))
 
+  // A filter dropdown is as wide as the value it shows, up to a limit, and
+  // has a coloured border and brighter text while it filters ('' is no filter).
+  const filterCls = (v: string) =>
+    `field-sizing-content max-w-[16rem] truncate rounded-md border bg-panel2 px-2 py-1 ${v ? 'border-primary/60 text-text' : 'border-line text-muted hover:text-text'}`
+
   // In-flight requests first, then newest first.
   const visibleRows = $derived(rows.filter((r) => (r.state === 'in_flight' || r.started_at >= cutoff) && modelView(r.server).visible(r.model)))
   const shown = $derived([...visibleRows.filter((r) => r.state === 'in_flight'), ...visibleRows.filter((r) => r.state !== 'in_flight')])
@@ -686,14 +691,16 @@
   {/if}
 {/snippet}
 
-<div class="mb-3 flex flex-wrap items-center gap-3">
-  <h1 class="text-[17px] font-semibold">Requests</h1>
+<!-- Each filter is as wide as the value it shows, not its longest choice, and
+     stands out while it filters. -->
+<div class="mb-3 flex flex-wrap items-center gap-2">
+  <h1 class="mr-1 text-[17px] font-semibold">Requests</h1>
   <input
-    class="w-52 rounded-md border border-line bg-panel2 px-2 py-1 outline-none focus:border-primary"
+    class="w-48 rounded-md border bg-panel2 px-2 py-1 outline-none focus:border-primary {q.trim() ? 'border-primary/60' : 'border-line'}"
     placeholder="Search prompts and models"
     bind:value={q}
   />
-  <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={model}>
+  <select class={filterCls(model)} bind:value={model} title="Which model's requests to list">
     <option value="">All models</option>
     {#each visibleModels.config as m}<option value={m.id}>{m.label}</option>{/each}
     {#if visibleModels.old.length}
@@ -703,15 +710,15 @@
     {/if}
   </select>
   {#if servers.many}
-    <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={serverFilter} title="Which server's requests to list">
+    <select class={filterCls(serverFilter)} bind:value={serverFilter} title="Which server's requests to list">
       <option value="">All servers</option>
       {#each servers.list as s (s.id)}<option value={s.id}>{serverName(s)}</option>{/each}
     </select>
   {/if}
-  <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={range} title="How far back to list requests">
+  <select class={filterCls(range)} bind:value={range} title="How far back to list requests">
     {#each ranges as [v, label]}<option value={v}>{label}</option>{/each}
   </select>
-  <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={issue} title="Problems found in the output">
+  <select class={filterCls(issue)} bind:value={issue} title="Problems found in the output">
     <option value="">All requests</option>
     <option value="any">Any issue</option>
     {#each issueKinds as [k, label]}<option value={k}>{label}</option>{/each}
