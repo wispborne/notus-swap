@@ -25,7 +25,9 @@
     if (server === null && servers.ready) server = pageServer()
   })
 
-  // Links to each section, since the page is long.
+  // Links to each section, since the page is long. The first perServer
+  // belong to the server the picker chose.
+  const perServer = 4
   const sections = [
     ['updates', 'Updates'],
     ['services', 'Services'],
@@ -54,25 +56,45 @@
 
 <div class="max-w-[760px]">
   <h1 class="mb-1.5 text-[17px] font-semibold">Settings</h1>
-  <nav class="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px]" aria-label="Sections">
-    {#each sections as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
+  <!-- With other servers, the links to the sections the server picker acts
+       on share the frame's tint. -->
+  <nav class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]" aria-label="Sections">
+    {#if servers.many}
+      <span class="-mx-1 flex flex-wrap gap-x-3 rounded-md border border-primary/35 bg-primary/8 px-2 py-0.5">
+        {#each sections.slice(0, perServer) as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
+      </span>
+      {#each sections.slice(perServer) as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
+    {:else}
+      {#each sections as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
+    {/if}
   </nav>
 
+  <!-- The sections that belong to one server. With other servers, they sit in
+       one tinted frame whose header is the server picker, kept in view while
+       they scroll past. -->
+  {#snippet perServerSections()}
+    {#if server && !reachable(servers.get(server))}
+      <ServerAsleep server={servers.get(server)} />
+    {:else if server !== null}
+      {#key server}
+        <Manage {server} />
+
+        <DefaultModel {server} />
+      {/key}
+    {/if}
+  {/snippet}
   {#if servers.many}
-    <div class="mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-muted">
-      <ServerPicker current={server ?? ''} />
-      <span>Updates, services, request text and the default model below are for {serverName(server ? servers.get(server) : servers.list.find((s) => s.self))}.</span>
+    <div class="mb-4 rounded-xl border border-primary/35 bg-primary/4">
+      <div class="sticky top-(--bar-h) z-10 rounded-t-xl border-b border-primary/35 bg-[color-mix(in_srgb,var(--color-primary)_10%,var(--color-surface))] px-3 py-2">
+        <ServerPicker current={server ?? ''} />
+      </div>
+      <!-- A section jumped to from the links clears the sticky header too. -->
+      <div class="px-3 pt-3 pb-px [&_section]:scroll-mt-[calc(var(--bar-h)_+_58px)]">
+        {@render perServerSections()}
+      </div>
     </div>
-  {/if}
-
-  {#if server && !reachable(servers.get(server))}
-    <ServerAsleep server={servers.get(server)} />
-  {:else if server !== null}
-    {#key server}
-      <Manage {server} />
-
-      <DefaultModel {server} />
-    {/key}
+  {:else}
+    {@render perServerSections()}
   {/if}
 
   <Servers />
