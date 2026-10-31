@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/wispborne/notus-swap/internal/autoload"
+	"github.com/wispborne/notus-swap/internal/awake"
 	"github.com/wispborne/notus-swap/internal/capture"
 	"github.com/wispborne/notus-swap/internal/compress"
 	"github.com/wispborne/notus-swap/internal/llamaconfig"
@@ -54,6 +55,8 @@ type API struct {
 	SelfRestart string
 	// AutoLoad loads the default model after a while with nothing loaded.
 	AutoLoad *autoload.Loader
+	// Awake keeps the computer from sleeping while requests are in flight.
+	Awake *awake.Keeper
 	// Upstream is llama-swap's base URL, for loading and unloading models.
 	Upstream *url.URL
 	Log      *slog.Logger
@@ -97,6 +100,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerLlamaUpdates(r)
 	a.registerModels(r)
 	a.registerAutoLoad(r)
+	a.registerKeepAwake(r)
 	a.registerDebug(r)
 	a.registerPeers(r)
 	m := a.mcpHandler()

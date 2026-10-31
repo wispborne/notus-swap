@@ -5,6 +5,7 @@
   import { privacy } from '../lib/privacy.svelte'
   import { status } from '../lib/status.svelte'
   import DefaultModel from '../lib/system/DefaultModel.svelte'
+  import KeepAwake from '../lib/system/KeepAwake.svelte'
   import Manage from '../lib/system/Manage.svelte'
   import ServerModels from '../lib/system/ServerModels.svelte'
   import Servers from '../lib/system/Servers.svelte'
@@ -18,8 +19,8 @@
     servers.load()
   })
 
-  // The server that Updates, Services, Request text and Default model act
-  // on. '' is this server. Choosing another server reloads the page.
+  // The server that Updates, Services, Request text, Default model and Keep
+  // awake act on. '' is this server. Choosing another server reloads the page.
   let server = $state<string | null>(null)
   $effect(() => {
     if (server === null && servers.ready) server = pageServer()
@@ -27,12 +28,13 @@
 
   // Links to each section, since the page is long. The first perServer
   // belong to the server the picker chose.
-  const perServer = 4
+  const perServer = 5
   const sections = [
     ['updates', 'Updates'],
     ['services', 'Services'],
     ['storage', 'Request text'],
     ['default-model', 'Default model'],
+    ['keep-awake', 'Keep awake'],
     ['servers', 'Servers'],
     ['app-title', 'App title'],
     ['theme', 'Theme'],
@@ -80,6 +82,8 @@
         <Manage {server} />
 
         <DefaultModel {server} />
+
+        <KeepAwake {server} />
       {/key}
     {/if}
   {/snippet}

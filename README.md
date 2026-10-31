@@ -37,6 +37,7 @@ It was built for one Linux machine with AMD Radeon GPUs, but nothing in it is ti
 - **Model Config.** A YAML editor for llama-swap's `config.yaml`. It checks the file as you type, using the installed llama-swap's own `-validate`. It shows a diff before saving and keeps the last 20 backups.
 - **Settings.** Start, stop, or restart llama-swap, or restart notus-swap. Update notus-swap, llama-swap, or llama.cpp, or roll any of them back. Set how long request bodies are kept.
 - **Default model.** When llama-swap has had no model loaded for a set number of minutes (15 by default), notus-swap loads the model you choose. The next request then doesn't wait for a load.
+- **Keep awake (Windows).** While notus-swap is answering a request, Windows doesn't go to sleep. It can sleep again 5 seconds after the last request ends, and the screen can still turn off. Requests from other computers don't count as activity, so without this a sleeping PC could cut off an answer. It is off by default. Turn it on in the Settings page, under Keep awake.
 - **Hidden models.** Hide chosen model names everywhere in the UI, for taking screenshots. Hidden models are still recorded.
 - **Status bar.** Shows whether llama-swap is up, how many requests are running, VRAM and RAM in use, GPU watts, an estimate of the whole machine's watts, and which models are loaded. Its items can be reordered or hidden.
 

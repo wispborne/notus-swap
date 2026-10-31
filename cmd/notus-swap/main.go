@@ -23,6 +23,7 @@ import (
 
 	"github.com/wispborne/notus-swap/internal/api"
 	"github.com/wispborne/notus-swap/internal/autoload"
+	"github.com/wispborne/notus-swap/internal/awake"
 	"github.com/wispborne/notus-swap/internal/capture"
 	"github.com/wispborne/notus-swap/internal/gpu"
 	"github.com/wispborne/notus-swap/internal/idlewait"
@@ -289,7 +290,12 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 			}
 		},
 	}
-	a.Capture = capture.Handler(st, hub, proxy.New(up, log), log)
+	// Keeps the computer awake while requests are in flight (Windows only).
+	// Retries go through a.Capture, so they count too.
+	keeper := awake.New(5*time.Second, log)
+	keeper.SetEnabled(a.KeepAwakeSetting(ctx))
+	a.Awake = keeper
+	a.Capture = keeper.Wrap(capture.Handler(st, hub, proxy.New(up, log), log))
 	loader.Read = func() autoload.Setting { return a.DefaultModelSetting(ctx) }
 	loader.Load = a.LoadModel
 	go loader.Run(ctx)

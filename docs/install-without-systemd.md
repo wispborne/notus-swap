@@ -65,6 +65,20 @@ Give this computer an address that doesn't change, such as a DHCP reservation on
 
 A computer that sleeps shows as "Asleep or off" on the other server, and its pages come back by themselves once it wakes.
 
+## Sleep on Windows
+
+Windows doesn't count a request from another computer as activity, so it can go to sleep in the middle of one. notus-swap stops that: while a request is in flight, it asks Windows to stay awake (`SetThreadExecutionState` with `ES_SYSTEM_REQUIRED`). Once no request has been in flight for 5 seconds, it lets Windows sleep again as usual. The screen can still turn off. notus-swap logs one line when it starts keeping the computer awake and one when it stops.
+
+Only requests that aren't GET or HEAD count, such as inference calls. Pages and log streams left open in a browser don't keep the computer awake.
+
+It is off by default. Turn it on in the Settings page, under Keep awake. To check it, run this in PowerShell as administrator while a request is running. notus-swap should be listed under SYSTEM, and gone once the request ends:
+
+```powershell
+powercfg /requests
+```
+
+Waking a computer that is already asleep is not part of this. A request sent to a sleeping computer gets no answer.
+
 ## Settings for this setup
 
 | Flag | Env variable | Default | What it does |
