@@ -27,7 +27,7 @@
         aria-checked={on}
         disabled={!on && !reachable(s)}
         title={s.self ? 'This server' : `${stateWords(s)}${s.url ? ` · ${s.url}` : ''}`}
-        class="flex items-center gap-1.5 rounded-md border bg-panel2 px-2 py-0.5 disabled:opacity-50 {on ? 'border-primary text-text' : 'border-line text-muted hover:border-dim hover:text-text disabled:hover:border-line disabled:hover:text-muted'}"
+        class="flex items-center gap-1.5 rounded-md border bg-panel2 px-2 py-[2px] leading-[18px] disabled:opacity-50 {on ? 'border-primary text-text' : 'border-line text-muted hover:border-dim hover:text-text disabled:hover:border-line disabled:hover:text-muted'}"
         onclick={() => !on && showServer(s.id)}
       >
         <span class="size-2 flex-none rounded-full {dot[s.state] ?? 'bg-dim'}"></span>

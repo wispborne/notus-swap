@@ -60,7 +60,7 @@
        on share the frame's tint. -->
   <nav class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]" aria-label="Sections">
     {#if servers.many}
-      <span class="-mx-1 flex flex-wrap gap-x-3 rounded-md border border-primary/35 bg-primary/8 px-2 py-0.5">
+      <span class="-ml-[9px] flex flex-wrap gap-x-3 rounded-md border border-primary/35 bg-primary/8 px-[8px] py-[2px]">
         {#each sections.slice(0, perServer) as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
       </span>
       {#each sections.slice(perServer) as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
@@ -84,12 +84,12 @@
     {/if}
   {/snippet}
   {#if servers.many}
-    <div class="mb-4 rounded-xl border border-primary/35 bg-primary/4">
-      <div class="sticky top-(--bar-h) z-10 rounded-t-xl border-b border-primary/35 bg-[color-mix(in_srgb,var(--color-primary)_10%,var(--color-surface))] px-3 py-2">
+    <div class="-mx-[9px] mb-4 rounded-xl border border-primary/35 bg-primary/4">
+      <div class="sticky top-(--bar-h) z-10 rounded-t-xl border-b border-primary/35 bg-[color-mix(in_srgb,var(--color-primary)_10%,var(--color-surface))] px-[8px] py-[8px]">
         <ServerPicker current={server ?? ''} />
       </div>
-      <!-- A section jumped to from the links clears the sticky header too. -->
-      <div class="px-3 pt-3 pb-px [&_section]:scroll-mt-[calc(var(--bar-h)_+_58px)]">
+      <!-- A section jumped to from the links lands 8 px under the sticky header (41 px). -->
+      <div class="px-[8px] pt-[8px] [&>:last-child]:mb-[8px] [&_section]:scroll-mt-[calc(var(--bar-h)_+_49px)]">
         {@render perServerSections()}
       </div>
     </div>
