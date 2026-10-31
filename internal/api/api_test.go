@@ -173,6 +173,17 @@ func TestLiveFeedListAndDetail(t *testing.T) {
 	if len(dash.Requests) != 1 || dash.Requests[0].Model != "qwen" || dash.BucketS < 1 {
 		t.Errorf("dashboard: %+v", dash)
 	}
+	// from and to replace the range, so another server can ask for the same
+	// span. A span that ended before the request leaves it out.
+	var span api.Dashboard
+	getJSON(t, fmt.Sprintf("%s/notus/api/dashboard?from=%d&to=%d", srv.URL, dash.From, dash.To), &span)
+	if span.From != dash.From || span.To != dash.To || span.BucketS != dash.BucketS || len(span.Requests) != 1 {
+		t.Errorf("same span: %d-%d, %d s buckets, %d requests", span.From, span.To, span.BucketS, len(span.Requests))
+	}
+	getJSON(t, fmt.Sprintf("%s/notus/api/dashboard?from=%d&to=%d", srv.URL, dash.From-7_200_000, dash.From-3_600_000), &span)
+	if len(span.Requests) != 0 {
+		t.Errorf("an earlier span listed %d requests", len(span.Requests))
+	}
 	// Sent gzipped when the client accepts it. Setting the header by hand
 	// stops Go's client from unzipping the answer itself.
 	for _, path := range []string{"/notus/api/dashboard?range=15m", "/notus/api/requests"} {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/wispborne/notus-swap/internal/gpu"
@@ -138,6 +139,14 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		span = max(now.Sub(first), 15*time.Minute)
 	}
 	from := now.Add(-span)
+	// from and to (unix ms) replace the range, so another server's page can
+	// ask for the same span as its own and the buckets line up.
+	q := r.URL.Query()
+	if f, err := strconv.ParseInt(q.Get("from"), 10, 64); err == nil {
+		if t, err := strconv.ParseInt(q.Get("to"), 10, 64); err == nil && t > f {
+			from, now, span = time.UnixMilli(f), time.UnixMilli(t), time.UnixMilli(t).Sub(time.UnixMilli(f))
+		}
+	}
 	d := Dashboard{From: from.UnixMilli(), To: now.UnixMilli(), Cards: []Card{}}
 
 	var err error

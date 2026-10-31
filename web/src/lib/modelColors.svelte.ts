@@ -22,6 +22,7 @@
 // Every function here takes a model ID or an alias; an alias gets its
 // model's colour and shape.
 import { modelId } from './modelIds.svelte'
+import { peerMarksKey, peerModel } from './peerModels'
 
 export const palette = [
   '#40d7a3', '#b69cff', '#f0b85a', '#5b8cff', '#ff7a9a', '#18ffff', '#e95cf0', '#c4e36b', '#ff5a36',
@@ -68,7 +69,8 @@ export function setModelMarks(next: Record<string, Mark>) {
 
 /** A model's shape. Circle unless one was chosen. */
 export function modelShape(model: string): Shape {
-  const s = marks[modelId(model)]?.shape
+  const p = peerModel(model)
+  const s = p ? p.view.shape(p.model) : marks[modelId(model)]?.shape
   return s && s in shapes ? s : 'circle'
 }
 
@@ -82,7 +84,7 @@ export const customColor = (model: string) => marks[modelId(model)]?.color
  * Changes for every change to any colour or shape. Charts read it with `void`
  * so they are rebuilt with the new look.
  */
-export const marksKey = () => JSON.stringify(stored) + JSON.stringify(marks)
+export const marksKey = () => JSON.stringify(stored) + JSON.stringify(marks) + peerMarksKey()
 
 /**
  * Saves a model's colour and shape on the server. `palette` picks a palette
@@ -114,12 +116,20 @@ export function setModelColors(colors: Record<string, number>) {
   stored = colors
 }
 
-export function modelColor(model: string) {
-  model = modelId(model)
-  const own = marks[model]?.color
+/** A model ID's own colour, or else the palette colour the server gave it. */
+function ownOrStored(id: string) {
+  const own = marks[id]?.color
   if (own) return own
-  const i = stored[model]
-  if (i !== undefined) return palette[i % palette.length]
+  const i = stored[id]
+  return i !== undefined ? palette[i % palette.length] : undefined
+}
+
+export function modelColor(model: string) {
+  // Another server's model (peerModels.ts) has the colour it has there.
+  const p = peerModel(model)
+  if (p) model = p.model
+  const color = p ? p.view.color(model) : ownOrStored((model = modelId(model)))
+  if (color) return color
   let h = 0
   for (const c of model) h = (h * 31 + c.charCodeAt(0)) >>> 0
   return palette[h % autoColors]

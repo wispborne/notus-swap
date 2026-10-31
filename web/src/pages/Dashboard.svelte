@@ -4,7 +4,25 @@
   import { onMount, tick, untrack } from 'svelte'
   import { duration, num, pct, when } from '../lib/format'
   import { C } from '../lib/dashboard/charts'
-  import { byModelId, cacheRate, fetchDashboard, fetchLayout, median, modelStats, RANGES, savedRange, ttftOf, type DashboardData, type Range } from '../lib/dashboard/data'
+  import {
+    byModelId,
+    cacheRate,
+    fetchDashboard,
+    fetchLayout,
+    fetchPeerDashboard,
+    median,
+    mergeDashboards,
+    modelStats,
+    RANGES,
+    savedRange,
+    ttftOf,
+    type DashboardData,
+    type PeerData,
+    type Range,
+  } from '../lib/dashboard/data'
+  import { appTitle } from '../lib/appTitle.svelte'
+  import { qualify } from '../lib/peerModels'
+  import { peerStatus, reachable, serverName, servers } from '../lib/servers.svelte'
   import Gauge from '../lib/dashboard/Gauge.svelte'
   import Lists from '../lib/dashboard/Lists.svelte'
   import { splitShared } from '../lib/dashboard/shortNames'
@@ -118,9 +136,21 @@
     void range
     untrack(() => zoom.reset())
   })
+  // This server's data, then every other server that answers over the same
+  // span, merged into one (mergeDashboards). A server that fails is left out.
   async function refresh() {
     try {
-      raw = await fetchDashboard(range)
+      const home = await fetchDashboard(range)
+      const peers = servers.many ? servers.list.filter((s) => !s.self && reachable(s)) : []
+      const others = await Promise.all(
+        peers.map((s) =>
+          fetchPeerDashboard(s.id, home.from, home.to).then(
+            (data): PeerData => ({ server: s.id, name: serverName(s), data }),
+            () => null,
+          ),
+        ),
+      )
+      raw = mergeDashboards(home, appTitle.text, others.filter((o) => o !== null))
       error = ''
     } catch (e) {
       error = String(e)
@@ -258,15 +288,42 @@
 
   // ---- Numbers for the gauges and tiles ----
   const st = $derived(status.current)
-  const cards = $derived((st?.gpus ?? []).filter((g) => !g.integrated))
+  // Every server that answers, with its latest status. With other servers,
+  // each card is named by its server, and the numbers cover them all.
+  const machines = $derived(
+    servers.many
+      ? servers.list.filter((s) => s.self || reachable(s)).map((s) => ({ name: serverName(s), st: s.self ? status.current : (peerStatus.get(s.id)?.current ?? null) }))
+      : [{ name: '', st: status.current }],
+  )
+  const gpus = $derived(machines.flatMap((m) => (m.st?.gpus ?? []).map((g) => (m.name ? { ...g, card: `${m.name} ${g.card}` } : g))))
+  const cards = $derived(gpus.filter((g) => !g.integrated))
   // The power gauge counts every card, built-in graphics included, like the status bar.
-  const allCards = $derived((st?.gpus ?? []).filter((g) => !isSocketSensor(g)))
+  const allCards = $derived(gpus.filter((g) => !isSocketSensor(g)))
   const powerMax = $derived(allCards.reduce((s, g) => s + (g.power_cap_watts ?? (g.integrated ? 0 : 300)), 0) || 300)
   const powerDetail = $derived(allCards.length > 1 ? allCards.map((g) => `${g.card}${g.integrated ? ' (built-in)' : ''}: ${Math.round(g.watts ?? 0)} W`).join('\n') : '')
   const vramUsed = $derived(cards.reduce((s, g) => s + (g.vram_used ?? 0), 0) / 1024 ** 3)
   const vramTotal = $derived(cards.reduce((s, g) => s + (g.vram_total ?? 0), 0) / 1024 ** 3)
-  const ramUsed = $derived(st?.ram_used == null ? null : st.ram_used / 1024 ** 3)
-  const ramTotal = $derived(st?.ram_total == null ? 0 : st.ram_total / 1024 ** 3)
+  const withRam = $derived(machines.filter((m) => m.st?.ram_used != null && m.st.ram_total))
+  const ramUsed = $derived(withRam.length ? withRam.reduce((s, m) => s + m.st!.ram_used!, 0) / 1024 ** 3 : null)
+  const ramTotal = $derived(withRam.reduce((s, m) => s + m.st!.ram_total!, 0) / 1024 ** 3)
+  const ramDetail = $derived(
+    withRam.length > 1
+      ? withRam.map((m) => `${m.name}: ${(m.st!.ram_used! / 1024 ** 3).toFixed(1)} of ${(m.st!.ram_total! / 1024 ** 3).toFixed(1)} GB`).join('\n')
+      : 'Available RAM includes reclaimable cache',
+  )
+  const totalWatts = $derived.by(() => {
+    const w = machines.map((m) => m.st?.total_watts).filter((v): v is number => v != null)
+    return w.length ? w.reduce((a, b) => a + b, 0) : null
+  })
+  // Every server's models for the models table. Another server's are named
+  // "@<id>:<model>" (peerModels.ts), as in the merged data.
+  const knownModels = $derived(
+    servers.many
+      ? servers.list
+          .filter((s) => s.self || reachable(s))
+          .flatMap((s) => (s.self ? (status.current?.llama_swap.known ?? []) : (peerStatus.get(s.id)?.current?.llama_swap.known ?? []).map((m) => ({ ...m, model: qualify(s.id, m.model) }))))
+      : (st?.llama_swap.known ?? []),
+  )
   const temp = $derived(cards.length ? Math.max(...cards.map((g) => g.temp_c ?? 0)) : null)
   const perCard = (f: (g: (typeof cards)[number]) => string) => (cards.length > 1 ? cards.map((g) => `${g.card}: ${f(g)}`).join('\n') : '')
 
@@ -298,7 +355,7 @@
       C.power,
       powerParts,
       gpuMode('g_power') === 'combined' || powerParts.length < 2
-        ? { value: st?.total_watts ?? null, max: powerMax }
+        ? { value: totalWatts, max: powerMax }
         : { value: powerParts.reduce((s, p) => s + p.value, 0), max: powerParts.reduce((s, p) => s + p.max, 0) },
       (p) => p.value,
     ),
@@ -412,7 +469,7 @@
           {:else if it.id === 'g_vram'}
             <Gauge value={vram.value} max={vram.max} unit="GB" label={withCard('VRAM used', vram.card)} color={C.vram} segments={vram.segments} layers={vram.layers} detail={perCard((g) => `${((g.vram_used ?? 0) / GB).toFixed(1)} GB`)} />
           {:else if it.id === 'g_ram'}
-            <Gauge value={ramUsed} max={ramTotal} unit="GB" label="RAM in use" color={C.ram} detail="Available RAM includes reclaimable cache" warnAt={ramTotal * 0.85} dangerAt={ramTotal * 0.95} warnNote="nearly full" />
+            <Gauge value={ramUsed} max={ramTotal} unit="GB" label="RAM in use" color={C.ram} detail={ramDetail} warnAt={ramTotal * 0.85} dangerAt={ramTotal * 0.95} warnNote="nearly full" />
           {:else if it.id === 'g_temp'}
             <Gauge value={gpuTemp.value} max={110} unit="°C" label={cards.length > 1 ? withCard('hottest GPU', gpuTemp.card) : 'GPU hotspot'} color={C.primary} segments={gpuTemp.segments} layers={gpuTemp.layers} detail={perCard((g) => `${Math.round(g.temp_c ?? 0)} °C`)} warnAt={90} dangerAt={100} />
           {:else if it.id === 't_energy'}
@@ -464,7 +521,7 @@
           {:else if it.id === 'energy'}
             <Lists kind="energy" {data} />
           {:else if it.id === 'models'}
-            <ModelsTable {data} known={(st?.llama_swap.known ?? []).filter((m) => privacy.visible(m.model))} />
+            <ModelsTable {data} known={knownModels.filter((m) => privacy.visible(m.model))} />
           {:else if it.id === 'gen'}
             <ModelScatter {data} legend={legendMode(it.id)} value={(r) => r.predicted_per_second} format={(v) => v.toFixed(1)} unit=" tok/s" />
           {:else if it.id === 'pp'}

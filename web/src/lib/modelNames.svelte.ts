@@ -4,10 +4,12 @@
 // Every page shows models by name or by ID, as picked on the Settings page
 // and saved per browser (`model_labels`). Tooltips show both.
 
+import { peerModel } from './peerModels'
 import { status, type RunningModel } from './status.svelte'
 
 /** The config entry for a model ID or alias, if llama-swap knows it. */
 export function knownModel(model: string): RunningModel | undefined {
+  if (peerModel(model)) return undefined
   const known = status.current?.llama_swap.known ?? []
   return known.find((m) => m.model === model) ?? known.find((m) => m.aliases?.includes(model))
 }
@@ -51,6 +53,9 @@ export const modelShow = new ModelShowChoice()
 /** What to show for a model: its name (or its ID when it has none), or its ID. */
 export function modelLabel(model: string, show: ModelShow = modelShow.show): string {
   if (!model) return ''
+  // Another server's model (peerModels.ts) is named with its server.
+  const p = peerModel(model)
+  if (p) return `${p.view.label(p.model)} (${p.view.serverName})`
   const k = knownModel(model)
   if (!k) return model
   return show === 'name' ? k.name || k.model : k.model
@@ -58,6 +63,7 @@ export function modelLabel(model: string, show: ModelShow = modelShow.show): str
 
 /** What to show for a request's model: the alias when the client sent one, or else `modelLabel`. */
 export function requestedLabel(model: string): string {
+  if (peerModel(model)) return modelLabel(model)
   const k = model ? knownModel(model) : undefined
   return k && k.model !== model ? model : modelLabel(model)
 }
@@ -65,6 +71,8 @@ export function requestedLabel(model: string): string {
 /** A tooltip with the model's name, ID, and the alias the request used. */
 export function modelTitle(model: string): string | undefined {
   if (!model) return undefined
+  const p = peerModel(model)
+  if (p) return [p.view.title(p.model), `Server: ${p.view.serverName}`].filter(Boolean).join('\n')
   const k = knownModel(model)
   if (!k) return `ID: ${model}`
   const lines: string[] = []

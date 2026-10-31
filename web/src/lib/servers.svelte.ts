@@ -7,6 +7,7 @@ import { appTitle } from './appTitle.svelte'
 import { palette, type Shape } from './modelColors.svelte'
 import { modelId } from './modelIds.svelte'
 import { modelLabel, modelShow, modelTitle, requestedLabel } from './modelNames.svelte'
+import { setPeerLookup } from './peerModels'
 import { privacy } from './privacy.svelte'
 import type { RunningModel, Status } from './status.svelte'
 
@@ -275,3 +276,17 @@ export function modelView(server: string | undefined): ModelView {
     id: (m) => r?.id(m) ?? m,
   }
 }
+
+// Another server's models in the Dashboard's merged data (peerModels.ts) are
+// looked up here.
+setPeerLookup(
+  (server) => ({ ...modelView(server), serverName: serverName(servers.get(server)) }),
+  () =>
+    servers.list
+      .filter((s) => !s.self)
+      .map((s) => {
+        const c = peerStatus.get(s.id)?.current
+        return JSON.stringify(c?.model_colors ?? {}) + JSON.stringify(c?.model_marks ?? {})
+      })
+      .join('|'),
+)

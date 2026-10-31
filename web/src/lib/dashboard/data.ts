@@ -1,6 +1,8 @@
 // Types for /notus/api/dashboard and the numbers the widgets derive from it.
 import type { Summary } from '../api'
 import { modelId } from '../modelIds.svelte'
+import { qualify } from '../peerModels'
+import { api } from '../serverPath'
 
 /** 'all' runs from the oldest thing stored until now. */
 export type Range = '15m' | '1h' | '6h' | '24h' | '7d' | '30d' | 'all'
@@ -137,6 +139,67 @@ export function fetchDashboard(range: Range): Promise<DashboardData> {
 
 export function fetchLayout<Item, Opts>(): Promise<SavedLayout<Item, Opts> | null> {
   return (takeEarly('layout') ?? getLayout()) as Promise<SavedLayout<Item, Opts> | null>
+}
+
+/** Another server's data over the same span as this server's, so the buckets line up. */
+export async function fetchPeerDashboard(server: string, from: number, to: number): Promise<DashboardData> {
+  const res = await fetch(api(server, `/notus/api/dashboard?from=${from}&to=${to}`))
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  return res.json()
+}
+
+/** One other server's data, for mergeDashboards. */
+export interface PeerData {
+  server: string
+  name: string
+  data: DashboardData
+}
+
+/**
+ * Every server's data as one, so the widgets need not know about servers.
+ * Another server's models are named "@<id>:<model>" (peerModels.ts). Each
+ * card's source gets its server's ID, and its name gets its server's name.
+ * The totals (all GPUs, CPU, system) and the energy are added up, bucket by
+ * bucket: every server was asked for the same span, so the buckets match.
+ */
+export function mergeDashboards(home: DashboardData, homeName: string, others: PeerData[]): DashboardData {
+  if (!others.length) return home
+  const totals = new Set<Point['kind']>(['gpus', 'cpu', 'system'])
+  const summed = new Map<string, Point>()
+  const series: Point[] = []
+  const plus = (a: number | null, b: number | null) => (a == null ? b : b == null ? a : a + b)
+  const most = (a: number | null, b: number | null) => (a == null ? b : b == null ? a : Math.max(a, b))
+  const add = (p: Point) => {
+    if (!totals.has(p.kind)) return series.push(p)
+    const key = `${p.source}|${p.t}`
+    const s = summed.get(key)
+    if (!s) return summed.set(key, { ...p })
+    s.watts = plus(s.watts, p.watts)
+    s.vram_used = plus(s.vram_used, p.vram_used)
+    s.vram_total = plus(s.vram_total, p.vram_total)
+    s.temp_c = most(s.temp_c, p.temp_c)
+    s.busy = most(s.busy, p.busy)
+  }
+  home.series.forEach(add)
+  for (const o of others) for (const p of o.data.series) add(totals.has(p.kind) ? p : { ...p, source: `${o.server}/${p.source}` })
+  series.push(...summed.values())
+
+  const energy = { ...home.energy }
+  for (const o of others) for (const k of Object.keys(energy) as (keyof typeof energy)[]) energy[k] = plus(energy[k], o.data.energy[k])
+
+  return {
+    ...home,
+    series,
+    cards: [
+      ...home.cards.map((c) => ({ ...c, card: `${homeName} ${c.card}` })),
+      ...others.flatMap((o) => o.data.cards.map((c) => ({ ...c, source: `${o.server}/${c.source}`, card: `${o.name} ${c.card}` }))),
+    ],
+    requests: [...home.requests, ...others.flatMap((o) => o.data.requests.map((r) => ({ ...r, model: qualify(o.server, r.model) })))].sort(
+      (a, b) => b.started_at - a.started_at,
+    ),
+    model_events: [...home.model_events, ...others.flatMap((o) => o.data.model_events.map((e) => ({ ...e, model: qualify(o.server, e.model) })))].sort((a, b) => a.at - b.at),
+    energy,
+  }
 }
 
 /** Series aligned on one time axis, as uPlot wants: xs in seconds, one array per key. */

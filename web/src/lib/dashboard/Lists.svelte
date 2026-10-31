@@ -3,13 +3,21 @@
   import ModelMark from '../ModelMark.svelte'
   import { live } from '../live.svelte'
   import { modelLabel, modelTitle } from '../modelNames.svelte'
+  import { qualify } from '../peerModels'
   import { privacy } from '../privacy.svelte'
   import type { DashboardData } from './data'
   import { splitShared } from './shortNames'
 
   let { kind, data }: { kind: 'inflight' | 'swaps' | 'energy'; data: DashboardData } = $props()
 
-  const flights = $derived([...live.flights.values()].filter((f) => privacy.visible(f.start.model)).sort((a, b) => a.start.id - b.start.id))
+  // Every server's requests in flight, oldest first. Another server's model is
+  // named "@<id>:<model>" (peerModels.ts), as in the merged data.
+  const flights = $derived(
+    [['', live.flights] as const, ...[...live.peers].map(([server, f]) => [server, f] as const)]
+      .flatMap(([server, f]) => [...f.values()].map((fl) => ({ server, f: fl, model: qualify(server, fl.start.model) })))
+      .filter((x) => privacy.visible(x.model))
+      .sort((a, b) => a.f.start.started_at - b.f.start.started_at),
+  )
   const swaps = $derived(data.model_events.filter((e) => e.to === 'ready').reverse())
 
   const perToken = $derived.by(() => {
@@ -31,12 +39,12 @@
 
 <div class="h-full overflow-auto text-[12.5px]">
   {#if kind === 'inflight'}
-    {#each flights as f (f.start.id)}
-      <a href="/notus/requests?open={f.start.id}" class="block border-t border-line-soft py-1.5 first:border-t-0 hover:bg-hover">
+    {#each flights as { server, f, model } (`${server}:${f.start.id}`)}
+      <a href="/notus/requests?open={server ? `${server}:${f.start.id}` : f.start.id}" class="block border-t border-line-soft py-1.5 first:border-t-0 hover:bg-hover">
         <div class="flex items-center gap-1.5">
-          <ModelMark model={f.start.model} />
+          <ModelMark {model} />
           <span class="font-mono">#{f.start.id}</span>
-          <span class="truncate text-muted" title={modelTitle(f.start.model)}>{modelLabel(f.start.model)}</span>
+          <span class="truncate text-muted" title={modelTitle(model)}>{modelLabel(model)}</span>
           <span class="flex-1"></span>
           <span class="num">{f.chunks} tok</span>
           <span class="rounded-full bg-secondary/12 px-1.5 text-[11px] font-semibold text-secondary pulse">{f.firstTokenAt ? 'streaming' : 'waiting'}</span>

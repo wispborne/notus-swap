@@ -108,6 +108,15 @@
       localStorage.setItem('models-unlisted', showUnlisted ? '1' : '0')
     } catch {}
   }
+  // The "No longer in llama-swap's config" tables can be collapsed, for every
+  // server at once. Saved per browser.
+  let goneCollapsed = $state(localGet('models_gone_collapsed') === '1')
+  function toggleGone() {
+    goneCollapsed = !goneCollapsed
+    try {
+      localStorage.setItem('models_gone_collapsed', goneCollapsed ? '1' : '0')
+    } catch {}
+  }
 
   // One section per server. Another server's models use its own names,
   // colours and hidden models.
@@ -589,7 +598,17 @@
   </div>
 
   {#if sec.gone.length}
-    <h3 class="mt-5 mb-1 text-xs font-semibold tracking-wider text-dim uppercase">No longer in llama-swap's config ({sec.gone.length})</h3>
+    <h3 class="mt-5 mb-1 text-xs font-semibold tracking-wider text-dim uppercase">
+      <button class="flex items-center gap-1.5 uppercase hover:text-text" aria-expanded={!goneCollapsed} onclick={toggleGone}>
+        <!-- A triangle on whole pixels: pointing right when collapsed, down when open. -->
+        <svg class="translate-y-px" width="8" height="8" viewBox="0 0 8 8" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">
+          {#if goneCollapsed}<path d="M2 0h1v1h1v1h1v1h1v2h-1v1h-1v1h-1v1h-1z" />{:else}<path d="M0 2h8v1h-1v1h-1v1h-1v1h-2v-1h-1v-1h-1v-1h-1z" />{/if}
+        </svg>
+        No longer in llama-swap's config ({sec.gone.length})
+      </button>
+    </h3>
+  {/if}
+  {#if sec.gone.length && !goneCollapsed}
     <div class="overflow-x-auto rounded-lg border border-line bg-panel">
       <table class="w-full border-collapse text-[12.5px]">
         {@render head()}

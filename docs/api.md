@@ -162,7 +162,7 @@ Speeds are medians over requests that count. By default that means at least 128 
 curl -s --compressed 'http://llm.example.com/notus/api/dashboard?range=24h'
 ```
 
-`range` is `15m`, `1h`, `6h`, `24h`, `7d`, `30d` or `all`. The answer is gzipped when the client accepts it.
+`range` is `15m`, `1h`, `6h`, `24h`, `7d`, `30d` or `all`. `from` and `to` (unix ms) replace it with an exact span. Buckets sit on whole multiples of `bucket_s`, so two servers asked for the same span return matching buckets. The answer is gzipped when the client accepts it.
 
 - `series`: GPU and CPU samples, averaged into about 600 buckets of `bucket_s` seconds. Each point has `t` (unix **seconds**), `source`, `watts`, `temp_c`, `vram_used`, `vram_total` and `busy`. Sources are `gpu:<pci>` (one card), `igpu:<pci>` (built-in graphics), `gpus` (all dedicated cards added up), `cpu`, and `system` (an estimate of the whole machine at the wall).
 - `cards`: the name of each `gpu:` and `igpu:` source.

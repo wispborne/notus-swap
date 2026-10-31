@@ -7,6 +7,7 @@
 // on one device reaches every open page within 2 seconds.
 import type { DashboardData } from './dashboard/data'
 import { modelAliases, modelId } from './modelIds.svelte'
+import { peerModel } from './peerModels'
 
 class Privacy {
   hidden = $state<string[]>([])
@@ -18,7 +19,12 @@ class Privacy {
   private hiddenNames = $derived(this.hidden.flatMap((m) => [m, ...modelAliases(m)]))
 
   /** Whether a model may appear on screen right now. */
-  visible = (model: string) => this.showHidden || !this.hiddenSet.has(modelId(model))
+  visible = (model: string) => {
+    if (this.showHidden) return true
+    // Another server's model (peerModels.ts) is hidden there or not.
+    const p = peerModel(model)
+    return p ? p.view.visible(p.model) : !this.hiddenSet.has(modelId(model))
+  }
 
   isHidden = (model: string) => this.hiddenSet.has(modelId(model))
 
@@ -67,7 +73,7 @@ class Privacy {
 
   /** The Dashboard's data without hidden models' requests and events. */
   dashboard(d: DashboardData): DashboardData {
-    if (this.showHidden || !this.hidden.length) return d
+    if (this.showHidden || (!this.hidden.length && !d.requests.some((r) => peerModel(r.model)) && !d.model_events.some((e) => peerModel(e.model)))) return d
     return {
       ...d,
       requests: d.requests.filter((r) => this.visible(r.model)),

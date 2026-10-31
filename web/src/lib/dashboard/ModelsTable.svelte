@@ -2,6 +2,8 @@
   import { duration, modelColor, num, pct, when } from '../format'
   import ModelMark from '../ModelMark.svelte'
   import { modelLabel, modelTitle } from '../modelNames.svelte'
+  import { peerModel } from '../peerModels'
+  import { api } from '../serverPath'
   import type { RunningModel } from '../status.svelte'
   import { modelStats, type DashboardData } from './data'
 
@@ -30,7 +32,9 @@
   async function act(model: string, action: 'load' | 'unload') {
     busy = model
     try {
-      await fetch(`/notus/api/models/${encodeURIComponent(model)}/${action}`, { method: 'POST' })
+      // Another server's model (peerModels.ts) is loaded on that server.
+      const p = peerModel(model)
+      await fetch(api(p?.server ?? '', `/notus/api/models/${encodeURIComponent(p?.model ?? model)}/${action}`), { method: 'POST' })
     } finally {
       setTimeout(() => (busy = null), 1500)
     }
