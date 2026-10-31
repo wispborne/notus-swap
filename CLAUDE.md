@@ -268,12 +268,13 @@ notus-swap is a **separate layer**, not a fork. This is decided.
   - **Logs.**
   - **Model Config** (the llama-swap config editor; its route is still `/notus/config`).
   - **Settings** (route `/notus/system`, file `pages/System.svelte`). Restart llama-swap, update or roll back notus-swap, llama-swap and llama.cpp, and settings such as retention limits, the default model, hidden models, the app title and the theme. Links at the top jump to each section.
-- Navigation is a collapsible left sidebar. Its pages are links (`data-nav`), so they open in a new tab with a middle-click. Its pages can be dragged into another order, saved per browser (`sidebar_order`, `lib/navOrder.svelte.ts`). The collapse button is at the bottom. The current page has a green bar on the sidebar's left edge. The sidebar stays in view while the page scrolls. A thin status bar across the top of every page shows, by default in this order:
-  - whether llama-swap is up
-  - how many requests are in flight
+- Navigation is a collapsible left sidebar. Its pages are links (`data-nav`), so they open in a new tab with a middle-click. Its pages can be dragged into another order, saved per browser (`sidebar_order`, `lib/navOrder.svelte.ts`). The collapse button is at the bottom. The current page has a green bar on the sidebar's left edge. The sidebar stays in view while the page scrolls. A thin status bar across the top of every page shows each server's name, after a dot for llama-swap's state (green up, amber up with an error, red down; or the server's own state when it doesn't answer, such as grey for asleep). This server's name opens llama-swap's own page. Then, by default in this order:
+  - how many requests are in flight, as a dot that pulses while one runs and the number
   - VRAM and RAM in use
   - GPU watts, then the system estimate
   - which models are loaded. This is last because its width changes as models load and unload.
+
+  Rows are 15 px (`auto-rows-[15px]`), the height of a line of its text, so every row and its 7 px dots sit on whole pixels.
 
   Items can be dragged on the bar, or moved and hidden from the "⋯" menu at its right end (`lib/statusItems.svelte.ts`). The choice is saved per browser (`statusbar_items`).
 - App title: the name in the status bar's corner and on the browser tab. It is the server-side `app_title` setting (empty means "notus-swap"), sent with every `/notus/api/status` poll, so every browser shows the same one. `lib/appTitle.svelte.ts` keeps a copy in `localStorage`, which the inline script in `index.html` uses to set the tab title before the page draws.

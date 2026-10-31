@@ -1,11 +1,11 @@
 // Which status bar items show, and in what order. Saved per browser, so a
-// phone and a desktop can differ.
+// phone and a desktop can differ. Whether llama-swap is up is the dot before
+// each server's name, not an item; saved lists that still name it drop it.
 
-export const itemIds = ['llama-swap', 'requests', 'vram', 'ram', 'power', 'system', 'models'] as const
+export const itemIds = ['requests', 'vram', 'ram', 'power', 'system', 'models'] as const
 export type ItemId = (typeof itemIds)[number]
 
 export const itemLabels: Record<ItemId, string> = {
-  'llama-swap': 'llama-swap up or down',
   requests: 'Active requests',
   vram: 'VRAM',
   ram: 'RAM',

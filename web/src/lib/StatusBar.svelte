@@ -127,7 +127,6 @@
     const available = (id: ItemId) => {
       if (id === 'requests') return true
       if (!v.reachable || !s || !f) return false
-      if (id === 'llama-swap') return true
       if (id === 'models') return s.llama_swap.up
       if (id === 'power') return s.total_watts != null
       if (id === 'system') return s.system_watts != null || !!s.cpu_problem
@@ -194,6 +193,21 @@
     return parts.join(' · ')
   }
   const dot: Record<string, string> = { checking: 'bg-dim', needs_update: 'bg-warn', offline: 'bg-line', wrong_server: 'bg-err', not_notus: 'bg-err' }
+
+  // The dot before a server's name: llama-swap's state while the server
+  // answers (green up, amber up with an error, red down), or else the
+  // server's own state. `words` is its tooltip.
+  function nameDot(v: View): { cls: string; words: string } {
+    const sv = v.server && !v.server.self ? v.server : null
+    if (!sv && !status.reachable) return { cls: 'bg-err', words: 'notus-swap unavailable' }
+    if (sv && !v.reachable) return { cls: dot[sv.state] ?? 'bg-dim', words: stateWords(sv) }
+    if (sv?.state === 'needs_update') return { cls: 'bg-warn', words: stateWords(sv) }
+    const ls = v.s?.llama_swap
+    if (!ls) return { cls: 'bg-dim', words: 'Checking…' }
+    if (!ls.up) return { cls: 'bg-err', words: `llama-swap down${ls.error ? `: ${ls.error}` : ''}` }
+    if (ls.error) return { cls: 'bg-warn', words: `llama-swap up, with an error: ${ls.error}` }
+    return { cls: 'bg-primary', words: 'llama-swap up' }
+  }
 </script>
 
 <svelte:window onclick={closeMenu} onresize={() => (menuOpen = false)} onkeydown={(e) => e.key === 'Escape' && (menuOpen = false)} />
@@ -202,30 +216,10 @@
 {#snippet item(id: ItemId, i: number, v: View, f: Figures | null, shown: ItemId[])}
   {@const s = v.s}
   {@const ls = s?.llama_swap}
-  {#if id === 'llama-swap' && ls}
-    {@const label = `llama-swap ${ls.up ? 'up' : 'down'}`}
-    {#if v.local}
-      <a
-        href="/ui/"
-        target="_blank"
-        rel="noopener"
-        draggable="false"
-        class="-mx-1.5 flex items-center gap-1.5 rounded px-1.5 py-0.5 text-muted hover:bg-hover"
-        title={ls.error ? `${ls.error}\nOpen llama-swap's page` : "Open llama-swap's page"}
-      >
-        <span class="relative top-px inline-block size-2 rounded-full {!ls.up ? 'bg-err' : ls.error ? 'bg-warn' : 'bg-primary'}"></span>
-        <b class="font-semibold {ls.up ? 'text-text' : 'text-err'}">{label}</b>
-      </a>
-    {:else}
-      <span class="flex items-center gap-1.5 text-muted" title={ls.error}>
-        <span class="relative top-px inline-block size-2 rounded-full {!ls.up ? 'bg-err' : ls.error ? 'bg-warn' : 'bg-primary'}"></span>
-        <b class="font-semibold {ls.up ? 'text-text' : 'text-err'}">{label}</b>
-      </span>
-    {/if}
-  {:else if id === 'requests'}
-    <span class="flex items-center gap-1.5 text-muted">
-      <span class="relative top-px inline-block size-2 rounded-full {v.inFlight ? 'pulse bg-secondary' : 'bg-dim'}"></span>
-      <b class="num font-semibold text-text">{v.inFlight}</b> active requests
+  {#if id === 'requests'}
+    <span class="flex items-center gap-1.5 text-muted" title="{v.inFlight} active {v.inFlight === 1 ? 'request' : 'requests'}">
+      <span class="relative top-px inline-block size-[7px] rounded-full {v.inFlight ? 'pulse bg-secondary' : 'bg-dim'}"></span>
+      <b class="num font-semibold text-text">{v.inFlight}</b>
     </span>
   {:else if id === 'models' && ls}
     {@const loaded = ls.models.filter((m) => v.visible(m.model))}
@@ -279,21 +273,29 @@ State: {m.state}">
      server's name, one column per item, then the menu on the first row. -->
 <header
   bind:this={bar}
-  class="sticky top-0 z-20 grid min-h-[34px] items-center gap-x-[18px] gap-y-[2px] overflow-x-auto border-b border-line bg-sunken px-3 py-[7px] text-xs whitespace-nowrap"
+  class="sticky top-0 z-20 grid min-h-[34px] auto-rows-[15px] items-center gap-x-[18px] gap-y-[2px] overflow-x-auto border-b border-line bg-sunken px-3 py-[7px] text-xs whitespace-nowrap"
   style:grid-template-columns="auto {columns.map(() => 'auto').join(' ')} minmax(0, 1fr) auto"
 >
   {#each rows as { v, f, shown }, r (v.key)}
     {@const row = r + 1}
     {@const home = !v.server || v.server.self}
-    <span
-      class="flex items-center gap-1.5 {home ? 'font-bold tracking-wide text-primary' : 'font-semibold text-text'}"
+    {@const d = nameDot(v)}
+    <!-- The server's name, after a dot for llama-swap's state. This server's
+         name opens llama-swap's own page. -->
+    <svelte:element
+      this={v.local ? 'a' : 'span'}
+      href={v.local ? '/ui/' : undefined}
+      target={v.local ? '_blank' : undefined}
+      rel={v.local ? 'noopener' : undefined}
+      draggable="false"
+      class="-mx-1.5 flex items-center gap-1.5 rounded px-1.5 {v.local ? 'hover:bg-hover' : ''} {home ? 'font-bold tracking-wide text-primary' : 'font-semibold text-text'}"
       style:grid-row={row}
       style:grid-column={1}
-      title={v.server ? (v.server.self ? 'This server' : `${stateWords(v.server)} · ${v.server.url}`) : undefined}
+      title={[d.words, !home && v.server?.url, v.local && "Open llama-swap's page"].filter(Boolean).join('\n')}
     >
-      {#if !home && v.server!.state !== 'online'}<span class="relative top-px inline-block size-2 rounded-full {dot[v.server!.state] ?? 'bg-dim'}"></span>{/if}
+      <span class="relative top-px inline-block size-[7px] flex-none rounded-full {d.cls}"></span>
       {home ? appTitle.text : serverName(v.server)}
-    </span>
+    </svelte:element>
     {#if home && !status.reachable}
       <span class="flex items-center gap-1.5 text-err" style:grid-row={row} style:grid-column="2 / span {Math.max(columns.length, 1)}">
         <span class="relative top-px inline-block size-2 rounded-full bg-err"></span><b>notus-swap unavailable</b>
