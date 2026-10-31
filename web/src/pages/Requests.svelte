@@ -258,6 +258,7 @@
     watts: { value: (r) => (r.energy_j != null && elapsed(r) > 0 ? r.energy_j / elapsed(r) : null), high: true, full: 1.5, perModel: true },
     jtok: { value: (r) => (r.energy_j != null && r.completion_tokens ? r.energy_j / r.completion_tokens : null), high: true, full: 2, perModel: true },
     experts: { value: (r) => expertShares(r.server_stats)?.vram, high: false, full: 2, perModel: true },
+    drafts: { value: (r) => (r.draft_n ? (r.draft_accepted ?? 0) / r.draft_n : null), high: false, full: 2, perModel: true },
   }
   // Each server's models compare only with themselves: the same model runs
   // at another speed on another machine.
@@ -676,7 +677,7 @@
   {:else if k === 'experts'}
     {@const ex = expertShares(r.server_stats)}
     <td class="num text-right" style:color={heatFg(k, r)} title={ex ? `${fixed(ex.vram * 100)}% from the VRAM cache, ${fixed(ex.pcie * 100)}% read over PCIe, ${fixed(ex.missed * 100)}% missed the cache` : undefined}>{ex ? fixed(ex.vram * 100) : '–'}</td>
-  {:else if k === 'drafts'}<td class="num text-right" title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{r.draft_n ? fixed(((r.draft_accepted ?? 0) / r.draft_n) * 100) : '–'}</td>
+  {:else if k === 'drafts'}<td class="num text-right" style:color={heatFg(k, r)} title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{r.draft_n ? fixed(((r.draft_accepted ?? 0) / r.draft_n) * 100) : '–'}</td>
   {:else if k === 'ttft'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(ttft(r))}</td>
   {:else if k === 'duration'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(elapsed(r))}</td>
   {:else if k === 'energy'}<td class="num text-right" style:color={heatFg(k, r)}>{r.energy_j != null ? fixed(r.energy_j / 3600, 2) : '–'}</td>
