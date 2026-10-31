@@ -5,7 +5,8 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { appTitle } from './appTitle.svelte'
 import { palette, type Shape } from './modelColors.svelte'
-import { modelShow } from './modelNames.svelte'
+import { modelId } from './modelIds.svelte'
+import { modelLabel, modelShow, modelTitle, requestedLabel } from './modelNames.svelte'
 import { privacy } from './privacy.svelte'
 import type { RunningModel, Status } from './status.svelte'
 
@@ -82,13 +83,8 @@ export function stateWords(s: Server) {
   }
 }
 
-/**
- * The path for a call to a server. '' is this server. Calls to other servers
- * go through this one, at /notus/peer/<id>/.
- */
-export function api(server: string, path: string) {
-  return server ? `/notus/peer/${server}${path}` : path
-}
+import { api } from './serverPath'
+export { api }
 
 /**
  * The server a page with a server picker shows: ?server=<id>, or else the
@@ -144,7 +140,7 @@ export class RemoteStatus {
   private hidden = $derived(new Set(this.current?.privacy.hidden_models ?? []))
 
   /** The model's ID, if m is one of its aliases. */
-  private id(m: string) {
+  id(m: string) {
     return this.current?.llama_swap.known.find((k) => k.model === m || k.aliases?.includes(m))?.model ?? m
   }
   private known(m: string): RunningModel | undefined {
@@ -160,6 +156,8 @@ export class RemoteStatus {
     const k = this.known(m)
     return modelShow.show === 'name' && k?.name ? k.name : m
   }
+  /** The name the request used: the alias, or else the model's label. */
+  requested = (m: string) => (m && this.id(m) !== m ? m : this.label(m))
   /** Both the name and the ID, for a tooltip. */
   title = (m: string) => {
     const k = this.known(m)
@@ -207,3 +205,43 @@ class PeerStatuses {
 }
 
 export const peerStatus = new PeerStatuses()
+
+/** How one server's models are shown: names, colours, shapes and hiding. */
+export interface ModelView {
+  label: (m: string) => string
+  title: (m: string) => string | undefined
+  /** The name a request used: the alias, or else the model's label. */
+  requested: (m: string) => string
+  /** The colour and shape, or undefined for this server's own (ModelMark's default). */
+  color: (m: string) => string | undefined
+  shape: (m: string) => Shape | undefined
+  visible: (m: string) => boolean
+  /** The model's ID, for grouping. */
+  id: (m: string) => string
+}
+
+const homeView: ModelView = {
+  label: (m) => modelLabel(m),
+  title: modelTitle,
+  requested: requestedLabel,
+  color: () => undefined,
+  shape: () => undefined,
+  visible: (m) => privacy.visible(m),
+  id: modelId,
+}
+
+/** A server's ModelView. '' is this server. */
+export function modelView(server: string | undefined): ModelView {
+  if (!server) return homeView
+  const r = peerStatus.get(server)
+  return {
+    label: (m) => r?.label(m) ?? m,
+    title: (m) => r?.title(m),
+    requested: (m) => r?.requested(m) ?? m,
+    color: (m) => r?.color(m),
+    shape: (m) => r?.shape(m),
+    // Until its status arrives, nothing tells which of its models are hidden.
+    visible: (m) => r?.visible(m) ?? privacy.showHidden,
+    id: (m) => r?.id(m) ?? m,
+  }
+}

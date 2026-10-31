@@ -83,3 +83,32 @@ class StatusItems {
 }
 
 export const statusItems = new StatusItems()
+
+// How many servers the bar shows at once, one row each, in the Servers
+// list's order. Saved per browser.
+const serversKey = 'statusbar_servers'
+export const defaultServersShown = 3
+
+function savedServers(): number {
+  try {
+    const n = Number(localStorage.getItem(serversKey))
+    return Number.isInteger(n) && n >= 1 ? n : defaultServersShown
+  } catch {
+    return defaultServersShown
+  }
+}
+
+class ServersShown {
+  count = $state(savedServers())
+
+  set(n: number) {
+    this.count = Math.max(1, Math.min(9, Math.round(n) || defaultServersShown))
+    try {
+      localStorage.setItem(serversKey, String(this.count))
+    } catch {
+      // Not saved; it still applies until the page reloads.
+    }
+  }
+}
+
+export const serversShown = new ServersShown()

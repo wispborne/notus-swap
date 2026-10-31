@@ -1,9 +1,16 @@
 // Types and calls for notus-swap's /notus/api/. Times are unix milliseconds.
+import { api } from './serverPath'
 
 export type State = 'in_flight' | 'done' | 'failed' | 'client_gone' | 'interrupted' | 'cancelled'
 
 export interface Summary {
   id: number
+  /**
+   * The server the request is on, set by the page that loaded it: another
+   * server's ID, or '' or missing for this server. IDs are only unique on
+   * their own server.
+   */
+  server?: string
   started_at: number
   first_byte_at: number | null
   first_token_at: number | null
@@ -207,7 +214,7 @@ async function getJSON<T>(url: string): Promise<T> {
 
 type RequestList = { requests: Summary[]; models?: string[] }
 
-function listURL(f: ListFilter, before?: number, limit = 100) {
+function listURL(f: ListFilter, before?: number, limit = 100, server = '') {
   const p = new URLSearchParams()
   if (f.q) p.set('q', f.q)
   if (f.model) p.set('model', f.model)
@@ -216,7 +223,7 @@ function listURL(f: ListFilter, before?: number, limit = 100) {
   if (f.since) p.set('since', String(f.since))
   if (before) p.set('before', String(before))
   p.set('limit', String(limit))
-  return `/notus/api/requests?${p}`
+  return api(server, `/notus/api/requests?${p}`)
 }
 
 // Started by prefetchRequests, and used once by the first listRequests that
@@ -234,16 +241,17 @@ export function prefetchRequests(f: ListFilter, limit?: number) {
   early = { url, at: Date.now(), list }
 }
 
-export function listRequests(f: ListFilter, before?: number, limit = 100) {
-  const url = listURL(f, before, limit)
+/** One server's requests. '' is this server. */
+export function listRequests(f: ListFilter, before?: number, limit = 100, server = '') {
+  const url = listURL(f, before, limit, server)
   const e = early
   early = null
   if (e?.url === url && Date.now() - e.at <= 10_000) return e.list
   return getJSON<RequestList>(url)
 }
 
-export function getRequest(id: number) {
-  return getJSON<Detail>(`/notus/api/requests/${id}`)
+export function getRequest(id: number, server = '') {
+  return getJSON<Detail>(api(server, `/notus/api/requests/${id}`))
 }
 
 async function post(url: string) {
@@ -253,13 +261,13 @@ async function post(url: string) {
 }
 
 /** Ends a request in flight. Its client gets an error, or a stream that stops. */
-export async function cancelRequest(id: number) {
-  await post(`/notus/api/requests/${id}/cancel`)
+export async function cancelRequest(id: number, server = '') {
+  await post(api(server, `/notus/api/requests/${id}/cancel`))
 }
 
 /** Sends a finished request's stored body again, and returns the new request's ID. */
-export async function retryRequest(id: number): Promise<number> {
-  const res = await post(`/notus/api/requests/${id}/retry`)
+export async function retryRequest(id: number, server = ''): Promise<number> {
+  const res = await post(api(server, `/notus/api/requests/${id}/retry`))
   return (await res.json()).id
 }
 

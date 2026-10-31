@@ -58,7 +58,7 @@
   </select>
 {/snippet}
 
-<div class="flex h-[calc(100vh-34px-3.5rem)] min-h-[420px] flex-col gap-2">
+<div class="flex h-[calc(100vh_-_var(--bar-h)_-_3.5rem)] min-h-[420px] flex-col gap-2">
   <div class="flex items-center gap-3">
     <h1 class="text-[17px] font-semibold">Logs</h1>
     <div class="flex overflow-hidden rounded-md border border-line text-xs">

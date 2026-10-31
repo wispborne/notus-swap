@@ -7,7 +7,7 @@
   import { live, liveIn, liveOutSpeed } from './live.svelte'
   import { expertShares } from './experts'
   import Markdown from './Markdown.svelte'
-  import { modelLabel, modelTitle, requestedLabel } from './modelNames.svelte'
+  import { modelView, serverName, servers } from './servers.svelte'
   import RequestMessages from './RequestMessages.svelte'
   import StatusPill from './StatusPill.svelte'
   import { sourceLabel, sourceTitle } from './source'
@@ -15,6 +15,11 @@
   // usualExperts is the model's median share of expert work done from VRAM,
   // over the requests listed, when there are enough of them.
   let { row, usualExperts, onopen }: { row: Summary; usualExperts?: number; onopen?: (id: number) => void } = $props()
+
+  // The server the request is on ('' for this one), and how it shows its
+  // models.
+  const host = $derived(row.server ?? '')
+  const mv = $derived(modelView(row.server))
 
   let detail = $state<Detail | null>(null)
   let error = $state('')
@@ -26,13 +31,13 @@
     const id = row.id
     void row.state
     void issueMutes.version
-    getRequest(id).then(
+    getRequest(id, host).then(
       (d) => (detail = d),
       (e) => (error = String(e)),
     )
   })
 
-  const flight = $derived(row.state === 'in_flight' ? live.flights.get(row.id) : undefined)
+  const flight = $derived(row.state === 'in_flight' ? live.of(host)?.get(row.id) : undefined)
   const inFlight = $derived(row.state === 'in_flight')
 
   // Tick while in flight, so the durations grow.
@@ -152,7 +157,9 @@
 
   function curl() {
     const body = JSON.stringify(detail?.request ?? {}).replaceAll("'", "'\\''")
-    const cmd = `curl ${location.origin}${row.path} -H 'Content-Type: application/json' -d '${body}'`
+    // Another server's request goes to that server's own address.
+    const base = host ? (servers.get(host)?.url ?? '') : location.origin
+    const cmd = `curl ${base}${row.path} -H 'Content-Type: application/json' -d '${body}'`
     navigator.clipboard.writeText(cmd)
     copied = true
     setTimeout(() => (copied = false), 1500)
@@ -182,7 +189,7 @@
     busy = true
     actionError = ''
     try {
-      await cancelRequest(row.id)
+      await cancelRequest(row.id, host)
     } catch (e) {
       actionError = `Could not cancel: ${(e as Error).message}`
     } finally {
@@ -195,7 +202,7 @@
     busy = true
     actionError = ''
     try {
-      onopen?.(await retryRequest(row.id))
+      onopen?.(await retryRequest(row.id, host))
     } catch (e) {
       actionError = `Could not retry: ${(e as Error).message}`
     } finally {
@@ -226,8 +233,9 @@
   <div class="mb-2 flex flex-wrap items-center gap-2">
     <span class="font-mono text-[15px] font-semibold">#{row.id}</span>
     <StatusPill {row} waiting={inFlight && !firstToken} />
-    <ModelMark model={row.model} />
-    <span title={modelTitle(row.model)}>{requestedLabel(row.model) || '(no model)'}</span>
+    <ModelMark model={row.model} color={mv.color(row.model)} shape={mv.shape(row.model)} />
+    <span title={mv.title(row.model)}>{mv.requested(row.model) || '(no model)'}</span>
+    {#if host}<span class="text-muted">on {serverName(servers.get(host))}</span>{/if}
     {#if row.build}<span class="font-mono text-xs text-muted" title="Server build {row.build}">{shortBuild(row.build)}</span>{/if}
     <span class="text-muted">{when(row.started_at)}</span>
     <span class="font-mono text-xs text-dim">{row.method} {row.path}</span>
@@ -278,11 +286,14 @@
       </div>
       <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2">
         <span>{d.fix}</span>
-        {#if d.config}<a data-nav class="text-primary hover:underline" href="/notus/config">Open Model Config</a>{/if}
+        {#if d.config}<a data-nav class="text-primary hover:underline" href={host ? `/notus/config?server=${host}` : '/notus/config'}>Open Model Config</a>{/if}
         <span class="flex-1"></span>
-        <button class="text-dim hover:text-text" onclick={() => issueMutes.set(issue.kind, row.model, true)}>
-          Don't flag this for {modelLabel(row.model) || 'requests with no model'}
-        </button>
+        <!-- Mutes are kept on each server for its own models; another server's are changed there. -->
+        {#if !host}
+          <button class="text-dim hover:text-text" onclick={() => issueMutes.set(issue.kind, row.model, true)}>
+            Don't flag this for {mv.label(row.model) || 'requests with no model'}
+          </button>
+        {/if}
       </div>
     </div>
   {/each}
@@ -290,7 +301,7 @@
     <div class="mb-2 flex flex-wrap items-baseline gap-x-2 text-xs text-dim">
       Muted for this model:
       {#each muted as issue (issue.kind)}
-        <span>{describe(issue).title} <button class="text-primary hover:underline" onclick={() => issueMutes.set(issue.kind, row.model, false)}>Unmute</button></span>
+        <span>{describe(issue).title}{#if !host}{' '}<button class="text-primary hover:underline" onclick={() => issueMutes.set(issue.kind, row.model, false)}>Unmute</button>{/if}</span>
       {/each}
     </div>
   {/if}

@@ -25,14 +25,24 @@ const MIN_ROWS = 5
  * Returns how hot each cell is, from 0 to 1. Only rows that finished
  * normally count, both for the medians and for the tint.
  */
-export function heatMap<R extends { model: string; state: string }>(rows: R[], cols: Record<string, HeatColumn<R>>) {
+/**
+ * group names the model a request counts toward for perModel columns. It
+ * defaults to the model's ID; a page listing several servers' requests keeps
+ * each server's models apart, since the same model runs at another speed on
+ * another machine.
+ */
+export function heatMap<R extends { model: string; state: string }>(
+  rows: R[],
+  cols: Record<string, HeatColumn<R>>,
+  group: (r: R) => string = (r) => modelId(r.model),
+) {
   const medians = new Map<string, number>()
   for (const [key, col] of Object.entries(cols)) {
     const groups = new Map<string, number[]>()
     for (const r of rows) {
       const v = r.state === 'done' ? col.value(r) : null
       if (v == null || !isFinite(v) || v <= 0) continue
-      const g = col.perModel ? modelId(r.model) : ''
+      const g = col.perModel ? group(r) : ''
       let list = groups.get(g)
       if (!list) groups.set(g, (list = []))
       list.push(v)
@@ -47,15 +57,15 @@ export function heatMap<R extends { model: string; state: string }>(rows: R[], c
   const heat = (key: string, r: R): number => {
     const col = cols[key]
     if (!col || r.state !== 'done') return 0
-    const median = medians.get(`${key}\n${col.perModel ? modelId(r.model) : ''}`)
+    const median = medians.get(`${key}\n${col.perModel ? group(r) : ''}`)
     const v = col.value(r)
     if (median == null || v == null || !isFinite(v) || v <= 0) return 0
     const worse = col.high ? v / median : median / v
     if (worse <= START) return 0
     return Math.min(1, Math.log(worse / START) / Math.log(col.full / START))
   }
-  /** The median a column compares a model's requests with, when there are enough of them. */
-  const median = (key: string, model: string) => medians.get(`${key}\n${cols[key]?.perModel ? modelId(model) : ''}`)
+  /** The median a column compares a request's model with, when there are enough requests. */
+  const median = (key: string, r: R) => medians.get(`${key}\n${cols[key]?.perModel ? group(r) : ''}`)
   return Object.assign(heat, { median })
 }
 

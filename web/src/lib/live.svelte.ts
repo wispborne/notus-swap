@@ -93,6 +93,13 @@ class Live {
     return this.of(server)?.size ?? 0
   }
 
+  /** How many requests every server has in flight. */
+  get total() {
+    let n = this.flights.size
+    for (const f of this.peers.values()) n += f.size
+    return n
+  }
+
   /** Listen to this server's events. Returns a function that stops listening. */
   on(fn: (e: LiveEvent) => void) {
     this.listeners.add(fn)

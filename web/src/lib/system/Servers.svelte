@@ -179,7 +179,7 @@
 
 <svelte:window onclick={windowClick} />
 
-<section id="servers" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
+<section id="servers" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
   <h2 class="text-sm font-semibold">Servers</h2>
   <p class="mt-1 text-[12.5px] text-muted">
     Other notus-swap servers to show here. Calls to them go through this server, so each one only needs to be reachable from this server, not from your browser. The

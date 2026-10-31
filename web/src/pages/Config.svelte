@@ -317,7 +317,7 @@
   const btn = 'rounded-md border border-line bg-panel2 px-2.5 py-1 hover:border-primary disabled:opacity-50 disabled:hover:border-line'
 </script>
 
-<div class="flex h-[calc(100vh-34px-14px-40px)] min-h-[420px] flex-col">
+<div class="flex h-[calc(100vh_-_var(--bar-h)_-_54px)] min-h-[420px] flex-col">
   <div class="mb-2 flex flex-wrap items-center gap-3">
     <h1 class="text-[17px] font-semibold">Model Config</h1>
     <ServerPicker current={server} />

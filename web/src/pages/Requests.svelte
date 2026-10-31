@@ -10,10 +10,10 @@
   import { heatColor, heatMap, type HeatColumn } from '../lib/heat'
   import { expertShares } from '../lib/experts'
   import { rowChips } from '../lib/notable'
-  import { privacy } from '../lib/privacy.svelte'
   import { modelId } from '../lib/modelIds.svelte'
-  import { knownModel, modelLabel, modelTitle, requestedLabel } from '../lib/modelNames.svelte'
+  import { knownModel } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
+  import { modelView, peerStatus, reachable, serverName, servers, type Server } from '../lib/servers.svelte'
   import { sourceLabel, sourceTitle } from '../lib/source'
   import StatusPill from '../lib/StatusPill.svelte'
 
@@ -37,19 +37,25 @@
 
   // The filters and the open request are kept in the URL, so a reload, a
   // bookmark or a shared link comes back to the same place. Other pages link
-  // here with ?model=M (Models) and ?open=12 (Dashboard).
+  // here with ?model=M (Models) and ?open=12 (Dashboard). Another server's
+  // request opens as ?open=<server ID>:12.
   const params = new URLSearchParams(location.search)
   let rows = $state<Summary[]>([])
-  let models = $state<string[]>([])
+  // Each model ID seen, with the servers it was seen on.
+  let models = $state<{ id: string; servers: string[] }[]>([])
   let q = $state(params.get('q') ?? '')
   let model = $state(params.get('model') ?? '')
   let stateFilter = $state(states.some(([v]) => v === params.get('state')) ? params.get('state')! : '')
   let issue = $state(params.get('issue') ?? '')
   let range = $state(ranges.some(([v]) => v === params.get('range')) ? params.get('range')! : '')
-  let open = $state<number | null>(Number(params.get('open')) || null)
+  // The open request, by its key (rk).
+  let open = $state<string | null>(openKey(params.get('open')))
+  // One server's ID, or '' for every server.
+  let serverFilter = $state(params.get('server') ?? '')
   let loading = $state(false)
-  let more = $state(true)
   let error = $state('')
+  // Other servers that didn't answer the last load.
+  let silent = $state<string[]>([])
   let now = $state(Date.now())
 
   const filter = $derived.by<ListFilter>(() => {
@@ -64,24 +70,70 @@
     if (stateFilter) p.set('state', stateFilter)
     if (issue) p.set('issue', issue)
     if (range) p.set('range', range)
-    if (open) p.set('open', String(open))
+    if (serverFilter) p.set('server', serverFilter)
+    if (open) p.set('open', open.startsWith(':') ? open.slice(1) : open)
     const url = location.pathname + (p.size ? `?${p}` : '')
     if (url !== location.pathname + location.search) history.replaceState(history.state, '', url)
   })
 
+  /** A row's key: IDs are only unique on their own server. */
+  function rk(r: { server?: string; id: number }) {
+    return `${r.server ?? ''}:${r.id}`
+  }
+  function openKey(v: string | null) {
+    if (!v) return null
+    return v.includes(':') ? v : Number(v) ? `:${v}` : null
+  }
+  /** The server a row is on, as a Servers list entry. */
+  const serverOf = (r: Summary): Server | undefined => (r.server ? servers.get(r.server) : servers.list.find((s) => s.self))
+
+  // The servers to list: this one ('') and every other server that answers,
+  // or only the one the filter names.
+  const targets = $derived.by(() => {
+    if (!servers.many) return ['']
+    return servers.list
+      .filter((s) => (!serverFilter || s.id === serverFilter) && (s.self || reachable(s)))
+      .map((s) => (s.self ? '' : s.id))
+  })
+  const targetsKey = $derived(targets.join(','))
+
+  // Each server's requests load a page at a time. A cursor says where its
+  // next page starts, whether it has one, and how far back its list reaches.
+  // Rows older than the newest such reach are held back, so loading older
+  // requests only ever adds rows at the end.
+  type Cursor = { before?: number; more: boolean; oldest: number }
+  let cursors = $state<Record<string, Cursor>>({})
+  const more = $derived(Object.values(cursors).some((c) => c.more))
+  const cutoff = $derived(Math.max(-Infinity, ...Object.values(cursors).filter((c) => c.more).map((c) => c.oldest)))
+
   // In-flight requests first, then newest first.
-  const visibleRows = $derived(rows.filter((r) => privacy.visible(r.model)))
+  const visibleRows = $derived(rows.filter((r) => (r.state === 'in_flight' || r.started_at >= cutoff) && modelView(r.server).visible(r.model)))
   const shown = $derived([...visibleRows.filter((r) => r.state === 'in_flight'), ...visibleRows.filter((r) => r.state !== 'in_flight')])
   // Models in llama-swap's config come first, by the label shown. Models
   // only seen in older requests are listed after them.
+  // A model counts as in a config when any server it was seen on has it,
+  // and is hidden when any of them hides it.
+  type SeenModel = { id: string; servers: string[] }
   const visibleModels = $derived.by(() => {
-    const byLabel = (a: string, b: string) => modelLabel(a).localeCompare(modelLabel(b), undefined, { numeric: true })
-    const list = models.filter(privacy.visible)
+    const label = (m: SeenModel) => modelView(m.servers[0]).label(m.id)
+    const known = (m: SeenModel) => m.servers.some((s) => (s ? peerStatus.get(s)?.current?.llama_swap.known.some((k) => k.model === m.id) : knownModel(m.id)))
+    const list = models.filter((m) => m.servers.every((s) => modelView(s).visible(m.id))).map((m) => ({ ...m, label: label(m) }))
+    const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, undefined, { numeric: true })
     return {
-      config: list.filter((m) => knownModel(m)).sort(byLabel),
-      old: list.filter((m) => !knownModel(m)).sort(byLabel),
+      config: list.filter(known).sort(byLabel),
+      old: list.filter((m) => !known(m)).sort(byLabel),
     }
   })
+  function addModels(server: string, ids: string[]) {
+    const next = models.map((m) => ({ ...m, servers: [...m.servers] }))
+    for (const id of ids) {
+      const m = next.find((x) => x.id === id)
+      if (!m) next.push({ id, servers: [server] })
+      else if (!m.servers.includes(server)) m.servers.push(server)
+    }
+    models = next
+  }
+  const byNewest = (a: Summary, b: Summary) => b.started_at - a.started_at
 
   // Only the newest load's answer is used, so a slower, older one can't
   // replace it.
@@ -90,19 +142,36 @@
     const seq = ++loadSeq
     loading = true
     error = ''
-    try {
-      const before = reset ? undefined : rows.at(-1)?.id
-      const res = await listRequests(filter, before, PAGE)
-      if (seq !== loadSeq) return
-      rows = reset ? res.requests : [...rows, ...res.requests]
-      if (res.models) {
-        models = res.models
-      }
-      more = res.requests.length === PAGE
-    } catch (e) {
-      if (seq !== loadSeq) return
-      error = String(e)
+    const ask = reset ? targets : targets.filter((s) => cursors[s]?.more)
+    const got = await Promise.all(
+      ask.map((s) =>
+        listRequests(filter, reset ? undefined : cursors[s]?.before, PAGE, s).then(
+          (res) => ({ s, res, err: null as unknown }),
+          (err: unknown) => ({ s, res: null, err }),
+        ),
+      ),
+    )
+    if (seq !== loadSeq) return
+    const next: Record<string, Cursor> = reset ? {} : { ...cursors }
+    const added: Summary[] = []
+    if (reset) {
+      models = []
+      silent = []
     }
+    for (const { s, res, err } of got) {
+      if (!res) {
+        if (s) silent = [...silent, s]
+        else error = String(err)
+        next[s] = { more: false, oldest: -Infinity }
+        continue
+      }
+      const list = res.requests.map((r) => ({ ...r, server: s }))
+      added.push(...list)
+      next[s] = { before: list.at(-1)?.id ?? next[s]?.before, more: list.length === PAGE, oldest: list.at(-1)?.started_at ?? -Infinity }
+      if (res.models) addModels(s, res.models)
+    }
+    rows = (reset ? added : [...rows, ...added]).sort(byNewest)
+    cursors = next
     loading = false
   }
 
@@ -113,6 +182,7 @@
   $effect(() => {
     const f = filter
     void issueMutes.version
+    void targetsKey
     clearTimeout(timer)
     const typing = lastQ !== undefined && f.q !== lastQ
     lastQ = f.q
@@ -122,7 +192,8 @@
 
   function matches(r: Summary) {
     const f = filter
-    if (f.model && modelId(r.model) !== modelId(f.model)) return false
+    if (!targets.includes(r.server ?? '')) return false
+    if (f.model && modelView(r.server).id(r.model) !== (r.server ? f.model : modelId(f.model))) return false
     if (f.state && r.state !== f.state) return false
     if (f.since && r.started_at < f.since) return false
     // A request still in flight may yet have an issue, so it stays listed.
@@ -136,17 +207,20 @@
 
   onMount(() => {
     live.connect()
-    const stop = live.on(async (e) => {
+    const stop = live.onAll(async (e) => {
+      if (e.type === 'peer_down') return
+      const server = e.server ?? ''
       if (e.type === 'start') {
-        const r = summaryFromStart(e.start)
-        if (matches(r) && !rows.some((x) => x.id === r.id)) rows = [r, ...rows]
-        const id = modelId(r.model)
-        if (id && !models.includes(id)) models = [...models, id].sort()
+        const r = { ...summaryFromStart(e.start), server }
+        if (matches(r) && !rows.some((x) => rk(x) === rk(r))) rows = [r, ...rows]
+        const id = modelView(server).id(r.model)
+        if (id && !models.some((m) => m.id === id && m.servers.includes(server))) addModels(server, [id])
       } else if (e.type === 'finish' || e.type === 'settled') {
-        if (!rows.some((x) => x.id === e.id)) return
+        const key = rk({ server, id: e.id })
+        if (!rows.some((x) => rk(x) === key)) return
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { request, response_raw, response, truncated, live: _, chunks, issue_details, ...done } = await getRequest(e.id)
-        rows = rows.map((x) => (x.id === e.id ? done : x)).filter((x) => x.id === open || matches(x))
+        const { request, response_raw, response, truncated, live: _, chunks, issue_details, ...done } = await getRequest(e.id, server)
+        rows = rows.map((x) => (rk(x) === key ? { ...done, server } : x)).filter((x) => rk(x) === open || matches(x))
       }
     })
     const tick = setInterval(() => (now = Date.now()), 1000)
@@ -157,7 +231,7 @@
   })
 
   function ttft(r: Summary) {
-    const first = r.first_token_at ?? live.flights.get(r.id)?.firstTokenAt
+    const first = r.first_token_at ?? live.of(r.server ?? '')?.get(r.id)?.firstTokenAt
     return first ? first - r.started_at : null
   }
 
@@ -185,7 +259,9 @@
     jtok: { value: (r) => (r.energy_j != null && r.completion_tokens ? r.energy_j / r.completion_tokens : null), high: true, full: 2, perModel: true },
     experts: { value: (r) => expertShares(r.server_stats)?.vram, high: false, full: 2, perModel: true },
   }
-  const heat = $derived(heatMap(shown, heatCols))
+  // Each server's models compare only with themselves: the same model runs
+  // at another speed on another machine.
+  const heat = $derived(heatMap(shown, heatCols, (r) => `${r.server ?? ''}:${modelView(r.server).id(r.model)}`))
   const heatFg = (k: string, r: Summary) => heatColor(heat(k, r), heatStrength)
 
   // `group` puts a shared header over neighbouring columns. Only the token
@@ -193,6 +269,7 @@
   type Column = { key: string; label: string; group?: string; num?: boolean; title?: string }
   const columns = [
     { key: 'time', label: 'Time' },
+    { key: 'server', label: 'Server', title: 'The server that answered. Shown when the Servers list on the Settings page has other servers.' },
     { key: 'id', label: 'ID' },
     { key: 'model', label: 'Model' },
     { key: 'status', label: 'Status' },
@@ -215,11 +292,11 @@
     { key: 'jtok', label: 'J/tok', num: true, title: 'GPU energy per generated token, in joules' },
   ] as const satisfies readonly Column[]
   type Col = (typeof columns)[number]['key']
-  const defaultCols: Col[] = ['time', 'model', 'status', 'source', 'prompt', 'notable', 'cache_pct', 'in', 'out', 'in_tps', 'out_tps', 'ttft', 'duration', 'energy']
+  const defaultCols: Col[] = ['time', 'server', 'model', 'status', 'source', 'prompt', 'notable', 'cache_pct', 'in', 'out', 'in_tps', 'out_tps', 'ttft', 'duration', 'energy']
 
   // The column choice is kept per browser, since a phone may want fewer.
   // COLS_VERSION goes up when new columns should appear in saved choices.
-  const COLS_VERSION = 4
+  const COLS_VERSION = 5
   function savedCols(): Col[] {
     try {
       let v = JSON.parse(localStorage.getItem('requests_columns') ?? 'null')
@@ -233,6 +310,7 @@
         // Version 3: Status distinguishes failed and cancelled requests, which have no chip.
         if (version < 3 && !v.includes('status')) v.push('status')
         if (version < 4 && !v.includes('source')) v.push('source')
+        if (version < 5 && !v.includes('server')) v.push('server')
         if (version < COLS_VERSION) {
           localStorage.setItem('requests_columns', JSON.stringify(v))
           localStorage.setItem('requests_columns_version', String(COLS_VERSION))
@@ -425,7 +503,7 @@
     const groupOf = new Map(groupings[grouping].map(([key, group, label]) => [key, { group, label }]))
     return order.map((k) => ({ ...columns.find((c) => c.key === k)!, ...groupOf.get(k) }))
   })
-  const visibleCols = $derived(orderedCols.filter((c) => chosen.includes(c.key as Col)))
+  const visibleCols = $derived(orderedCols.filter((c) => chosen.includes(c.key as Col) && (c.key !== 'server' || servers.many)))
   // The top header row: one cell per run of neighbouring columns with the
   // same group, and an empty cell per column without one.
   const groupRow = $derived.by(() => {
@@ -574,7 +652,10 @@
   {@const progress = flight?.progress}
   {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
-  {:else if k === 'model'}<td><ModelMark model={r.model} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} /><span title={modelTitle(r.model)}>{requestedLabel(r.model) || '–'}</span></td>
+  {:else if k === 'server'}<td class="text-muted">{serverName(serverOf(r))}</td>
+  {:else if k === 'model'}
+    {@const mv = modelView(r.server)}
+    <td><ModelMark model={r.model} color={mv.color(r.model)} shape={mv.shape(r.model)} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} /><span title={mv.title(r.model)}>{mv.requested(r.model) || '–'}</span></td>
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
   {:else if k === 'source'}
     <td class="overflow-hidden text-ellipsis text-muted {sourceShow === 'agent' ? 'max-w-[260px]' : 'max-w-[180px]'}" title={sourceTitle(r)}>
@@ -613,13 +694,19 @@
   />
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={model}>
     <option value="">All models</option>
-    {#each visibleModels.config as m}<option value={m}>{modelLabel(m)}</option>{/each}
+    {#each visibleModels.config as m}<option value={m.id}>{m.label}</option>{/each}
     {#if visibleModels.old.length}
       <optgroup label="No longer in llama-swap's config">
-        {#each visibleModels.old as m}<option value={m}>{modelLabel(m)}</option>{/each}
+        {#each visibleModels.old as m}<option value={m.id}>{m.label}</option>{/each}
       </optgroup>
     {/if}
   </select>
+  {#if servers.many}
+    <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={serverFilter} title="Which server's requests to list">
+      <option value="">All servers</option>
+      {#each servers.list as s (s.id)}<option value={s.id}>{serverName(s)}</option>{/each}
+    </select>
+  {/if}
   <select class="rounded-md border border-line bg-panel2 px-2 py-1" bind:value={range} title="How far back to list requests">
     {#each ranges as [v, label]}<option value={v}>{label}</option>{/each}
   </select>
@@ -634,6 +721,7 @@
     {/each}
   </div>
   <span class="flex-1"></span>
+  {#if silent.length}<span class="text-xs text-muted" title="Their requests aren't listed. They're asked again when the list next loads.">{silent.map((s) => serverName(servers.get(s))).join(', ')} didn't answer</span>{/if}
   {#if !live.connected}<span class="text-xs text-warn">Live updates reconnecting…</span>{/if}
   <details bind:this={picker} class="relative">
     <summary class="cursor-pointer list-none rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:text-text">Columns</summary>
@@ -727,9 +815,9 @@
 
 <!-- The table scrolls inside its box so the header can stay pinned. A box that
      scrolls sideways can't also let the header stick to the page. The height
-     leaves room for the status bar (34px) and the page's bottom padding (4rem),
+     leaves room for the status bar (--bar-h) and the page's bottom padding (4rem),
      so the whole box fits on screen. -->
-<div class="max-h-[calc(100dvh-34px-4.5rem)] overflow-auto rounded-lg border border-line bg-panel">
+<div class="max-h-[calc(100dvh_-_var(--bar-h)_-_4.5rem)] overflow-auto rounded-lg border border-line bg-panel">
   <table class="w-full border-collapse">
     <colgroup>
       {#each visibleCols as c}<col class={edges.has(c.key) ? 'border-l border-line-soft' : ''} />{/each}
@@ -760,16 +848,16 @@
       </tr>
     </thead>
     <tbody>
-      {#each shown as r (r.id)}
-        {@const flight = r.state === 'in_flight' ? live.flights.get(r.id) : undefined}
+      {#each shown as r (rk(r))}
+        {@const flight = r.state === 'in_flight' ? live.of(r.server ?? '')?.get(r.id) : undefined}
         <tr
-          class="cursor-pointer [&>td]:border-b [&>td]:border-line-soft [&>td]:px-2 [&>td]:py-1.5 [&>td]:whitespace-nowrap {open === r.id ? '[&>td]:bg-primary/10' : 'hover:[&>td]:bg-hover'}"
-          onclick={() => (open = open === r.id ? null : r.id)}
+          class="cursor-pointer [&>td]:border-b [&>td]:border-line-soft [&>td]:px-2 [&>td]:py-1.5 [&>td]:whitespace-nowrap {open === rk(r) ? '[&>td]:bg-primary/10' : 'hover:[&>td]:bg-hover'}"
+          onclick={() => (open = open === rk(r) ? null : rk(r))}
         >
           {#each visibleCols as c}{@render cell(c.key, r, flight)}{/each}
         </tr>
-        {#if open === r.id}
-          <tr><td colspan={visibleCols.length} class="border-b border-line-soft bg-[#252930] px-3.5 py-3"><RequestDetail row={r} usualExperts={heat.median('experts', r.model)} onopen={(id) => (open = id)} /></td></tr>
+        {#if open === rk(r)}
+          <tr><td colspan={visibleCols.length} class="border-b border-line-soft bg-[#252930] px-3.5 py-3"><RequestDetail row={r} usualExperts={heat.median('experts', r)} onopen={(id) => (open = rk({ server: r.server, id }))} /></td></tr>
         {/if}
       {:else}
         <tr><td colspan={visibleCols.length} class="px-3 py-6 text-center text-muted">{loading ? 'Loading…' : 'No matching requests.'}</td></tr>

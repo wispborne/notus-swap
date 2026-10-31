@@ -102,7 +102,7 @@
 
   <Servers />
 
-  <section id="app-title" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
+  <section id="app-title" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">App title</h2>
     <p class="mt-1 text-[12.5px] text-muted">Shown in the top left corner and on the browser tab. Leave it empty for "{defaultTitle}". Saved on the server, for every browser.</p>
     <form
@@ -134,7 +134,7 @@
     {#if titleError}<p class="mt-2 text-[12.5px] text-err">{titleError}</p>{/if}
   </section>
 
-  <section id="theme" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
+  <section id="theme" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Theme</h2>
     <p class="mt-1 text-[12.5px] text-muted">Colour themes from TriOS. Saved in this browser only.</p>
     <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Theme">
@@ -154,7 +154,7 @@
     </div>
   </section>
 
-  <section id="model-labels" class="mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4">
+  <section id="model-labels" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Model labels</h2>
     <p class="mt-1 text-[12.5px] text-muted">
       Show models by the name in llama-swap's config, or by their ID. A model without a name shows its ID either way. Hovering a model shows both. Saved in this browser only.
@@ -173,7 +173,7 @@
     </div>
   </section>
 
-  <section id="models" class="scroll-mt-12 rounded-lg border border-line bg-panel p-4">
+  <section id="models" class="scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Models</h2>
     <p class="mt-1 text-[12.5px] text-muted">
       Click a model's dot to choose its colour and shape. They are used on every page, and saved on the server for every browser.

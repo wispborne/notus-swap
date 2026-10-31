@@ -8,18 +8,23 @@
   import { privacy } from './privacy.svelte'
   import { peerStatus, reachable, serverName, servers, stateWords, type Server } from './servers.svelte'
   import { isSocketSensor, status, type GPU, type Status } from './status.svelte'
-  import { itemLabels, statusItems, type ItemId } from './statusItems.svelte'
+  import { itemLabels, serversShown, statusItems, type ItemId } from './statusItems.svelte'
   import UsageBar from './UsageBar.svelte'
 
+  // The bar's height, for layout that fills the screen (--bar-h in app.css).
+  let bar = $state<HTMLElement>()
   onMount(() => {
     status.start()
     live.connect()
+    const ro = new ResizeObserver(() => document.documentElement.style.setProperty('--bar-h', `${bar!.offsetHeight}px`))
+    ro.observe(bar!)
+    return () => ro.disconnect()
   })
 
-  // One server's part of the bar. With other servers in the Servers list,
-  // the bar shows one group per server, in the list's order, then the total
-  // power. Another server's models use its own names, colours and hidden
-  // models.
+  // One server's row of the bar. With other servers in the Servers list, the
+  // bar shows one row per server, in the list's order, up to the number
+  // chosen in its menu. Like items line up in columns. Another server's
+  // models use its own names, colours and hidden models.
   interface View {
     key: string
     /** Set when the bar shows groups. */
@@ -47,7 +52,7 @@
       title: modelTitle,
     }
     if (!servers.many) return [home]
-    return servers.list.map((sv): View => {
+    return servers.list.slice(0, serversShown.count).map((sv): View => {
       if (sv.self) return { ...home, server: sv }
       const r = peerStatus.get(sv.id)
       const s = r?.current ?? null
@@ -132,6 +137,18 @@
     return statusItems.list.filter((i) => i.on && available(i.id)).map((i) => i.id)
   }
   const powerOn = $derived(statusItems.list.some((i) => i.id === 'power' && i.on))
+
+  // Each row's figures and items, and the columns: every item some row shows,
+  // in the chosen order. A row without an item leaves its cell empty.
+  const rows = $derived(
+    views.map((v) => {
+      const f = v.s ? figures(v.s) : null
+      return { v, f, shown: shownFor(v, f) }
+    }),
+  )
+  const columns = $derived(statusItems.list.map((i) => i.id).filter((id) => rows.some((r) => r.shown.includes(id))))
+  // Servers past the number shown.
+  const more = $derived(servers.many ? servers.list.slice(serversShown.count) : [])
 
   // Dragging an item, on the bar or in the menu, moves it as the pointer passes
   // the middle of another item. The order is saved when the drag ends.
@@ -258,66 +275,75 @@ State: {m.state}">
   {/if}
 {/snippet}
 
-<header class="sticky top-0 z-20 flex h-[34px] items-center gap-[18px] overflow-x-auto border-b border-line bg-sunken px-3 text-xs whitespace-nowrap">
-  <span class="font-bold tracking-wide text-primary">{appTitle.text}</span>
-
-  {#if !status.reachable}
-    <span class="flex items-center gap-1.5 text-err"><span class="relative top-px inline-block size-2 rounded-full bg-err"></span><b>notus-swap unavailable</b></span>
-  {/if}
-
-  {#each views as v, g (v.key)}
-    {@const f = v.s ? figures(v.s) : null}
-    {@const shown = shownFor(v, f)}
-    <span class="flex items-center gap-[18px] {g > 0 ? 'border-l border-line pl-[18px]' : ''}">
-      <!-- The title in the corner already names this server when its group is first. -->
-      {#if v.server && !(v.server.self && g === 0)}
-        <span
-          class="flex items-center gap-1.5 font-semibold text-text"
-          title={v.server.self ? 'This server' : `${stateWords(v.server)} · ${v.server.url}`}
-        >
-          {#if !v.server.self && v.server.state !== 'online'}<span class="relative top-px inline-block size-2 rounded-full {dot[v.server.state] ?? 'bg-dim'}"></span>{/if}
-          {serverName(v.server)}
-        </span>
-      {/if}
-      {#if v.server && !v.server.self && !v.reachable}
-        <span class="text-dim">{stateWords(v.server)}</span>
-      {:else}
-        {#each shown as id, i (id)}
+<!-- One row per server, on one grid so like items line up in columns: the
+     server's name, one column per item, then the menu on the first row. -->
+<header
+  bind:this={bar}
+  class="sticky top-0 z-20 grid min-h-[34px] items-center gap-x-[18px] gap-y-[2px] overflow-x-auto border-b border-line bg-sunken px-3 py-[7px] text-xs whitespace-nowrap"
+  style:grid-template-columns="auto {columns.map(() => 'auto').join(' ')} minmax(0, 1fr) auto"
+>
+  {#each rows as { v, f, shown }, r (v.key)}
+    {@const row = r + 1}
+    {@const home = !v.server || v.server.self}
+    <span
+      class="flex items-center gap-1.5 {home ? 'font-bold tracking-wide text-primary' : 'font-semibold text-text'}"
+      style:grid-row={row}
+      style:grid-column={1}
+      title={v.server ? (v.server.self ? 'This server' : `${stateWords(v.server)} · ${v.server.url}`) : undefined}
+    >
+      {#if !home && v.server!.state !== 'online'}<span class="relative top-px inline-block size-2 rounded-full {dot[v.server!.state] ?? 'bg-dim'}"></span>{/if}
+      {home ? appTitle.text : serverName(v.server)}
+    </span>
+    {#if home && !status.reachable}
+      <span class="flex items-center gap-1.5 text-err" style:grid-row={row} style:grid-column="2 / span {Math.max(columns.length, 1)}">
+        <span class="relative top-px inline-block size-2 rounded-full bg-err"></span><b>notus-swap unavailable</b>
+      </span>
+    {:else if !home && !v.reachable}
+      <span class="text-dim" style:grid-row={row} style:grid-column="2 / span {Math.max(columns.length, 1)}">{stateWords(v.server!)}</span>
+    {:else}
+      {#each columns as id, i (id)}
+        {#if shown.includes(id)}
           <span
             role="listitem"
             draggable="true"
             class="flex items-center {dragging === id ? 'opacity-40' : ''}"
+            style:grid-row={row}
+            style:grid-column={i + 2}
             ondragstart={(e) => dragStart(e, id)}
             ondragover={(e) => dragOver(e, id, 'x')}
             ondrop={(e) => e.preventDefault()}
             ondragend={dragEnd}
           >
-            {@render item(id, i, v, f, shown)}
+            {@render item(id, i, v, f, columns)}
           </span>
-        {/each}
-      {/if}
-    </span>
+        {/if}
+      {/each}
+    {/if}
   {/each}
-  {#if servers.many && powerOn && total.parts > 1 && total.gpu != null}
-    <span class="flex items-center gap-1 border-l border-line pl-[18px] text-muted" title="Every server that answers, added up">
-      All servers
-      <b class="num font-semibold text-text">{Math.round(total.gpu)}</b> W
-      {#if total.system != null}<span class="text-dim">· system ≈ {Math.round(total.system)} W</span>{/if}
-    </span>
-  {/if}
-  {#if !live.connected && status.reachable}<span class="text-warn">live updates reconnecting…</span>{/if}
 
-  <span class="flex-1"></span>
-  {#if status.current}<span class="text-dim" title="notus-swap version">{status.current.version}</span>{/if}
-  <button
-    bind:this={menuButton}
-    class="-mx-1 rounded px-1 py-0.5 text-dim hover:bg-hover hover:text-text"
-    title="Choose and order the status bar's items"
-    aria-label="Status bar items"
-    onclick={toggleMenu}
-  >
-    <svg viewBox="0 0 16 16" class="size-[13px]" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="13" cy="8" r="1.4" /></svg>
-  </button>
+  <span class="flex items-center gap-[18px] justify-self-end" style:grid-row={1} style:grid-column={columns.length + 3}>
+    {#if servers.many && powerOn && total.parts > 1 && total.gpu != null}
+      <span class="flex items-center gap-1 text-muted" title="Every server that answers, added up">
+        All servers
+        <b class="num font-semibold text-text">{Math.round(total.gpu)}</b> W
+        {#if total.system != null}<span class="text-dim">· system ≈ {Math.round(total.system)} W</span>{/if}
+      </span>
+    {/if}
+    {#if more.length}
+      <span class="text-dim" title={more.map((s) => `${serverName(s)}: ${stateWords(s)}`).join('\n')}>+{more.length} more {more.length === 1 ? 'server' : 'servers'}</span>
+    {/if}
+    {#if !live.connected && status.reachable}<span class="text-warn">live updates reconnecting…</span>{/if}
+    {#if status.current}<span class="text-dim" title="notus-swap version">{status.current.version}</span>{/if}
+    <button
+      bind:this={menuButton}
+      class="-mx-1 rounded px-1 py-0.5 text-dim hover:bg-hover hover:text-text"
+      title="Choose and order the status bar's items"
+      aria-label="Status bar items"
+      onclick={toggleMenu}
+    >
+      <svg viewBox="0 0 16 16" class="size-[13px]" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="13" cy="8" r="1.4" /></svg>
+    </button>
+  </span>
 </header>
 
 {#if menuOpen}
@@ -358,6 +384,19 @@ State: {m.state}">
         >
       </div>
     {/each}
+    {#if servers.many}
+      <label class="mt-1 flex items-center gap-2 border-t border-line-soft px-1.5 pt-1.5 text-muted">
+        Servers shown, one row each
+        <input
+          type="number"
+          min="1"
+          max="9"
+          class="ml-auto w-12 rounded border border-line bg-panel px-1 py-0.5 text-text outline-none focus:border-primary"
+          value={serversShown.count}
+          onchange={(e) => serversShown.set(e.currentTarget.valueAsNumber)}
+        />
+      </label>
+    {/if}
     <div class="mt-1 border-t border-line-soft px-1.5 pt-1.5">
       <button
         class="rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-text disabled:opacity-40"

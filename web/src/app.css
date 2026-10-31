@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "./themes.css";
 
+/* The status bar's height. StatusBar.svelte sets it, because the bar has one
+   row per server it shows. Layout that fills the screen subtracts it. */
+:root {
+  --bar-h: 34px;
+}
+
 /* The "Sigma" theme from TriOS, plus shades derived from it. Dark only. It is
    the default; the other themes in themes.css override these colours.
    `static` keeps every colour in the CSS, because some are only read with var(). */

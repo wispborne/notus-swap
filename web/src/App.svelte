@@ -108,11 +108,11 @@
 
 <StatusBar />
 
-<div class="flex min-h-[calc(100vh-34px)]">
+<div class="flex min-h-[calc(100vh_-_var(--bar-h))]">
   <!-- Spacing here is in whole pixels, so the icons land on whole pixels and
        stay sharp. It stays in view while the page scrolls. -->
   <nav
-    class="sticky top-[34px] hidden h-[calc(100vh-34px)] flex-none flex-col border-r border-line bg-[#1e2127] px-[6px] py-[8px] transition-[width] md:flex {collapsed
+    class="sticky top-(--bar-h) hidden h-[calc(100vh_-_var(--bar-h))] flex-none flex-col border-r border-line bg-[#1e2127] px-[6px] py-[8px] transition-[width] md:flex {collapsed
       ? 'w-[46px]'
       : 'w-[176px]'}"
   >
@@ -197,15 +197,15 @@
     <NavIcon name={p.path} />
     {#if dots && p.path === 'system' && status.current?.update_available}
       <span class="absolute -top-[2px] -right-[2px] size-[7px] rounded-full bg-secondary" title="An update is available"></span>
-    {:else if dots && p.path === 'requests' && live.flights.size}
-      <span class="pulse absolute -top-[2px] -right-[2px] size-[7px] rounded-full bg-secondary" title="{live.flights.size} in progress"></span>
+    {:else if dots && p.path === 'requests' && live.total}
+      <span class="pulse absolute -top-[2px] -right-[2px] size-[7px] rounded-full bg-secondary" title="{live.total} in progress"></span>
     {/if}
   </span>
 {/snippet}
 
 {#snippet badge(p: (typeof pages)[number])}
-  {#if p.path === 'requests' && live.flights.size}
-    <span class="num ml-auto rounded-full bg-secondary/15 px-[6px] text-[11px] leading-[16px] text-secondary" title="{live.flights.size} in progress">{live.flights.size}</span>
+  {#if p.path === 'requests' && live.total}
+    <span class="num ml-auto rounded-full bg-secondary/15 px-[6px] text-[11px] leading-[16px] text-secondary" title="{live.total} in progress">{live.total}</span>
   {:else if p.path === 'system' && status.current?.update_available}
     <span class="ml-auto rounded-full bg-secondary/15 px-[6px] text-[11px] leading-[16px] text-secondary">Update</span>
   {/if}

@@ -273,7 +273,7 @@
   const msgColor ={ ok: 'border-l-primary', err: 'border-l-err', wait: 'border-l-secondary' }
   const btn = 'rounded-md border border-line bg-panel2 px-2.5 py-1 hover:border-primary disabled:opacity-50 disabled:hover:border-line'
   // scroll-mt keeps a section's top clear of the status bar when a link at the top of the page jumps to it.
-  const section = 'mb-4 scroll-mt-12 rounded-lg border border-line bg-panel p-4'
+  const section = 'mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4'
 </script>
 
 {#if error}<div class="mb-3 text-err">Could not load system information: {error}</div>{/if}
