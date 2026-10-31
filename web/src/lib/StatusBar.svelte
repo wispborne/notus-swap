@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { appTitle } from './appTitle.svelte'
+  import type { Shape } from './modelColors.svelte'
   import ModelMark from './ModelMark.svelte'
   import { modelLabel, modelTitle } from './modelNames.svelte'
   import { live } from './live.svelte'
   import { privacy } from './privacy.svelte'
-  import { isSocketSensor, status, type GPU } from './status.svelte'
+  import { peerStatus, reachable, serverName, servers, stateWords, type Server } from './servers.svelte'
+  import { isSocketSensor, status, type GPU, type Status } from './status.svelte'
   import { itemLabels, statusItems, type ItemId } from './statusItems.svelte'
   import UsageBar from './UsageBar.svelte'
 
@@ -14,35 +16,92 @@
     live.connect()
   })
 
-  const s = $derived(status.current)
-  const ls = $derived(s?.llama_swap)
-  const loaded = $derived((ls?.models ?? []).filter((m) => privacy.visible(m.model)))
-  // Every card counts toward the total, built-in graphics labelled and last,
-  // except a sensor that reads the whole CPU socket: that is CPU power.
-  const cardWatts = $derived(
-    [...(s?.gpus ?? [])]
-      .filter((g) => g.watts != null && !isSocketSensor(g))
-      .sort((a, b) => Number(a.integrated) - Number(b.integrated)),
-  )
-  const tooltip = $derived(cardWatts.map((g) => (g.integrated ? `${cardLine(g)} (built-in graphics)` : cardLine(g))).join('\n'))
-  // The system estimate adds only dedicated cards; see systemTooltip.
-  const dedicatedWatts = $derived(cardWatts.filter((g) => !g.integrated).reduce((t, g) => t + (g.watts ?? 0), 0))
-  const inFlight = $derived(live.flights.size)
-
-  // VRAM of dedicated cards: one bar segment per card, as wide as its VRAM, filled by its use.
-  const vramCards = $derived((s?.gpus ?? []).filter((g) => !g.integrated && g.vram_total))
-  const vramUsed = $derived(vramCards.reduce((t, g) => t + (g.vram_used ?? 0), 0))
-  const vramTotal = $derived(vramCards.reduce((t, g) => t + (g.vram_total ?? 0), 0))
-  const vramTooltip = $derived(vramCards.map((g) => `${g.card}: VRAM ${gb(g.vram_used)} / ${gb(g.vram_total)} GB`).join('\n'))
-
-  // Amber when nearly full and red when almost out, like the Dashboard's RAM gauge.
-  const ramColor = $derived.by(() => {
-    const f = s?.ram_used != null && s.ram_total ? s.ram_used / s.ram_total : 0
-    return f >= 0.95 ? 'var(--color-err)' : f >= 0.85 ? 'var(--color-warn)' : undefined
+  // One server's part of the bar. With other servers in the Servers list,
+  // the bar shows one group per server, in the list's order, then the total
+  // power. Another server's models use its own names, colours and hidden
+  // models.
+  interface View {
+    key: string
+    /** Set when the bar shows groups. */
+    server?: Server
+    s: Status | null
+    reachable: boolean
+    inFlight: number
+    /** This server: llama-swap's own page can be opened from here. */
+    local: boolean
+    visible: (m: string) => boolean
+    label: (m: string) => string
+    title: (m: string) => string | undefined
+    color?: (m: string) => string | undefined
+    shape?: (m: string) => Shape | undefined
+  }
+  const views = $derived.by((): View[] => {
+    const home: View = {
+      key: '',
+      s: status.current,
+      reachable: status.reachable,
+      inFlight: live.flights.size,
+      local: true,
+      visible: privacy.visible,
+      label: (m) => modelLabel(m),
+      title: modelTitle,
+    }
+    if (!servers.many) return [home]
+    return servers.list.map((sv): View => {
+      if (sv.self) return { ...home, server: sv }
+      const r = peerStatus.get(sv.id)
+      const s = r?.current ?? null
+      return {
+        key: sv.id,
+        server: sv,
+        s,
+        reachable: reachable(sv) && !!s,
+        inFlight: live.count(sv.id),
+        local: false,
+        visible: (m) => r?.visible(m) ?? false,
+        label: (m) => r?.label(m) ?? m,
+        title: (m) => r?.title(m),
+        color: (m) => r?.color(m),
+        shape: (m) => r?.shape(m),
+      }
+    })
   })
 
-  const systemTooltip = $derived.by(() => {
-    if (!s) return ''
+  // Power of every server that answers, for the total after the groups.
+  const total = $derived.by(() => {
+    const on = views.filter((v) => v.reachable && v.s)
+    const sum = (f: (s: Status) => number | null) => {
+      const vals = on.map((v) => f(v.s!)).filter((w): w is number => w != null)
+      return vals.length ? vals.reduce((t, w) => t + w, 0) : null
+    }
+    return { gpu: sum((s) => s.total_watts), system: sum((s) => s.system_watts), parts: on.filter((v) => v.s!.total_watts != null).length }
+  })
+
+  // The numbers one server's items show.
+  function figures(s: Status) {
+    // Every card counts toward the total, built-in graphics labelled and last,
+    // except a sensor that reads the whole CPU socket: that is CPU power.
+    const cardWatts = [...s.gpus].filter((g) => g.watts != null && !isSocketSensor(g)).sort((a, b) => Number(a.integrated) - Number(b.integrated))
+    // The system estimate adds only dedicated cards; see systemTooltip.
+    const dedicatedWatts = cardWatts.filter((g) => !g.integrated).reduce((t, g) => t + (g.watts ?? 0), 0)
+    // VRAM of dedicated cards: one bar segment per card, as wide as its VRAM, filled by its use.
+    const vramCards = s.gpus.filter((g) => !g.integrated && g.vram_total)
+    // Amber when nearly full and red when almost out, like the Dashboard's RAM gauge.
+    const ramFull = s.ram_used != null && s.ram_total ? s.ram_used / s.ram_total : 0
+    return {
+      cardWatts,
+      tooltip: cardWatts.map((g) => (g.integrated ? `${cardLine(g)} (built-in graphics)` : cardLine(g))).join('\n'),
+      vramCards,
+      vramUsed: vramCards.reduce((t, g) => t + (g.vram_used ?? 0), 0),
+      vramTotal: vramCards.reduce((t, g) => t + (g.vram_total ?? 0), 0),
+      vramTooltip: vramCards.map((g) => `${g.card}: VRAM ${gb(g.vram_used)} / ${gb(g.vram_total)} GB`).join('\n'),
+      ramColor: ramFull >= 0.95 ? 'var(--color-err)' : ramFull >= 0.85 ? 'var(--color-warn)' : undefined,
+      systemTooltip: systemTooltip(s, dedicatedWatts),
+    }
+  }
+  type Figures = ReturnType<typeof figures>
+
+  function systemTooltip(s: Status, dedicatedWatts: number) {
     if (s.system_watts == null)
       return `System power needs the CPU's power reading, which is not available: ${s.cpu_problem ?? 'unknown reason'}.`
     const r = (v: number | null) => Math.round(v ?? 0)
@@ -55,20 +114,24 @@
         ? "The CPU socket figure comes from the built-in graphics' PPT sensor, which covers the whole CPU."
         : "The CPU socket figure comes from the CPU's own energy counter (RAPL).",
     ].join('\n')
-  })
+  }
 
   // Items with something to show right now, in the chosen order.
-  function available(id: ItemId) {
-    if (id === 'requests') return true
-    if (!status.reachable || !ls || !s) return false
-    if (id === 'llama-swap') return true
-    if (id === 'models') return ls.up
-    if (id === 'power') return s.total_watts != null
-    if (id === 'system') return s.system_watts != null || !!s.cpu_problem
-    if (id === 'vram') return vramCards.length > 0
-    return s.ram_used != null && !!s.ram_total
+  function shownFor(v: View, f: Figures | null) {
+    const s = v.s
+    const available = (id: ItemId) => {
+      if (id === 'requests') return true
+      if (!v.reachable || !s || !f) return false
+      if (id === 'llama-swap') return true
+      if (id === 'models') return s.llama_swap.up
+      if (id === 'power') return s.total_watts != null
+      if (id === 'system') return s.system_watts != null || !!s.cpu_problem
+      if (id === 'vram') return f.vramCards.length > 0
+      return s.ram_used != null && !!s.ram_total
+    }
+    return statusItems.list.filter((i) => i.on && available(i.id)).map((i) => i.id)
   }
-  const shown = $derived(statusItems.list.filter((i) => i.on && available(i.id)).map((i) => i.id))
+  const powerOn = $derived(statusItems.list.some((i) => i.id === 'power' && i.on))
 
   // Dragging an item, on the bar or in the menu, moves it as the pointer passes
   // the middle of another item. The order is saved when the drag ends.
@@ -113,71 +176,83 @@
     if (g.busy_percent != null) parts.push(`${Math.round(g.busy_percent)}% busy`)
     return parts.join(' · ')
   }
+  const dot: Record<string, string> = { checking: 'bg-dim', needs_update: 'bg-warn', offline: 'bg-line', wrong_server: 'bg-err', not_notus: 'bg-err' }
 </script>
 
 <svelte:window onclick={closeMenu} onresize={() => (menuOpen = false)} onkeydown={(e) => e.key === 'Escape' && (menuOpen = false)} />
 
 <!-- Dots sit 1px low so they line up with the middle of the letters, not the middle of the line. -->
-{#snippet item(id: ItemId, i: number)}
+{#snippet item(id: ItemId, i: number, v: View, f: Figures | null, shown: ItemId[])}
+  {@const s = v.s}
+  {@const ls = s?.llama_swap}
   {#if id === 'llama-swap' && ls}
-    <a
-      href="/ui/"
-      target="_blank"
-      rel="noopener"
-      draggable="false"
-      class="-mx-1.5 flex items-center gap-1.5 rounded px-1.5 py-0.5 text-muted hover:bg-hover"
-      title={ls.error ? `${ls.error}\nOpen llama-swap's page` : "Open llama-swap's page"}
-    >
-      <span class="relative top-px inline-block size-2 rounded-full {!ls.up ? 'bg-err' : ls.error ? 'bg-warn' : 'bg-primary'}"></span>
-      <b class="font-semibold {ls.up ? 'text-text' : 'text-err'}">llama-swap {ls.up ? 'up' : 'down'}</b>
-    </a>
+    {@const label = `llama-swap ${ls.up ? 'up' : 'down'}`}
+    {#if v.local}
+      <a
+        href="/ui/"
+        target="_blank"
+        rel="noopener"
+        draggable="false"
+        class="-mx-1.5 flex items-center gap-1.5 rounded px-1.5 py-0.5 text-muted hover:bg-hover"
+        title={ls.error ? `${ls.error}\nOpen llama-swap's page` : "Open llama-swap's page"}
+      >
+        <span class="relative top-px inline-block size-2 rounded-full {!ls.up ? 'bg-err' : ls.error ? 'bg-warn' : 'bg-primary'}"></span>
+        <b class="font-semibold {ls.up ? 'text-text' : 'text-err'}">{label}</b>
+      </a>
+    {:else}
+      <span class="flex items-center gap-1.5 text-muted" title={ls.error}>
+        <span class="relative top-px inline-block size-2 rounded-full {!ls.up ? 'bg-err' : ls.error ? 'bg-warn' : 'bg-primary'}"></span>
+        <b class="font-semibold {ls.up ? 'text-text' : 'text-err'}">{label}</b>
+      </span>
+    {/if}
   {:else if id === 'requests'}
     <span class="flex items-center gap-1.5 text-muted">
-      <span class="relative top-px inline-block size-2 rounded-full {inFlight ? 'pulse bg-secondary' : 'bg-dim'}"></span>
-      <b class="num font-semibold text-text">{inFlight}</b> active requests
+      <span class="relative top-px inline-block size-2 rounded-full {v.inFlight ? 'pulse bg-secondary' : 'bg-dim'}"></span>
+      <b class="num font-semibold text-text">{v.inFlight}</b> active requests
     </span>
-  {:else if id === 'models'}
+  {:else if id === 'models' && ls}
+    {@const loaded = ls.models.filter((m) => v.visible(m.model))}
     <span class="flex items-center gap-1.5 text-muted">
       {#if loaded.length === 0}
         No model loaded
       {:else}
         Loaded
         {#each loaded as m}
-          <span class="flex items-center gap-1 {m.state === 'stopping' ? 'opacity-50' : ''}" title="{modelTitle(m.model)}
+          <span class="flex items-center gap-1 {m.state === 'stopping' ? 'opacity-50' : ''}" title="{v.title(m.model)}
 State: {m.state}">
-            <ModelMark model={m.model} class="relative top-px {m.state === 'starting' ? 'pulse' : ''}" />
-            <b class="font-semibold text-text">{modelLabel(m.model)}</b>
+            <ModelMark model={m.model} color={v.color?.(m.model)} shape={v.shape?.(m.model)} class="relative top-px {m.state === 'starting' ? 'pulse' : ''}" />
+            <b class="font-semibold text-text">{v.label(m.model)}</b>
             {#if m.state !== 'ready'}<span class="text-dim">({m.state === 'starting' ? 'loading' : 'unloading'})</span>{/if}
           </span>
         {/each}
       {/if}
     </span>
-  {:else if id === 'power' && s}
-    <span class="flex items-center gap-1 text-muted" title={tooltip}>
+  {:else if id === 'power' && s && f}
+    <span class="flex items-center gap-1 text-muted" title={f.tooltip}>
       <svg viewBox="0 0 16 16" class="size-[12px] text-warn" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true">
         <path d="M9.5 1.2 3 9.2h4.3l-1 5.6 6.7-8.2H8.6z" />
       </svg>
       <b class="num font-semibold text-text">{Math.round(s.total_watts ?? 0)}</b> W
-      {#if cardWatts.length > 1}
-        <span class="num text-dim">({cardWatts.map((g) => `${Math.round(g.watts!)}${g.integrated ? ' iGPU' : ''}`).join(' + ')})</span>
+      {#if f.cardWatts.length > 1}
+        <span class="num text-dim">({f.cardWatts.map((g) => `${Math.round(g.watts!)}${g.integrated ? ' iGPU' : ''}`).join(' + ')})</span>
       {/if}
     </span>
-  {:else if id === 'system' && s}
+  {:else if id === 'system' && s && f}
     <!-- Right after GPU power it reads as a note on it. Elsewhere it stands alone. -->
-    <span class="text-dim {shown[i - 1] === 'power' ? '-ml-2.5' : ''}" title={systemTooltip}>
+    <span class="text-dim {shown[i - 1] === 'power' ? '-ml-2.5' : ''}" title={f.systemTooltip}>
       {shown[i - 1] === 'power' ? '· system' : 'System'}
       {s.system_watts != null ? `≈ ${Math.round(s.system_watts)} W` : '?'}
     </span>
-  {:else if id === 'vram'}
-    <span class="flex items-center gap-1.5 text-muted" title={vramTooltip}>
+  {:else if id === 'vram' && f}
+    <span class="flex items-center gap-1.5 text-muted" title={f.vramTooltip}>
       VRAM
-      <UsageBar segments={vramCards.map((g) => ({ used: g.vram_used ?? 0, total: g.vram_total! }))} color="#b69cff" />
-      <span><b class="num font-semibold text-text">{gb(vramUsed)}</b> / {gb(vramTotal)} GB</span>
+      <UsageBar segments={f.vramCards.map((g) => ({ used: g.vram_used ?? 0, total: g.vram_total! }))} color="#b69cff" />
+      <span><b class="num font-semibold text-text">{gb(f.vramUsed)}</b> / {gb(f.vramTotal)} GB</span>
     </span>
-  {:else if id === 'ram' && s}
+  {:else if id === 'ram' && s && f}
     <span class="flex items-center gap-1.5 text-muted" title="RAM in use. Available RAM includes reclaimable cache.">
       RAM
-      <UsageBar segments={[{ used: s.ram_used ?? 0, total: s.ram_total!, color: ramColor }]} color="#40d7a3" />
+      <UsageBar segments={[{ used: s.ram_used ?? 0, total: s.ram_total!, color: f.ramColor }]} color="#40d7a3" />
       <span><b class="num font-semibold text-text">{gb(s.ram_used)}</b> / {gb(s.ram_total)} GB</span>
     </span>
   {/if}
@@ -190,23 +265,50 @@ State: {m.state}">
     <span class="flex items-center gap-1.5 text-err"><span class="relative top-px inline-block size-2 rounded-full bg-err"></span><b>notus-swap unavailable</b></span>
   {/if}
 
-  {#each shown as id, i (id)}
-    <span
-      role="listitem"
-      draggable="true"
-      class="flex items-center {dragging === id ? 'opacity-40' : ''}"
-      ondragstart={(e) => dragStart(e, id)}
-      ondragover={(e) => dragOver(e, id, 'x')}
-      ondrop={(e) => e.preventDefault()}
-      ondragend={dragEnd}
-    >
-      {@render item(id, i)}
+  {#each views as v, g (v.key)}
+    {@const f = v.s ? figures(v.s) : null}
+    {@const shown = shownFor(v, f)}
+    <span class="flex items-center gap-[18px] {g > 0 ? 'border-l border-line pl-[18px]' : ''}">
+      <!-- The title in the corner already names this server when its group is first. -->
+      {#if v.server && !(v.server.self && g === 0)}
+        <span
+          class="flex items-center gap-1.5 font-semibold text-text"
+          title={v.server.self ? 'This server' : `${stateWords(v.server)} · ${v.server.url}`}
+        >
+          {#if !v.server.self && v.server.state !== 'online'}<span class="relative top-px inline-block size-2 rounded-full {dot[v.server.state] ?? 'bg-dim'}"></span>{/if}
+          {serverName(v.server)}
+        </span>
+      {/if}
+      {#if v.server && !v.server.self && !v.reachable}
+        <span class="text-dim">{stateWords(v.server)}</span>
+      {:else}
+        {#each shown as id, i (id)}
+          <span
+            role="listitem"
+            draggable="true"
+            class="flex items-center {dragging === id ? 'opacity-40' : ''}"
+            ondragstart={(e) => dragStart(e, id)}
+            ondragover={(e) => dragOver(e, id, 'x')}
+            ondrop={(e) => e.preventDefault()}
+            ondragend={dragEnd}
+          >
+            {@render item(id, i, v, f, shown)}
+          </span>
+        {/each}
+      {/if}
     </span>
   {/each}
+  {#if servers.many && powerOn && total.parts > 1 && total.gpu != null}
+    <span class="flex items-center gap-1 border-l border-line pl-[18px] text-muted" title="Every server that answers, added up">
+      All servers
+      <b class="num font-semibold text-text">{Math.round(total.gpu)}</b> W
+      {#if total.system != null}<span class="text-dim">· system ≈ {Math.round(total.system)} W</span>{/if}
+    </span>
+  {/if}
   {#if !live.connected && status.reachable}<span class="text-warn">live updates reconnecting…</span>{/if}
 
   <span class="flex-1"></span>
-  {#if s}<span class="text-dim" title="notus-swap version">{s.version}</span>{/if}
+  {#if status.current}<span class="text-dim" title="notus-swap version">{status.current.version}</span>{/if}
   <button
     bind:this={menuButton}
     class="-mx-1 rounded px-1 py-0.5 text-dim hover:bg-hover hover:text-text"

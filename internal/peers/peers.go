@@ -129,6 +129,9 @@ type Set struct {
 	// How long a check may take, and how often servers are checked while
 	// online and while not. Tests shorten them.
 	checkTimeout, onlineEvery, offlineEvery time.Duration
+	// How long a followed live feed may stay silent before it counts as
+	// dropped, and how long to wait before opening it again.
+	silentAfter, retryEvery time.Duration
 
 	mu     sync.Mutex
 	list   []Entry
@@ -147,6 +150,7 @@ func Open(ctx context.Context, settings Settings, log *slog.Logger) (*Set, error
 	s := &Set{
 		Log: log, settings: settings,
 		checkTimeout: 5 * time.Second, onlineEvery: 15 * time.Second, offlineEvery: 5 * time.Second,
+		silentAfter: 45 * time.Second, retryEvery: 3 * time.Second,
 		status: map[string]*Server{}, next: map[string]time.Time{}, busy: map[string]bool{},
 		streams: map[string]map[uint64]context.CancelFunc{}, wake: make(chan struct{}, 1),
 	}

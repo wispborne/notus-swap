@@ -3,15 +3,13 @@
   import Markdown from '../Markdown.svelte'
   import Changelog, { type Entry } from './Changelog.svelte'
   import { bytes, when } from '../format'
-  import { api, RemoteStatus } from '../servers.svelte'
+  import { api, peerStatus } from '../servers.svelte'
   import { status } from '../status.svelte'
-  import { privacy } from '../privacy.svelte'
 
   /** The server this section acts on. '' is this server. */
   let { server = '' }: { server?: string } = $props()
   // svelte-ignore state_referenced_locally
-  const remote = server ? new RemoteStatus(server, () => privacy.showHidden) : null
-  onMount(() => remote?.start())
+  const remote = server ? peerStatus.of(server) : null
 
   interface Release {
     tag: string

@@ -59,73 +59,114 @@ export function liveInTitle(p: Progress) {
   return `${count(p.processed)} of the prompt's ${count(p.total)} tokens read so far`
 }
 
+/** An event on the merged feed: this server's own, or another server's with its ID. */
+export type FeedEvent = (LiveEvent & { server?: string }) | { type: 'peer_down'; server: string; at: number }
+
 class Live {
+  /** This server's requests in flight, by ID. */
   flights = new SvelteMap<number, LiveOutput>()
+  /** Other servers' requests in flight: by server ID, then by request ID. */
+  peers = new SvelteMap<string, SvelteMap<number, LiveOutput>>()
   connected = $state(false)
   private listeners = new Set<(e: LiveEvent) => void>()
+  private allListeners = new Set<(e: FeedEvent) => void>()
   private source?: EventSource
 
   connect() {
     if (this.source) return
-    const es = new EventSource('/notus/api/live')
+    // all=1 adds the other servers in the Servers list (internal/peers).
+    const es = new EventSource('/notus/api/live?all=1')
     this.source = es
     es.onopen = () => (this.connected = true)
     // EventSource reconnects by itself; a fresh "hello" then resets the state.
     es.onerror = () => (this.connected = false)
-    es.onmessage = (m) => this.handle(JSON.parse(m.data) as LiveEvent)
+    es.onmessage = (m) => this.handle(JSON.parse(m.data) as FeedEvent)
   }
 
-  /** Listen to every event. Returns a function that stops listening. */
+  /** A server's requests in flight. '' is this server. */
+  of(server: string) {
+    return server ? this.peers.get(server) : this.flights
+  }
+
+  /** How many requests a server has in flight. '' is this server. */
+  count(server: string) {
+    return this.of(server)?.size ?? 0
+  }
+
+  /** Listen to this server's events. Returns a function that stops listening. */
   on(fn: (e: LiveEvent) => void) {
     this.listeners.add(fn)
     return () => this.listeners.delete(fn)
   }
 
-  private handle(e: LiveEvent) {
-    switch (e.type) {
-      case 'hello':
-        this.flights.clear()
-        for (const f of e.in_flight)
-          this.flights.set(
-            f.start.id,
-            output(
-              f.start,
-              f.output.content,
-              f.output.reasoning,
-              f.chunks,
-              f.reasoning_chunks,
-              f.first_token_at,
-              f.output.tool_calls.map((t) => t.name),
-              f.progress,
-            ),
-          )
-        break
-      case 'start':
-        this.flights.set(e.id, output(e.start))
-        break
-      case 'delta': {
-        const f = this.flights.get(e.id)
-        if (f) {
-          f.content += e.content ?? ''
-          f.reasoning += e.reasoning ?? ''
-          f.chunks = e.chunks
-          f.reasoningChunks = e.reasoning_chunks ?? 0
-          f.firstTokenAt ??= e.at
-          f.lastAt = e.at
-          if (e.tools) f.tools.push(...e.tools)
-        }
-        break
-      }
-      case 'progress': {
-        const f = this.flights.get(e.id)
-        if (f) f.progress = e.progress
-        break
-      }
-      case 'finish':
-        this.flights.delete(e.id)
-        break
+  /** Listen to every server's events. Returns a function that stops listening. */
+  onAll(fn: (e: FeedEvent) => void) {
+    this.allListeners.add(fn)
+    return () => this.allListeners.delete(fn)
+  }
+
+  private handle(e: FeedEvent) {
+    if (e.type === 'peer_down') {
+      this.peers.delete(e.server)
+    } else if (e.server) {
+      let flights = this.peers.get(e.server)
+      if (!flights) this.peers.set(e.server, (flights = new SvelteMap()))
+      apply(flights, e)
+    } else {
+      // A fresh hello from this server means the feed started again, and
+      // the other servers send their own hellos after it.
+      if (e.type === 'hello') this.peers.clear()
+      apply(this.flights, e)
+      for (const fn of this.listeners) fn(e)
     }
-    for (const fn of this.listeners) fn(e)
+    for (const fn of this.allListeners) fn(e)
+  }
+}
+
+/** Applies one server's event to its requests in flight. */
+function apply(flights: SvelteMap<number, LiveOutput>, e: LiveEvent) {
+  switch (e.type) {
+    case 'hello':
+      flights.clear()
+      for (const f of e.in_flight)
+        flights.set(
+          f.start.id,
+          output(
+            f.start,
+            f.output.content,
+            f.output.reasoning,
+            f.chunks,
+            f.reasoning_chunks,
+            f.first_token_at,
+            f.output.tool_calls.map((t) => t.name),
+            f.progress,
+          ),
+        )
+      break
+    case 'start':
+      flights.set(e.id, output(e.start))
+      break
+    case 'delta': {
+      const f = flights.get(e.id)
+      if (f) {
+        f.content += e.content ?? ''
+        f.reasoning += e.reasoning ?? ''
+        f.chunks = e.chunks
+        f.reasoningChunks = e.reasoning_chunks ?? 0
+        f.firstTokenAt ??= e.at
+        f.lastAt = e.at
+        if (e.tools) f.tools.push(...e.tools)
+      }
+      break
+    }
+    case 'progress': {
+      const f = flights.get(e.id)
+      if (f) f.progress = e.progress
+      break
+    }
+    case 'finish':
+      flights.delete(e.id)
+      break
   }
 }
 

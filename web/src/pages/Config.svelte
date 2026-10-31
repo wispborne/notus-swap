@@ -6,7 +6,7 @@
   import { privacy } from '../lib/privacy.svelte'
   import ServerPicker from '../lib/ServerPicker.svelte'
   import ServerAsleep from '../lib/ServerAsleep.svelte'
-  import { api, pageServer, reachable, RemoteStatus, servers } from '../lib/servers.svelte'
+  import { api, pageServer, peerStatus, reachable, servers, type RemoteStatus } from '../lib/servers.svelte'
 
   interface File {
     path: string
@@ -99,17 +99,12 @@
     runCheck(text)
   }
   onMount(() => {
-    let stop: (() => void) | undefined
     servers.load().then(() => {
       if (destroyed) return
       server = pageServer()
-      if (server) {
-        remote = new RemoteStatus(server, () => privacy.showHidden)
-        stop = remote.start()
-      }
+      if (server) remote = peerStatus.of(server)
       started = true
     })
-    return () => stop?.()
   })
   // A server that is asleep is loaded once it answers.
   let started = $state(false)

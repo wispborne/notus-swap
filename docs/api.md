@@ -138,6 +138,8 @@ A server-sent event stream that never ends on its own. Each event is one `data:`
 
 A comment line (`: ping`) is sent every 20 seconds to keep the connection open. If the stream ends, connect again; the new `hello` holds everything still in flight.
 
+With `?all=1`, the stream also carries the live feed of every other server in the Servers list (see "Other servers" below). Their events have a `server` field with the server's ID, and IDs in them are that server's own. A server's own events have no `server` field. When another server stops answering, a `peer_down` event names it: forget its requests in flight. When it answers again, its own `hello` lists them again.
+
 ## Models
 
 ```bash

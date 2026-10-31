@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -383,10 +384,19 @@ func (a *API) retry(w http.ResponseWriter, r *http.Request) {
 // live: GET /notus/api/live, a server-sent event stream. The first event,
 // "hello", lists the requests in flight with their output so far. After that
 // each event is a capture.Event (start, delta, finish).
+//
+// With ?all=1 it also passes on the live feed of every other server in the
+// Servers list, each event with a "server" field (peers.Follow). A call that
+// came through another server only gets this server's own events.
 func (a *API) live(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	events, inFlight, cancel := a.Hub.Subscribe()
 	defer cancel()
+	var others chan []byte
+	if r.URL.Query().Get("all") == "1" && a.Peers != nil && r.Header.Get(peers.ViaHeader) == "" {
+		others = make(chan []byte, 256)
+		go a.Peers.Follow(r.Context(), others)
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -408,6 +418,10 @@ func (a *API) live(w http.ResponseWriter, r *http.Request) {
 				return // fell behind; the browser reconnects and gets a fresh hello
 			}
 			if !sendEvent(w, rc, e) {
+				return
+			}
+		case b := <-others:
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil || rc.Flush() != nil {
 				return
 			}
 		case <-ping.C:

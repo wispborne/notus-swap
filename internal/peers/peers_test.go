@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -54,12 +55,37 @@ type fakePeer struct {
 	id     atomic.Value // string
 	silent atomic.Bool  // health checks get no answer
 	last   atomic.Value // *http.Request, the last call to /notus/api/echo
+	// live feeds events to its live feed after the hello. With quiet set,
+	// the feed sends the hello and then nothing, like a computer that went
+	// to sleep.
+	live  chan string
+	quiet atomic.Bool
+	opens atomic.Int32 // live feeds opened
 }
 
 func newFakePeer(t *testing.T, id string) *fakePeer {
-	f := &fakePeer{}
+	f := &fakePeer{live: make(chan string, 8)}
 	f.id.Store(id)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /notus/api/live", func(w http.ResponseWriter, r *http.Request) {
+		f.opens.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"hello\",\"in_flight\":[]}\n\n")
+		w.(http.Flusher).Flush()
+		if f.quiet.Load() {
+			<-r.Context().Done()
+			return
+		}
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case e := <-f.live:
+				fmt.Fprintf(w, ": ping\n\ndata: %s\n\n", e)
+				w.(http.Flusher).Flush()
+			}
+		}
+	})
 	mux.HandleFunc("GET /notus/api/health", func(w http.ResponseWriter, r *http.Request) {
 		if f.silent.Load() {
 			<-r.Context().Done()
@@ -414,5 +440,108 @@ func TestSilentListener(t *testing.T) {
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("took %s", d)
+	}
+}
+
+func TestTag(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"type":"start","id":1}`: `{"server":"pc","type":"start","id":1}`,
+		`{}`:                      `{"server":"pc"}`,
+		`[1]`:                     ``,
+		``:                        ``,
+	} {
+		got, err := tag("pc", []byte(in))
+		if want == "" {
+			if err == nil {
+				t.Errorf("%q: want an error, got %s", in, got)
+			}
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("%q: got %s, want %s", in, got, want)
+		}
+	}
+}
+
+// next reads the next event from a merged feed, or fails after a while.
+func next(t *testing.T, out <-chan []byte) map[string]any {
+	t.Helper()
+	select {
+	case b := <-out:
+		var e map[string]any
+		if err := json.Unmarshal(b, &e); err != nil {
+			t.Fatalf("%s: %v", b, err)
+		}
+		return e
+	case <-time.After(3 * time.Second):
+		t.Fatal("no event")
+		return nil
+	}
+}
+
+func TestFollow(t *testing.T) {
+	s, _ := open(t)
+	s.retryEvery = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	peer := newFakePeer(t, "aaaaaaaaaaaa")
+	if _, err := s.Add(ctx, peer.URL, "PC"); err != nil {
+		t.Fatal(err)
+	}
+	out := make(chan []byte, 16)
+	go s.Follow(ctx, out)
+
+	if e := next(t, out); e["type"] != "hello" || e["server"] != "aaaaaaaaaaaa" {
+		t.Fatalf("first event %v", e)
+	}
+	peer.live <- `{"type":"start","id":7,"at":1}`
+	if e := next(t, out); e["type"] != "start" || e["id"] != float64(7) || e["server"] != "aaaaaaaaaaaa" {
+		t.Errorf("event %v", e)
+	}
+
+	// The server goes to sleep: a check ends its feed.
+	peer.silent.Store(true)
+	s.check(ctx, s.entries()[1])
+	if e := next(t, out); e["type"] != "peer_down" || e["server"] != "aaaaaaaaaaaa" {
+		t.Errorf("after sleeping %v", e)
+	}
+	// It wakes, and its feed opens again with a fresh hello.
+	peer.silent.Store(false)
+	s.check(ctx, s.entries()[1])
+	if e := next(t, out); e["type"] != "hello" {
+		t.Errorf("after waking %v", e)
+	}
+
+	// Removed from the list: dropped, with a peer_down.
+	if err := s.Remove(ctx, "aaaaaaaaaaaa"); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(t, out); e["type"] != "peer_down" {
+		t.Errorf("after removing %v", e)
+	}
+}
+
+// A feed that goes silent, with no pings, counts as dropped and is opened
+// again, even while health checks still pass.
+func TestFollowSilence(t *testing.T) {
+	s, _ := open(t)
+	s.retryEvery = 50 * time.Millisecond
+	s.silentAfter = 200 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	peer := newFakePeer(t, "aaaaaaaaaaaa")
+	peer.quiet.Store(true)
+	if _, err := s.Add(ctx, peer.URL, "PC"); err != nil {
+		t.Fatal(err)
+	}
+	out := make(chan []byte, 16)
+	go s.Follow(ctx, out)
+	for _, want := range []string{"hello", "peer_down", "hello"} {
+		if e := next(t, out); e["type"] != want {
+			t.Fatalf("got %v, want %s", e, want)
+		}
+	}
+	if n := peer.opens.Load(); n < 2 {
+		t.Errorf("feed opened %d times", n)
 	}
 }

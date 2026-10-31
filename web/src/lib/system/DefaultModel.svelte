@@ -3,14 +3,13 @@
   import { duration } from '../format'
   import { modelLabel } from '../modelNames.svelte'
   import { privacy } from '../privacy.svelte'
-  import { api, RemoteStatus } from '../servers.svelte'
+  import { api, peerStatus } from '../servers.svelte'
   import { status } from '../status.svelte'
 
   /** The server this section acts on. '' is this server. */
   let { server = '' }: { server?: string } = $props()
   // svelte-ignore state_referenced_locally
-  const remote = server ? new RemoteStatus(server, () => privacy.showHidden) : null
-  onMount(() => remote?.start())
+  const remote = server ? peerStatus.of(server) : null
 
   interface State {
     enabled: boolean

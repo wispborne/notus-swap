@@ -2,8 +2,11 @@
 // shows, in order. The first is the primary. The browser only talks to this
 // server, which passes calls on to the others (internal/peers). The list
 // arrives with every status poll.
+import { SvelteMap } from 'svelte/reactivity'
 import { appTitle } from './appTitle.svelte'
+import { palette, type Shape } from './modelColors.svelte'
 import { modelShow } from './modelNames.svelte'
+import { privacy } from './privacy.svelte'
 import type { RunningModel, Status } from './status.svelte'
 
 export interface Server {
@@ -29,6 +32,7 @@ class Servers {
     if (!list) return
     if (JSON.stringify(list) !== JSON.stringify(this.list)) this.list = list
     this.ready = true
+    peerStatus.sync(list)
   }
 
   /** Reads the list now, for pages that don't wait for a status poll. */
@@ -106,30 +110,35 @@ export function showServer(id: string) {
 }
 
 /**
- * Another server's status, polled while a page shows that server, for its
- * models and hidden models. The "Show hidden models" switch is this server's.
+ * Another server's status, polled every 2 seconds through this server, for
+ * the status bar and for its models and hidden models. This server's "Show
+ * hidden models" switch applies to them.
  */
 export class RemoteStatus {
   current = $state<Status | null>(null)
   private timer?: ReturnType<typeof setInterval>
 
-  constructor(
-    private server: string,
-    private showHidden: () => boolean,
-  ) {}
+  constructor(private server: string) {}
 
   start() {
     const poll = async () => {
+      // While the server is off, this server would only answer 503. The list
+      // says when it is back.
+      const s = servers.get(this.server)
+      if (s && !reachable(s)) return
       try {
         const res = await fetch(api(this.server, '/notus/api/status'))
         if (res.ok) this.current = await res.json()
       } catch {
-        // Offline: keep the last answer.
+        // Unreachable: keep the last answer. The server's state says it is off.
       }
     }
     poll()
-    this.timer = setInterval(poll, 5000)
-    return () => clearInterval(this.timer)
+    this.timer = setInterval(poll, 2000)
+  }
+
+  stop() {
+    clearInterval(this.timer)
   }
 
   private hidden = $derived(new Set(this.current?.privacy.hidden_models ?? []))
@@ -138,13 +147,63 @@ export class RemoteStatus {
   private id(m: string) {
     return this.current?.llama_swap.known.find((k) => k.model === m || k.aliases?.includes(m))?.model ?? m
   }
+  private known(m: string): RunningModel | undefined {
+    const id = this.id(m)
+    return this.current?.llama_swap.known.find((x) => x.model === id)
+  }
 
-  visible = (m: string) => this.showHidden() || !this.hidden.has(this.id(m))
+  visible = (m: string) => privacy.showHidden || !this.hidden.has(this.id(m))
   /** Whether the server hides any model. */
   hides = $derived(this.hidden.size > 0)
 
   label = (m: string) => {
-    const k: RunningModel | undefined = this.current?.llama_swap.known.find((x) => x.model === this.id(m))
+    const k = this.known(m)
     return modelShow.show === 'name' && k?.name ? k.name : m
   }
+  /** Both the name and the ID, for a tooltip. */
+  title = (m: string) => {
+    const k = this.known(m)
+    return k?.name && k.name !== k.model ? `${k.name}\n${k.model}` : this.id(m)
+  }
+  /** The model's colour and shape on its own server. */
+  color = (m: string) => {
+    const id = this.id(m)
+    const own = this.current?.model_marks?.[id]?.color
+    const i = this.current?.model_colors?.[id]
+    return own ?? (i != null ? palette[i % palette.length] : undefined)
+  }
+  shape = (m: string): Shape | undefined => this.current?.model_marks?.[this.id(m)]?.shape
 }
+
+/** One RemoteStatus per other server in the list, shared by every page. */
+class PeerStatuses {
+  private map = new SvelteMap<string, RemoteStatus>()
+
+  /** Starts polling servers new to the list, and stops removed ones. */
+  sync(list: Server[]) {
+    const ids = new Set(list.filter((s) => !s.self).map((s) => s.id))
+    for (const id of ids) this.of(id)
+    for (const [id, r] of this.map)
+      if (!ids.has(id)) {
+        r.stop()
+        this.map.delete(id)
+      }
+  }
+
+  /** The server's status poller, if it has one. Unlike of(), never starts one. */
+  get(id: string) {
+    return this.map.get(id)
+  }
+
+  of(id: string) {
+    let r = this.map.get(id)
+    if (!r) {
+      r = new RemoteStatus(id)
+      this.map.set(id, r)
+      r.start()
+    }
+    return r
+  }
+}
+
+export const peerStatus = new PeerStatuses()
