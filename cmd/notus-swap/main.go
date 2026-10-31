@@ -260,7 +260,7 @@ func run(log *slog.Logger, logs *logbuf.Buffer, listen, upstream, dbPath string,
 	hub.Cmd = cmds.get
 	slots := &capture.SlotPoller{Hub: hub, Fetch: monitor.FetchSlots, Ready: monitor.Ready, ID: monitor.ID, Log: log}
 	go slots.Run(ctx)
-	strata := &capture.StrataStats{Store: st, Hub: hub, Fetch: monitor.FetchStrata, Ready: monitor.Ready, Log: log}
+	strata := &capture.StrataStats{Store: st, Hub: hub, Fetch: monitor.FetchStrata, Ready: monitor.Ready, ID: monitor.ID, Log: log}
 	hub.Strata = strata.Finished
 	monitor.OnReady = func(model string) {
 		slots.Loaded(model)

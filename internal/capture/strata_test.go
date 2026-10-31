@@ -24,7 +24,8 @@ func TestStrataStats(t *testing.T) {
 	defer st.Close()
 	start := time.Unix(1793397946, 0)
 	end := start.Add(28 * time.Second)
-	id, err := st.Begin(ctx, store.Begin{StartedAt: start, Method: "POST", Path: "/v1/chat/completions", Model: "qwen"})
+	// The client named the model by an alias.
+	id, err := st.Begin(ctx, store.Begin{StartedAt: start, Method: "POST", Path: "/v1/chat/completions", Model: "code"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,13 +48,17 @@ func TestStrataStats(t *testing.T) {
 	h := NewHub()
 	events, _, cancel := h.Subscribe()
 	defer cancel()
-	s := &StrataStats{Store: st, Hub: h, Ready: func(string) bool { return true }, Wait: time.Millisecond,
+	s := &StrataStats{Store: st, Hub: h, Ready: func(m string) bool { return m == "qwen" }, Wait: time.Millisecond,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ID:  func(name string) string { return map[string]string{"code": "qwen"}[name] },
 		Fetch: func(ctx context.Context, model string) (llamaswap.Strata, error) {
+			if model != "qwen" {
+				t.Errorf("read the /metrics of %q, not the model's ID", model)
+			}
 			calls++
 			return llamaswap.Strata{Requests: answers[min(calls-1, len(answers)-1)]}, nil
 		}}
-	s.Finished(ctx, id, "qwen", start, end, 99960, 1976)
+	s.Finished(ctx, id, "code", start, end, 99960, 1976)
 
 	r, _ := st.Get(ctx, id)
 	var got ServerStats

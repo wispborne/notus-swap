@@ -63,9 +63,11 @@ type StrataStats struct {
 	Store *store.Store
 	Hub   *Hub
 	// Fetch reads a model's /metrics. Ready reports whether a model is
-	// loaded, since asking one that isn't would load it.
+	// loaded, since asking one that isn't would load it. ID, if set, turns
+	// an alias into the model's ID.
 	Fetch func(ctx context.Context, model string) (llamaswap.Strata, error)
 	Ready func(model string) bool
+	ID    func(name string) string
 	Log   *slog.Logger
 	// Wait is the time between tries, while Strata hasn't recorded the
 	// request yet. Zero means a second.
@@ -82,6 +84,9 @@ func (s *StrataStats) Finished(ctx context.Context, id int64, model string, star
 	wait := s.Wait
 	if wait == 0 {
 		wait = time.Second
+	}
+	if s.ID != nil {
+		model = s.ID(model)
 	}
 	for try := 0; try < 3; try++ {
 		if try > 0 {
