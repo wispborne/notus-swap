@@ -7,12 +7,15 @@
     draft = $bindable(),
     saved = $bindable(),
     defaults,
+    server = '',
     clients,
     counts,
   }: {
     draft: SpeedFilter
     saved: SpeedFilter
     defaults: SpeedFilter
+    /** The server whose filter this is, '' for this one. */
+    server?: string
     clients: { name: string; requests: number }[]
     counts: { requests: number; gen_counted: number; prompt_counted: number } | null
   } = $props()
@@ -27,7 +30,7 @@
     saving = true
     error = ''
     try {
-      await saveSpeedFilter(draft)
+      await saveSpeedFilter(draft, server)
       saved = structuredClone($state.snapshot(draft))
     } catch (e) {
       error = `Couldn't save speed filters: ${e instanceof Error ? e.message : e}`

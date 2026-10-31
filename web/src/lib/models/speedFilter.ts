@@ -1,5 +1,6 @@
 // Which requests count toward speeds, on the Models page and its Speed tab.
 // Matches store.SpeedFilter; the server keeps it as the speed_filter setting.
+import { api } from '../serverPath'
 export interface SpeedFilter {
   min_output: number
   min_new_prompt: number
@@ -11,14 +12,15 @@ export interface SpeedFilter {
   structured: '' | 'exclude' | 'only'
 }
 
-export async function loadSpeedFilter(): Promise<{ filter: SpeedFilter; default: SpeedFilter }> {
-  const res = await fetch('/notus/api/speed-filter')
+// Each server keeps its own filter. server is '' for this one.
+export async function loadSpeedFilter(server = ''): Promise<{ filter: SpeedFilter; default: SpeedFilter }> {
+  const res = await fetch(api(server, '/notus/api/speed-filter'))
   if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
   return res.json()
 }
 
-export async function saveSpeedFilter(f: SpeedFilter) {
-  const res = await fetch('/notus/api/speed-filter', {
+export async function saveSpeedFilter(f: SpeedFilter, server = '') {
+  const res = await fetch(api(server, '/notus/api/speed-filter'), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(f),

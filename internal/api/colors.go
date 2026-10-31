@@ -79,8 +79,12 @@ func (a *API) assignColors(ctx context.Context, config []string, others []string
 	slices.Sort(rest)
 	add = append(add, rest...)
 
+	var peers []int
+	if a.Peers != nil && len(add) > 0 {
+		peers = a.Peers.PaletteUsed()
+	}
 	for k, m := range add {
-		c.colors[m] = c.pick(m, add[:k])
+		c.colors[m] = c.pick(m, add[:k], peers)
 	}
 	if len(add) > 0 {
 		if b, err := json.Marshal(c.colors); err == nil {
@@ -123,8 +127,15 @@ func (a *API) loadColors(ctx context.Context) bool {
 // neighbours in the config, then the one the fewest models use, then the
 // lowest. Only config models and the models given colours just before it
 // (added) count, so colours of models gone from the config can be used again.
-func (c *modelColors) pick(model string, added []string) int {
+// peers counts the colours of the other servers' config models, which count
+// as used too, so models shown side by side differ where they can.
+func (c *modelColors) pick(model string, added []string, peers []int) int {
 	used := make([]int, paletteSize)
+	for i, n := range peers {
+		if i < paletteSize {
+			used[i] += n
+		}
+	}
 	for _, m := range c.config {
 		if i, ok := c.colors[m]; ok && i >= 0 && i < paletteSize {
 			used[i]++
@@ -158,6 +169,25 @@ func (c *modelColors) pick(model string, added []string) int {
 		best = 0
 	}
 	return best
+}
+
+// paletteUsed counts how many config models have each automatic palette
+// colour, for other servers to avoid (health's palette_used). Nil until
+// llama-swap's list has been seen.
+func (a *API) paletteUsed(ctx context.Context) []int {
+	c := &a.colors
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !a.loadColors(ctx) || len(c.config) == 0 {
+		return nil
+	}
+	used := make([]int, autoColors)
+	for _, m := range c.config {
+		if i, ok := c.colors[m]; ok && i >= 0 && i < autoColors {
+			used[i]++
+		}
+	}
+	return used
 }
 
 // statusColors is the model_colors for the status poll, without hidden models

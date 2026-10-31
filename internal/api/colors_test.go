@@ -109,3 +109,40 @@ func TestSetMark(t *testing.T) {
 		t.Error("b still has a mark")
 	}
 }
+
+// Colours the other servers' models use count as used, so a new model gets
+// one they don't have where it can.
+func TestPickAvoidsPeerColors(t *testing.T) {
+	c := &modelColors{colors: map[string]int{"a": 0, "b": 1}, config: []string{"a", "b", "c"}}
+	// Without other servers, c takes the first colour no neighbour has and
+	// the fewest models use.
+	if got := c.pick("c", nil, nil); got != 2 {
+		t.Errorf("alone: %d, want 2", got)
+	}
+	// Another server uses colours 2 to 4, so c takes 5.
+	if got := c.pick("c", nil, []int{0, 0, 1, 1, 1}); got != 5 {
+		t.Errorf("with another server: %d, want 5", got)
+	}
+}
+
+func TestPaletteUsed(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a := &API{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if used := a.paletteUsed(ctx); used != nil {
+		t.Errorf("before llama-swap's list: %v", used)
+	}
+	a.assignColors(ctx, []string{"a", "b", "c"}, nil)
+	used := a.paletteUsed(ctx)
+	sum := 0
+	for _, n := range used {
+		sum += n
+	}
+	if len(used) != autoColors || sum != 3 {
+		t.Errorf("used %v", used)
+	}
+}

@@ -117,20 +117,22 @@ export class RemoteStatus {
   constructor(private server: string) {}
 
   start() {
-    const poll = async () => {
-      // While the server is off, this server would only answer 503. The list
-      // says when it is back.
-      const s = servers.get(this.server)
-      if (s && !reachable(s)) return
-      try {
-        const res = await fetch(api(this.server, '/notus/api/status'))
-        if (res.ok) this.current = await res.json()
-      } catch {
-        // Unreachable: keep the last answer. The server's state says it is off.
-      }
+    this.refresh()
+    this.timer = setInterval(() => this.refresh(), 2000)
+  }
+
+  /** Reads the status now, such as after a change saved on the server. */
+  async refresh() {
+    // While the server is off, this server would only answer 503. The list
+    // says when it is back.
+    const s = servers.get(this.server)
+    if (s && !reachable(s)) return
+    try {
+      const res = await fetch(api(this.server, '/notus/api/status'))
+      if (res.ok) this.current = await res.json()
+    } catch {
+      // Unreachable: keep the last answer. The server's state says it is off.
     }
-    poll()
-    this.timer = setInterval(poll, 2000)
   }
 
   stop() {
@@ -171,6 +173,34 @@ export class RemoteStatus {
     return own ?? (i != null ? palette[i % palette.length] : undefined)
   }
   shape = (m: string): Shape | undefined => this.current?.model_marks?.[this.id(m)]?.shape
+  paletteIndex = (m: string): number | undefined => this.current?.model_colors?.[this.id(m)]
+  customColor = (m: string) => this.current?.model_marks?.[this.id(m)]?.color
+  isHidden = (m: string) => this.hidden.has(this.id(m))
+
+  // Changes are saved on the server that runs the model, then read back.
+
+  /** Saves the model's colour and shape. See saveMark in modelColors.svelte.ts. */
+  async saveMark(m: string, change: { palette?: number; color?: string; shape: Shape }) {
+    const res = await fetch(api(this.server, `/notus/api/models/${encodeURIComponent(this.id(m))}/mark`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ palette: change.palette, color: change.color ?? '', shape: change.shape }),
+    })
+    if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`)
+    await this.refresh()
+  }
+
+  /** Hides or shows the model, in the server's own hidden_models setting. */
+  async setHidden(m: string, hide: boolean) {
+    const id = this.id(m)
+    const res = await fetch(api(this.server, '/notus/api/settings/hidden_models'))
+    if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`)
+    const list: string[] = ((await res.json()) ?? []).filter((x: string) => x !== id)
+    if (hide) list.push(id)
+    const put = await fetch(api(this.server, '/notus/api/settings/hidden_models'), { method: 'PUT', body: JSON.stringify(list.sort()) })
+    if (!put.ok) throw new Error((await put.text()).trim() || `HTTP ${put.status}`)
+    await this.refresh()
+  }
 }
 
 /** One RemoteStatus per other server in the list, shared by every page. */

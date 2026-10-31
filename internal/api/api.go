@@ -203,6 +203,9 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 	if a.Peers != nil {
 		h["server_id"] = a.Peers.SelfID
 	}
+	if used := a.paletteUsed(r.Context()); used != nil {
+		h["palette_used"] = used
+	}
 	if p := a.pendingRestart(); p != nil {
 		h["restarting"] = p
 	}

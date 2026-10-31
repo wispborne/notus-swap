@@ -94,6 +94,9 @@ type Health struct {
 	// Name is the server's app title, or "" for the default.
 	Name string `json:"name"`
 	Now  int64  `json:"now"` // unix ms
+	// PaletteUsed counts how many of the server's config models have each
+	// palette colour, so other servers can give new models other colours.
+	PaletteUsed []int `json:"palette_used,omitempty"`
 }
 
 // Probe is what checking an address found.
@@ -141,6 +144,8 @@ type Set struct {
 	// streams cancels the calls forwarded to each server, so a server that
 	// goes to sleep doesn't leave streams open that never end.
 	streams map[string]map[uint64]context.CancelFunc
+	// palette is each server's PaletteUsed from its last check.
+	palette map[string][]int
 	seq     uint64
 	wake    chan struct{}
 }
@@ -152,7 +157,7 @@ func Open(ctx context.Context, settings Settings, log *slog.Logger) (*Set, error
 		checkTimeout: 5 * time.Second, onlineEvery: 15 * time.Second, offlineEvery: 5 * time.Second,
 		silentAfter: 45 * time.Second, retryEvery: 3 * time.Second,
 		status: map[string]*Server{}, next: map[string]time.Time{}, busy: map[string]bool{},
-		streams: map[string]map[uint64]context.CancelFunc{}, wake: make(chan struct{}, 1),
+		streams: map[string]map[uint64]context.CancelFunc{}, wake: make(chan struct{}, 1), palette: map[string][]int{},
 	}
 	// A computer that is asleep never answers a connection, so without a
 	// limit each try would wait 20 seconds or more.
@@ -551,7 +556,28 @@ func (s *Set) check(ctx context.Context, e Entry) {
 	}
 	if err == nil {
 		st.ClockGapMs = &p.ClockGapMs
+		s.palette[e.ID] = p.PaletteUsed
 	}
+}
+
+// PaletteUsed adds up how many models on the other servers have each
+// palette colour, from their last health checks.
+func (s *Set) PaletteUsed() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []int
+	for id, used := range s.palette {
+		if _, ok := s.status[id]; !ok {
+			continue // removed
+		}
+		for i, n := range used {
+			for len(out) <= i {
+				out = append(out, 0)
+			}
+			out[i] += n
+		}
+	}
+	return out
 }
 
 // target is where calls to a server go, and its state and name.

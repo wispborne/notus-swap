@@ -7,16 +7,18 @@
   import ModelDetail from '../lib/models/ModelDetail.svelte'
   import TabIcon from '../lib/models/TabIcon.svelte'
   import { detailTabs, type DetailTab } from '../lib/models/tabs'
-  import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
+  import { modelShow } from '../lib/modelNames.svelte'
   import NotableChips from '../lib/NotableChips.svelte'
-  import { privacy } from '../lib/privacy.svelte'
+  import { api } from '../lib/serverPath'
+  import { modelView, peerStatus, reachable, serverName, servers, type ModelView } from '../lib/servers.svelte'
   import { status, type RunningModel } from '../lib/status.svelte'
 
   // Every model in llama-swap's config, with its state, notus-swap's numbers
   // for it, and a second line under each with load, unload and restart and a
   // button for each tab of its detail. Clicking a row opens its log, loads
   // and recent requests. Models from past requests that are no longer in the
-  // config are listed after.
+  // config are listed after. With other servers in the Servers list, each
+  // server that answers gets its own section, in the list's order.
 
   interface Stat {
     model: string
@@ -43,28 +45,44 @@
     last_loaded: number | null
   }
 
-  let stats = $state<Map<string, Stat>>(new Map())
-  // What each model's llama-server last reported, by model ID.
-  let props = $state<Record<string, ModelProps>>({})
-  let error = $state('')
+  // The servers shown: this one ('') and every other server that answers.
+  const targets = $derived(servers.many ? servers.list.filter((s) => s.self || reachable(s)).map((s) => (s.self ? '' : s.id)) : [''])
+  const targetsKey = $derived(targets.join(','))
+
+  // Each server's numbers by model ID, and what each model's llama-server
+  // last reported.
+  let statsBy = $state<Record<string, Map<string, Stat>>>({})
+  let propsBy = $state<Record<string, Record<string, ModelProps>>>({})
+  let errors = $state<Record<string, string>>({})
   async function loadStats() {
-    try {
-      const res = await fetch('/notus/api/models')
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-      const body: { stats: Stat[]; props: Record<string, ModelProps> } = await res.json()
-      stats = new Map(body.stats.map((s) => [s.model, s]))
-      props = body.props ?? {}
-      error = ''
-    } catch (e) {
-      error = String(e)
-    }
+    await Promise.all(
+      targets.map(async (server) => {
+        try {
+          const res = await fetch(api(server, '/notus/api/models'))
+          if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+          const body: { stats: Stat[]; props: Record<string, ModelProps> } = await res.json()
+          statsBy[server] = new Map(body.stats.map((s) => [s.model, s]))
+          propsBy[server] = body.props ?? {}
+          delete errors[server]
+        } catch (e) {
+          errors[server] = String(e)
+        }
+      }),
+    )
   }
   onMount(() => {
     status.start()
-    loadStats()
     const t = setInterval(loadStats, 15_000)
     return () => clearInterval(t)
   })
+  // Load at once, and again when a server joins or leaves.
+  $effect(() => {
+    void targetsKey
+    untrack(loadStats)
+  })
+
+  /** A model's key on this page: the same ID can be on two servers. */
+  const mk = (server: string, model: string) => `${server}:${model}`
 
   let showUnlisted = $state(localGet('models-unlisted') === '1')
   // Numbers look as they do on the Requests page, and follow its Show units
@@ -91,65 +109,102 @@
     } catch {}
   }
 
-  const up = $derived(status.current?.llama_swap.up ?? false)
-  const known = $derived((status.current?.llama_swap.known ?? []).filter((m) => privacy.visible(m.model)))
-  const unlistedCount = $derived(known.filter((m) => m.unlisted).length)
-  const listed = $derived(known.filter((m) => showUnlisted || !m.unlisted))
-  const loadedCount = $derived(known.filter((m) => m.state !== 'stopped').length)
-  // Seen in requests, but not in llama-swap's config now.
-  const gone = $derived(
-    [...stats.values()].filter((s) => !known.some((k) => k.model === s.model) && privacy.visible(s.model)).sort((a, b) => (b.last_used ?? 0) - (a.last_used ?? 0)),
+  // One section per server. Another server's models use its own names,
+  // colours and hidden models.
+  interface Section {
+    server: string
+    mv: ModelView
+    up: boolean
+    upError?: string
+    known: RunningModel[]
+    listed: RunningModel[]
+    unlistedCount: number
+    loadedCount: number
+    /** Seen in requests, but not in llama-swap's config now. */
+    gone: Stat[]
+    stats: Map<string, Stat>
+    props: Record<string, ModelProps>
+    error?: string
+  }
+  const sections = $derived(
+    targets.map((server): Section => {
+      const st = server ? peerStatus.get(server)?.current : status.current
+      const mv = modelView(server)
+      const known = (st?.llama_swap.known ?? []).filter((m) => mv.visible(m.model))
+      const stats = statsBy[server] ?? new Map<string, Stat>()
+      return {
+        server,
+        mv,
+        up: st?.llama_swap.up ?? false,
+        upError: st?.llama_swap.error,
+        known,
+        listed: known.filter((m) => showUnlisted || !m.unlisted),
+        unlistedCount: known.filter((m) => m.unlisted).length,
+        loadedCount: known.filter((m) => m.state !== 'stopped').length,
+        gone: [...stats.values()].filter((s) => !known.some((k) => k.model === s.model) && mv.visible(s.model)).sort((a, b) => (b.last_used ?? 0) - (a.last_used ?? 0)),
+        stats,
+        props: propsBy[server] ?? {},
+        error: errors[server],
+      }
+    }),
   )
+  const unlistedCount = $derived(sections.reduce((n, sec) => n + sec.unlistedCount, 0))
 
   // A button stays disabled until its model's state changes, so it can't be
   // pressed twice while llama-swap acts on it. A restart waits for ready, as
   // it passes through stopping and stopped on the way. A change also brings
   // new numbers (a load time, for one).
+  // Keys are mk(server, model).
   let busy = $state<Record<string, string>>({})
   let lastState: Record<string, string> = {}
   $effect(() => {
     let changed = false
-    for (const m of known) {
-      if (m.model in lastState && lastState[m.model] !== m.state) {
-        changed = true
-        const b = untrack(() => busy[m.model])
-        if (b && (b !== 'restart' || m.state === 'ready')) delete busy[m.model]
+    for (const sec of sections) {
+      for (const m of sec.known) {
+        const key = mk(sec.server, m.model)
+        if (key in lastState && lastState[key] !== m.state) {
+          changed = true
+          const b = untrack(() => busy[key])
+          if (b && (b !== 'restart' || m.state === 'ready')) delete busy[key]
+        }
+        lastState[key] = m.state
       }
-      lastState[m.model] = m.state
     }
-    if (changed) loadStats()
+    if (changed) untrack(loadStats)
   })
   let actionError = $state('')
-  async function act(model: string, action: 'load' | 'unload' | 'restart') {
-    busy[model] = action
+  async function act(sec: Section, model: string, action: 'load' | 'unload' | 'restart') {
+    const key = mk(sec.server, model)
+    busy[key] = action
     actionError = ''
     try {
-      const res = await fetch(`/notus/api/models/${encodeURIComponent(model)}/${action}`, { method: 'POST' })
+      const res = await fetch(api(sec.server, `/notus/api/models/${encodeURIComponent(model)}/${action}`), { method: 'POST' })
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
     } catch (e) {
-      actionError = `Couldn't ${action} ${modelLabel(model)}: ${e instanceof Error ? e.message : e}`
-      delete busy[model]
+      actionError = `Couldn't ${action} ${sec.mv.label(model)}: ${e instanceof Error ? e.message : e}`
+      delete busy[key]
     }
     // Give up waiting for a state change. A restart includes a load, which can take minutes.
-    setTimeout(() => busy[model] === action && delete busy[model], action === 'restart' ? 300_000 : 30_000)
+    setTimeout(() => busy[key] === action && delete busy[key], action === 'restart' ? 300_000 : 30_000)
   }
-  let unloadingAll = $state(false)
-  async function unloadAll() {
-    unloadingAll = true
+  // The servers whose models are being unloaded.
+  let unloadingAll = $state<Record<string, boolean>>({})
+  async function unloadAll(sec: Section) {
+    unloadingAll[sec.server] = true
     actionError = ''
     try {
-      const res = await fetch('/notus/api/models/unload', { method: 'POST' })
+      const res = await fetch(api(sec.server, '/notus/api/models/unload'), { method: 'POST' })
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
     } catch (e) {
       actionError = `Couldn't unload: ${e instanceof Error ? e.message : e}`
     }
-    unloadingAll = false
+    unloadingAll[sec.server] = false
   }
 
   // Load, unload, restart and unload all take two clicks. The first turns the
   // button into "Click to confirm …", and the second acts. The button goes
-  // back after 5 s, or on a click anywhere else. Keys are "<model> <action>",
-  // or "unload-all".
+  // back after 5 s, or on a click anywhere else. Keys are "<mk> <action>",
+  // or "unload-all <server>".
   let armed = $state<string | null>(null)
   let disarm: ReturnType<typeof setTimeout> | undefined
   function confirmed(key: string) {
@@ -166,6 +221,7 @@
   const label = { load: 'Load', unload: 'Unload', restart: 'Restart' }
   const armedCls = 'border-warn! bg-warn/10 text-warn'
 
+  // The open model, by its mk key.
   let open = $state<string | null>(null)
   let openTab = $state<DetailTab>('log')
   function toggle(m: string) {
@@ -309,21 +365,21 @@
 {/snippet}
 
 <!-- Load, unload or restart, each needing a second click to confirm. -->
-{#snippet actButton(model: string, action: 'load' | 'unload' | 'restart', disabled: boolean, title?: string)}
-  {@const key = `${model} ${action}`}
+{#snippet actButton(sec: Section, model: string, action: 'load' | 'unload' | 'restart', disabled: boolean, title?: string)}
+  {@const key = `${mk(sec.server, model)} ${action}`}
   <button
     class="{act2} {armed === key ? armedCls : ''}"
     data-confirm
     {disabled}
     {title}
-    onclick={(e) => (e.stopPropagation(), confirmed(key) && act(model, action))}
-    >{busy[model] === action ? doing[action] : armed === key ? `Click to confirm ${action}` : label[action]}</button
+    onclick={(e) => (e.stopPropagation(), confirmed(key) && act(sec, model, action))}
+    >{busy[mk(sec.server, model)] === action ? doing[action] : armed === key ? `Click to confirm ${action}` : label[action]}</button
   >
 {/snippet}
 
 <!-- One cell of a movable column. m is the model's entry in llama-swap's
      config, missing for a model no longer in it. -->
-{#snippet cell(k: Col, m: RunningModel | undefined, s: Stat | undefined)}
+{#snippet cell(k: Col, sec: Section, m: RunningModel | undefined, s: Stat | undefined)}
   {#if k === 'aliases'}
     <td class="text-muted" title={m?.aliases?.join(', ')}><div class="max-w-[240px] truncate">{m ? m.aliases?.join(', ') || '–' : ''}</div></td>
   {:else if k === 'state'}
@@ -340,7 +396,7 @@
       </td>
     {:else}<td class="text-dim">removed</td>{/if}
   {:else if k === 'caps'}
-    {@const p = props[m?.model ?? s?.model ?? '']}
+    {@const p = sec.props[m?.model ?? s?.model ?? '']}
     {@const ctx = contextChip(m?.context_length, p)}
     <td>
       <div class="flex items-center gap-[3px]">
@@ -373,33 +429,35 @@
 <!-- The second line of a model's entry, shown even when it is closed: load,
      unload and restart (for a model in the config), then one button per tab
      of the model's detail. m is missing for a model no longer in the config. -->
-{#snippet actions(model: string, m: RunningModel | undefined)}
-  <tr class="border-b border-line-soft group-hover:bg-hover {open === model ? 'bg-hover' : ''}" onclick={() => toggle(model)}>
+{#snippet actions(sec: Section, model: string, m: RunningModel | undefined)}
+  {@const key = mk(sec.server, model)}
+  <tr class="border-b border-line-soft group-hover:bg-hover {open === key ? 'bg-hover' : ''}" onclick={() => toggle(key)}>
     <td colspan={span} class="cursor-pointer px-2 pt-1 pb-2 {m ? (edge[m.state] ?? '') : ''}">
       <!-- Indented to start under the model's name: the arrow, the mark and their gaps are 25 px. -->
       <div class="flex flex-wrap items-center gap-1 pl-[25px]">
         {#if m}
-          {@const b = busy[model]}
+          {@const b = busy[key]}
           {#if m.state === 'stopped'}
-            {@render actButton(model, 'load', !!b || !up)}
+            {@render actButton(sec, model, 'load', !!b || !sec.up)}
           {:else}
-            {@render actButton(model, 'unload', !!b || m.state === 'stopping')}
+            {@render actButton(sec, model, 'unload', !!b || m.state === 'stopping')}
           {/if}
           {@render actButton(
+            sec,
             model,
             'restart',
-            !!b || !up || m.state !== 'ready',
+            !!b || !sec.up || m.state !== 'ready',
             m.state === 'ready' ? 'Unload the model and load it again' : 'Only a loaded model can be restarted',
           )}
           <span class="mx-1.5 h-3.5 w-px bg-line"></span>
         {/if}
         {#each detailTabs as t (t.tab)}
           {#if t.tab !== 'log' || m}
-            {@const on = open === model && (openTab === t.tab || (t.tab === 'requests' && openTab === 'log' && !m))}
+            {@const on = open === key && (openTab === t.tab || (t.tab === 'requests' && openTab === 'log' && !m))}
             <button
               class="inline-flex h-[20px] items-center gap-1 rounded border border-transparent px-1.5 text-[11.5px] {on ? 'bg-panel2 text-primary' : 'text-muted hover:bg-panel2 hover:text-text'}"
               title={t.label}
-              onclick={(e) => (e.stopPropagation(), openAt(model, t.tab))}
+              onclick={(e) => (e.stopPropagation(), openAt(key, t.tab))}
             >
               <TabIcon name={t.tab} />{t.short}
             </button>
@@ -429,9 +487,20 @@
   </thead>
 {/snippet}
 
+<!-- Unload all, and the counts, for one server. -->
+{#snippet unloadAllButton(sec: Section)}
+  {@const key = `unload-all ${sec.server}`}
+  <button class="{btn} {armed === key ? armedCls : ''}" data-confirm disabled={!sec.loadedCount || unloadingAll[sec.server]} onclick={() => confirmed(key) && unloadAll(sec)}
+    >{unloadingAll[sec.server] ? 'Unloading…' : armed === key ? 'Click to confirm unload all' : 'Unload all'}</button
+  >
+{/snippet}
+{#snippet counts(sec: Section)}
+  <span class="text-xs text-muted">{sec.listed.length} of {sec.known.length}, {sec.loadedCount} loaded</span>
+{/snippet}
+
 <div class="flex flex-wrap items-center gap-3">
   <h1 class="text-[17px] font-semibold">Models</h1>
-  <span class="text-xs text-muted">{listed.length} of {known.length}, {loadedCount} loaded</span>
+  {#if !servers.many && sections[0]}{@render counts(sections[0])}{/if}
   <span class="flex-1"></span>
   <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
     <input type="checkbox" checked={showUnlisted} onchange={toggleUnlisted} class="accent-primary" />
@@ -467,73 +536,83 @@
       <button class="mt-1 w-full rounded px-1.5 py-0.5 text-left text-primary hover:bg-hover" onclick={resetCols}>Reset to default</button>
     </div>
   </details>
-  <button class="{btn} {armed === 'unload-all' ? armedCls : ''}" data-confirm disabled={!loadedCount || unloadingAll} onclick={() => confirmed('unload-all') && unloadAll()}
-    >{unloadingAll ? 'Unloading…' : armed === 'unload-all' ? 'Click to confirm unload all' : 'Unload all'}</button
-  >
+  {#if !servers.many && sections[0]}{@render unloadAllButton(sections[0])}{/if}
 </div>
-
-{#if !up}
-  <div class="mt-2 rounded-md border border-l-3 border-line border-l-warn bg-panel2 px-3 py-1.5 text-[12.5px]">
-    llama-swap is unavailable{status.current?.llama_swap.error ? ` (${status.current.llama_swap.error})` : ''}. Showing the last model list it returned.
-  </div>
-{/if}
-{#if error}<div class="mt-2 text-xs text-err">Couldn't load model statistics: {error}</div>{/if}
 {#if actionError}<div class="mt-2 text-xs text-err">{actionError}</div>{/if}
 
-<div class="mt-2 overflow-x-auto rounded-lg border border-line bg-panel">
-  <table class="w-full border-collapse text-[12.5px]">
-    {@render head()}
-    {#each listed as m (m.model)}
-      {@const s = stats.get(m.model)}
-      <tbody class="group">
-        <tr class="cursor-pointer group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === m.model ? 'bg-hover' : ''}" onclick={() => toggle(m.model)}>
-          <td class="max-w-[360px] {edge[m.state] ?? ''}">
-            <div class="flex items-center gap-1.5">
-              <span class="w-2.5 shrink-0 text-center text-dim">{open === m.model ? '▾' : '▸'}</span>
-              <ModelMark model={m.model} />
-              <b class="truncate font-semibold" title={modelTitle(m.model)}>{modelLabel(m.model)}</b>
-              {#if m.unlisted}<span class="rounded bg-line px-1 text-[10px] text-muted uppercase">unlisted</span>{/if}
-              {#if m.name && m.name !== m.model}<span class="truncate text-[11px] text-dim">{modelShow.show === 'name' ? m.model : m.name}</span>{/if}
-            </div>
-          </td>
-          {#each shownCols as c (c.key)}{@render cell(c.key, m, s)}{/each}
-        </tr>
-        {@render actions(m.model, m)}
-        {#if open === m.model}
-          <tr><td colspan={span} class="p-0"><ModelDetail model={m.model} known={m} props={props[m.model]} bind:picked={openTab} /></td></tr>
-        {/if}
-      </tbody>
-    {:else}
-      <tbody>
-        <tr><td colspan={span} class="px-2 py-4 text-center text-muted">{up ? 'No models in the config.' : 'Waiting for llama-swap.'}</td></tr>
-      </tbody>
-    {/each}
-  </table>
-</div>
+{#each sections as sec (sec.server)}
+  {#if servers.many}
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      <h2 class="text-sm font-semibold">{serverName(sec.server ? servers.get(sec.server) : servers.list.find((x) => x.self))}</h2>
+      {@render counts(sec)}
+      <span class="flex-1"></span>
+      {@render unloadAllButton(sec)}
+    </div>
+  {/if}
+  {#if !sec.up}
+    <div class="mt-2 rounded-md border border-l-3 border-line border-l-warn bg-panel2 px-3 py-1.5 text-[12.5px]">
+      llama-swap is unavailable{sec.upError ? ` (${sec.upError})` : ''}. Showing the last model list it returned.
+    </div>
+  {/if}
+  {#if sec.error}<div class="mt-2 text-xs text-err">Couldn't load model statistics: {sec.error}</div>{/if}
 
-{#if gone.length}
-  <h2 class="mt-5 mb-1 text-xs font-semibold tracking-wider text-dim uppercase">No longer in llama-swap's config ({gone.length})</h2>
-  <div class="overflow-x-auto rounded-lg border border-line bg-panel">
+  <div class="mt-2 overflow-x-auto rounded-lg border border-line bg-panel">
     <table class="w-full border-collapse text-[12.5px]">
       {@render head()}
-      {#each gone as s (s.model)}
+      {#each sec.listed as m (m.model)}
+        {@const s = sec.stats.get(m.model)}
+        {@const key = mk(sec.server, m.model)}
         <tbody class="group">
-          <tr class="cursor-pointer text-muted group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === s.model ? 'bg-hover' : ''}" onclick={() => toggle(s.model)}>
-            <td class="max-w-[360px]">
+          <tr class="cursor-pointer group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === key ? 'bg-hover' : ''}" onclick={() => toggle(key)}>
+            <td class="max-w-[360px] {edge[m.state] ?? ''}">
               <div class="flex items-center gap-1.5">
-                <span class="w-2.5 shrink-0 text-center text-dim">{open === s.model ? '▾' : '▸'}</span>
-                <ModelMark model={s.model} />
-                <span class="truncate" title={modelTitle(s.model)}>{modelLabel(s.model)}</span>
+                <span class="w-2.5 shrink-0 text-center text-dim">{open === key ? '▾' : '▸'}</span>
+                <ModelMark model={m.model} color={sec.mv.color(m.model)} shape={sec.mv.shape(m.model)} />
+                <b class="truncate font-semibold" title={sec.mv.title(m.model)}>{sec.mv.label(m.model)}</b>
+                {#if m.unlisted}<span class="rounded bg-line px-1 text-[10px] text-muted uppercase">unlisted</span>{/if}
+                {#if m.name && m.name !== m.model}<span class="truncate text-[11px] text-dim">{modelShow.show === 'name' ? m.model : m.name}</span>{/if}
               </div>
             </td>
-            {#each shownCols as c (c.key)}{@render cell(c.key, undefined, s)}{/each}
+            {#each shownCols as c (c.key)}{@render cell(c.key, sec, m, s)}{/each}
           </tr>
-          {@render actions(s.model, undefined)}
-          {#if open === s.model}
-            <tr><td colspan={span} class="p-0"><ModelDetail model={s.model} props={props[s.model]} bind:picked={openTab} /></td></tr>
+          {@render actions(sec, m.model, m)}
+          {#if open === key}
+            <tr><td colspan={span} class="p-0"><ModelDetail model={m.model} server={sec.server} known={m} props={sec.props[m.model]} bind:picked={openTab} /></td></tr>
           {/if}
+        </tbody>
+      {:else}
+        <tbody>
+          <tr><td colspan={span} class="px-2 py-4 text-center text-muted">{sec.up ? 'No models in the config.' : 'Waiting for llama-swap.'}</td></tr>
         </tbody>
       {/each}
     </table>
   </div>
-{/if}
+
+  {#if sec.gone.length}
+    <h3 class="mt-5 mb-1 text-xs font-semibold tracking-wider text-dim uppercase">No longer in llama-swap's config ({sec.gone.length})</h3>
+    <div class="overflow-x-auto rounded-lg border border-line bg-panel">
+      <table class="w-full border-collapse text-[12.5px]">
+        {@render head()}
+        {#each sec.gone as s (s.model)}
+          {@const key = mk(sec.server, s.model)}
+          <tbody class="group">
+            <tr class="cursor-pointer text-muted group-hover:bg-hover [&>td]:px-2 [&>td]:pt-1.5 [&>td]:whitespace-nowrap {open === key ? 'bg-hover' : ''}" onclick={() => toggle(key)}>
+              <td class="max-w-[360px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2.5 shrink-0 text-center text-dim">{open === key ? '▾' : '▸'}</span>
+                  <ModelMark model={s.model} color={sec.mv.color(s.model)} shape={sec.mv.shape(s.model)} />
+                  <span class="truncate" title={sec.mv.title(s.model)}>{sec.mv.label(s.model)}</span>
+                </div>
+              </td>
+              {#each shownCols as c (c.key)}{@render cell(c.key, sec, undefined, s)}{/each}
+            </tr>
+            {@render actions(sec, s.model, undefined)}
+            {#if open === key}
+              <tr><td colspan={span} class="p-0"><ModelDetail model={s.model} server={sec.server} props={sec.props[s.model]} bind:picked={openTab} /></td></tr>
+            {/if}
+          </tbody>
+        {/each}
+      </table>
+    </div>
+  {/if}
+{/each}

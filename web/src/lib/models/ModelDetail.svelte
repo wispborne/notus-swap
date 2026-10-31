@@ -4,7 +4,9 @@
   import { fixed, loadTime, num, pct, shortBuild, when } from '../format'
   import LogPanel from '../logs/LogPanel.svelte'
   import MarkPicker from '../MarkPicker.svelte'
-  import { modelLabel, modelShow } from '../modelNames.svelte'
+  import { modelShow } from '../modelNames.svelte'
+  import { api } from '../serverPath'
+  import { modelView } from '../servers.svelte'
   import type { RunningModel } from '../status.svelte'
   import StatusPill from '../StatusPill.svelte'
   import { capWords, engineTitle, engineWords, type ModelProps } from './caps'
@@ -14,7 +16,14 @@
   import type { DetailTab } from './tabs'
 
   // The parent owns the tab: the buttons on its row's second line pick it.
-  let { model, known, props, picked = $bindable('log') }: { model: string; known?: RunningModel; props?: ModelProps; picked?: DetailTab } = $props()
+  // server is the one that runs the model, '' for this one.
+  let {
+    model,
+    server = '',
+    known,
+    props,
+    picked = $bindable('log'),
+  }: { model: string; server?: string; known?: RunningModel; props?: ModelProps; picked?: DetailTab } = $props()
   const caps = $derived(props?.caps ? capWords(props.caps) : null)
 
   interface ModelEvent {
@@ -64,10 +73,10 @@
   const name = $derived(model)
   $effect(() => {
     const m = name
-    fetch(`/notus/api/models/${encodeURIComponent(m)}/events?limit=30`)
+    fetch(api(server, `/notus/api/models/${encodeURIComponent(m)}/events?limit=30`))
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((e) => (events = e), (e) => (error = String(e)))
-    listRequests({ model: m }, undefined, 15).then((r) => (requests = r.requests), (e) => (error = String(e)))
+    listRequests({ model: m }, undefined, 15, server).then((r) => (requests = r.requests), (e) => (error = String(e)))
   })
 
   // Which requests count toward speeds. While the draft differs from the
@@ -76,7 +85,8 @@
   let draft = $state<SpeedFilter | null>(null)
   let defaults = $state<SpeedFilter | null>(null)
   let showFilter = $state(false)
-  loadSpeedFilter().then(
+  // svelte-ignore state_referenced_locally
+  loadSpeedFilter(server).then(
     (f) => {
       saved = f.filter
       draft = structuredClone(f.filter)
@@ -95,7 +105,7 @@
     const n = ++asked
     const t = setTimeout(
       () =>
-        fetch(`/notus/api/models/${encodeURIComponent(m)}/builds${q}`)
+        fetch(api(server, `/notus/api/models/${encodeURIComponent(m)}/builds${q}`))
           .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(t.trim() || r.statusText))))
           .then(
             (b: { builds: Builds; cmds: Record<string, string[]> }) => {
@@ -164,15 +174,15 @@
 
   <div class="mb-2 flex items-center gap-2 py-1 text-xs text-muted">
     <span class="shrink-0">Colour and shape</span>
-    <MarkPicker {model} />
+    <MarkPicker {model} {server} />
   </div>
 
   {#if error}<div class="text-xs text-err">{error}</div>{/if}
 
   {#if tab === 'log' && known}
     <div class="h-[380px]">
-      <LogPanel source="model:{model}" id="model">
-        {#snippet title()}<span class="text-xs font-semibold">{modelLabel(model)}'s output</span>{/snippet}
+      <LogPanel source="model:{model}" id="model" {server}>
+        {#snippet title()}<span class="text-xs font-semibold">{modelView(server).label(model)}'s output</span>{/snippet}
       </LogPanel>
     </div>
     <p class="mt-1 text-[11px] text-dim">llama-swap keeps the newest 100 KB of each model's output. This log is empty until the model runs after llama-swap starts.</p>
@@ -211,7 +221,7 @@
       {#if preview}<span class="text-warn">Showing unsaved changes.</span>{/if}
     </div>
     {#if showFilter && draft && saved && defaults}
-      <SpeedFilterPanel bind:draft bind:saved {defaults} clients={builds?.clients ?? []} counts={builds} />
+      <SpeedFilterPanel bind:draft bind:saved {defaults} {server} clients={builds?.clients ?? []} counts={builds} />
     {/if}
     {#if !builds}
       <div class="text-xs text-muted">Loading…</div>
@@ -293,7 +303,7 @@
         <tbody>
           {#each requests as r (r.id)}
             <tr class="hover:bg-hover">
-              <td><a data-nav class="text-primary hover:underline" href="/notus/requests?open={r.id}">#{r.id}</a></td>
+              <td><a data-nav class="text-primary hover:underline" href="/notus/requests?open={server ? `${server}:${r.id}` : r.id}">#{r.id}</a></td>
               <td class="text-muted">{when(r.started_at)}</td>
               <td><StatusPill row={r} /></td>
               <td class="num text-right">{num(r.completion_tokens)} tok</td>
@@ -304,7 +314,7 @@
           {/each}
         </tbody>
       </table>
-      <a data-nav class="mt-1 inline-block text-xs text-primary hover:underline" href="/notus/requests?model={encodeURIComponent(model)}">All of this model's requests →</a>
+      <a data-nav class="mt-1 inline-block text-xs text-primary hover:underline" href="/notus/requests?model={encodeURIComponent(model)}{server ? `&server=${server}` : ''}">All of this model's requests →</a>
     {/if}
   {/if}
 </div>

@@ -3,16 +3,19 @@
   import { privacy } from '../privacy.svelte'
   import { ansiToHtml } from './ansi'
   import { LogStream, sourceURL, type LogSource } from './stream.svelte'
+  import { api } from '../serverPath'
+  import { modelView } from '../servers.svelte'
 
   // One live log, with a filter, line wrapping and text size. `id` keys the
   // saved wrap and size choices; `title` sits in the header (a source picker
-  // on the Logs page).
-  let { source, id, title }: { source: LogSource; id: string; title: Snippet } = $props()
+  // on the Logs page). `server` is the one whose log this is, '' for this
+  // one; another server's model log follows that server's hidden models.
+  let { source, id, title, server = '' }: { source: LogSource; id: string; title: Snippet; server?: string } = $props()
 
-  const allowed = $derived(privacy.logSource(source))
+  const allowed = $derived(server && source.startsWith('model:') ? modelView(server).visible(source.slice(6)) : privacy.logSource(source))
   // A derived only signals when the text changes. Reading `source` straight
   // in the effect would reconnect whenever the parent's row object changes.
-  const url = $derived(allowed ? sourceURL(source) : null)
+  const url = $derived(allowed ? api(server, sourceURL(source)) : null)
 
   let stream = $state.raw<LogStream | null>(null)
   $effect(() => {

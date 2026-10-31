@@ -288,12 +288,10 @@
         <span>{d.fix}</span>
         {#if d.config}<a data-nav class="text-primary hover:underline" href={host ? `/notus/config?server=${host}` : '/notus/config'}>Open Model Config</a>{/if}
         <span class="flex-1"></span>
-        <!-- Mutes are kept on each server for its own models; another server's are changed there. -->
-        {#if !host}
-          <button class="text-dim hover:text-text" onclick={() => issueMutes.set(issue.kind, row.model, true)}>
-            Don't flag this for {mv.label(row.model) || 'requests with no model'}
-          </button>
-        {/if}
+        <!-- Mutes are kept on the server that runs the model. -->
+        <button class="text-dim hover:text-text" onclick={() => issueMutes.set(issue.kind, row.model, true, host)}>
+          Don't flag this for {mv.label(row.model) || 'requests with no model'}
+        </button>
       </div>
     </div>
   {/each}
@@ -301,7 +299,7 @@
     <div class="mb-2 flex flex-wrap items-baseline gap-x-2 text-xs text-dim">
       Muted for this model:
       {#each muted as issue (issue.kind)}
-        <span>{describe(issue).title}{#if !host}{' '}<button class="text-primary hover:underline" onclick={() => issueMutes.set(issue.kind, row.model, false)}>Unmute</button>{/if}</span>
+        <span>{describe(issue).title} <button class="text-primary hover:underline" onclick={() => issueMutes.set(issue.kind, row.model, false, host)}>Unmute</button></span>
       {/each}
     </div>
   {/if}

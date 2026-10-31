@@ -1,25 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { appTitle, defaultTitle } from '../lib/appTitle.svelte'
-  import { listRequests } from '../lib/api'
-  import MarkPicker from '../lib/MarkPicker.svelte'
-  import ModelMark from '../lib/ModelMark.svelte'
-  import { modelLabel, modelShow, modelTitle } from '../lib/modelNames.svelte'
+  import { modelShow } from '../lib/modelNames.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status } from '../lib/status.svelte'
   import DefaultModel from '../lib/system/DefaultModel.svelte'
   import Manage from '../lib/system/Manage.svelte'
+  import ServerModels from '../lib/system/ServerModels.svelte'
   import Servers from '../lib/system/Servers.svelte'
   import ServerPicker from '../lib/ServerPicker.svelte'
   import ServerAsleep from '../lib/ServerAsleep.svelte'
-  import { pageServer, reachable, serverName, servers } from '../lib/servers.svelte'
+  import { pageServer, reachable, serverName, servers, stateWords } from '../lib/servers.svelte'
   import { theme, themes } from '../lib/theme.svelte'
 
-  let seen = $state<string[]>([])
   onMount(() => {
     status.start()
-    // Models from past requests, including ones no longer in llama-swap's config.
-    listRequests({}, undefined, 1).then((r) => (seen = r.models ?? []), () => {})
     servers.load()
   })
 
@@ -28,15 +23,6 @@
   let server = $state<string | null>(null)
   $effect(() => {
     if (server === null && servers.ready) server = pageServer()
-  })
-
-  const known = $derived(status.current?.llama_swap.known ?? [])
-  // Models in llama-swap's config first, by the label shown, then models only seen in older requests.
-  const all = $derived.by(() => {
-    const inConfig = new Set(known.map((m) => m.model))
-    return [...new Set([...known.filter((m) => !m.unlisted).map((m) => m.model), ...seen])].sort(
-      (a, b) => Number(inConfig.has(b)) - Number(inConfig.has(a)) || modelLabel(a).localeCompare(modelLabel(b), undefined, { numeric: true }),
-    )
   })
 
   // Links to each section, since the page is long.
@@ -51,17 +37,6 @@
     ['model-labels', 'Model labels'],
     ['models', 'Models'],
   ] as const
-  const shownModels = $derived(all.filter((m) => !privacy.isHidden(m)))
-  const hiddenModels = $derived(all.filter((m) => privacy.isHidden(m)).concat(privacy.hidden.filter((m) => !all.includes(m))))
-
-  // While hidden models are off, their names on this page stay covered until
-  // asked for, so this page can be screenshotted too. Not saved anywhere.
-  let reveal = $state(false)
-  const namesVisible = $derived(privacy.showHidden || reveal)
-
-  // The model whose colour and shape picker is open.
-  let picking = $state<string | null>(null)
-
   // The title field starts from the saved title, and follows it until edited.
   let titleDraft = $state<string | null>(null)
   const titleValue = $derived(titleDraft ?? appTitle.saved)
@@ -176,7 +151,7 @@
   <section id="models" class="scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Models</h2>
     <p class="mt-1 text-[12.5px] text-muted">
-      Click a model's dot to choose its colour and shape. They are used on every page, and saved on the server for every browser.
+      Click a model's dot to choose its colour and shape. They are used on every page, and saved for every browser on the server that runs the model.
     </p>
     <p class="mt-1 text-[12.5px] text-muted">
       Hidden models are still recorded. When hidden, they're omitted from requests and charts; totals such as power still include them.
@@ -201,63 +176,18 @@
       </span>
     </label>
 
-    <h3 class="mt-4 mb-1.5 text-xs font-semibold tracking-wider text-dim uppercase">Hidden ({hiddenModels.length})</h3>
-    {#if !hiddenModels.length}
-      <div class="text-[12.5px] text-muted">No models are hidden.</div>
-    {:else if !namesVisible}
-      <button class="rounded-md border border-dashed border-line px-3 py-2 text-left text-[12.5px] text-muted hover:border-primary hover:text-text" onclick={() => (reveal = true)}>
-        Click to reveal {hiddenModels.length} hidden model name{hiddenModels.length === 1 ? '' : 's'} here.
-      </button>
-    {:else}
-      <ul class="divide-y divide-line-soft rounded-md border border-line">
-        {#each hiddenModels as m (m)}
-          <li class="px-3 py-1.5">
-            <div class="flex items-center gap-2">
-              {@render mark(m)}
-              <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
-              <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, false)}>Unhide</button>
-            </div>
-            {#if picking === m && privacy.visible(m)}<div class="mt-1.5 mb-0.5"><MarkPicker model={m} /></div>{/if}
-          </li>
-        {/each}
-      </ul>
-      {#if reveal && !privacy.showHidden}
-        <button class="mt-1 text-xs text-primary" onclick={() => (reveal = false)}>Hide names again</button>
-      {/if}
-    {/if}
-
-    <h3 class="mt-4 mb-1.5 text-xs font-semibold tracking-wider text-dim uppercase">Shown ({shownModels.length})</h3>
-    <ul class="divide-y divide-line-soft rounded-md border border-line">
-      {#each shownModels as m (m)}
-        <li class="px-3 py-1.5">
-          <div class="flex items-center gap-2">
-            {@render mark(m)}
-            <span class="flex-1 truncate" title={modelTitle(m)}>{modelLabel(m)}</span>
-            <button class="rounded border border-line bg-panel2 px-2 text-xs hover:border-primary" onclick={() => privacy.setHidden(m, true)}>Hide</button>
-          </div>
-          {#if picking === m}<div class="mt-1.5 mb-0.5"><MarkPicker model={m} /></div>{/if}
-        </li>
-      {:else}
-        <li class="px-3 py-2 text-[12.5px] text-muted">No visible models.</li>
+    {#if servers.many}
+      {#each servers.list as sv (sv.id)}
+        <h3 class="mt-5 -mb-2 text-[13px] font-semibold">{serverName(sv)}</h3>
+        {#if sv.self || reachable(sv)}
+          <ServerModels server={sv.self ? '' : sv.id} />
+        {:else}
+          <div class="mt-3 text-[12.5px] text-muted">{stateWords(sv)}. Its models show here once it answers.</div>
+        {/if}
       {/each}
-    </ul>
+    {:else}
+      <ServerModels />
+    {/if}
     <p class="mt-3 text-xs text-dim">Hidden model names remain visible in llama-swap's UI at /ui.</p>
   </section>
 </div>
-
-<!-- A model's dot, which opens its colour and shape picker. A hidden model's
-     colour and shape aren't sent while hidden models are off, so it has no picker then. -->
-{#snippet mark(m: string)}
-  {#if privacy.visible(m)}
-    <button
-      class="grid size-5 place-items-center rounded border {picking === m ? 'border-primary' : 'border-transparent hover:border-line'}"
-      title="Choose colour and shape"
-      aria-expanded={picking === m}
-      onclick={() => (picking = picking === m ? null : m)}
-    >
-      <ModelMark model={m} />
-    </button>
-  {:else}
-    <span class="grid size-5 place-items-center"><ModelMark model={m} /></span>
-  {/if}
-{/snippet}
