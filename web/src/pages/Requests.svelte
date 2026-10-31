@@ -242,7 +242,6 @@
 
   // Each column uses one unit and one number of decimals for every row, so
   // big and small values can be told apart at a glance.
-  const secs = (ms: number | null) => (ms == null ? '–' : fixed(ms / 1000, 2))
   const elapsed = (r: Summary) => Math.max(0, (r.finished_at ?? now) - r.started_at)
 
   // Compare model-dependent metrics within each model. Exclude mostly cached
@@ -631,6 +630,10 @@
 {/snippet}
 
 <!-- The unit is dimmed, and left off when there is no number. -->
+{#snippet seconds(ms: number | null)}
+  {#if ms == null}–{:else}{@render withUnit(ms / 1000, 2, 's')}{/if}
+{/snippet}
+
 {#snippet withUnit(v: number | null | undefined, digits: number, unit?: string)}
   {fixed(v, digits)}{#if units && unit && v != null && isFinite(v)}<span class="ml-0.5 text-dim">{unit}</span>{/if}
 {/snippet}
@@ -646,7 +649,7 @@
     {@const low = colorful && big && !miss && pct < 50}
     {@const bar = !colorful ? 'var(--color-dim)' : miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 60%, var(--color-dim))' : 'var(--color-primary)'}
     <td class="num relative text-right" style:color={miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 55%, var(--color-text))' : undefined} title="{fixed(r.cached_tokens)} of {fixed(r.prompt_tokens)} prompt tokens from the cache">
-      {fixed(pct)}
+      {@render withUnit(pct, 0, '%')}
       <span class="absolute inset-x-1.5 bottom-0.5 h-0.5 rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{pct}%" style:background={bar}></span></span>
     </td>
   {:else}
@@ -670,7 +673,7 @@
       style:color={heatFg('experts', r)}
       title="{fixed(ex.vram * 100)}% from the VRAM cache, {fixed(ex.pcie * 100)}% read over PCIe, {fixed(ex.missed * 100)}% missed the cache.{usual != null ? ` This model usually gets ${fixed(usual * 100)}% from VRAM (the median over the requests listed).` : ''}"
     >
-      {fixed(ex.vram * 100)}
+      {@render withUnit(ex.vram * 100, 0, '%')}
       <span class="absolute inset-x-1.5 bottom-0.5 flex h-0.5 rounded-sm bg-line-soft">
         {#each parts as [share, color]}<span class="block h-full" style:width="{share * 100}%" style:background={color}></span>{/each}
         {#if usual != null}<span class="absolute -top-px h-[4px] w-px bg-text" style:left="round(down, {usual * 100}%, 1px)"></span>{/if}
@@ -707,12 +710,12 @@
   {:else if k === 'in_tps'}{@render maybeLive(r.prompt_per_second, progress?.per_second, 0, 'Prompt speed so far', 't/s', heatFg(k, r))}
   {:else if k === 'out_tps'}{@render maybeLive(r.predicted_per_second, liveOutSpeed(flight), 1, 'Generation speed so far', 't/s', heatFg(k, r))}
   {:else if k === 'experts'}{@render expertsPct(r)}
-  {:else if k === 'drafts'}<td class="num text-right" style:color={heatFg(k, r)} title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{r.draft_n ? fixed(((r.draft_accepted ?? 0) / r.draft_n) * 100) : '–'}</td>
-  {:else if k === 'ttft'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(ttft(r))}</td>
-  {:else if k === 'duration'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(elapsed(r))}</td>
-  {:else if k === 'energy'}<td class="num text-right" style:color={heatFg(k, r)}>{r.energy_j != null ? fixed(r.energy_j / 3600, 2) : '–'}</td>
-  {:else if k === 'watts'}<td class="num text-right" style:color={heatFg(k, r)}>{r.energy_j != null && elapsed(r) > 0 ? fixed(r.energy_j / (elapsed(r) / 1000)) : '–'}</td>
-  {:else if k === 'jtok'}<td class="num text-right" style:color={heatFg(k, r)}>{r.energy_j != null && r.completion_tokens ? fixed(r.energy_j / r.completion_tokens, 2) : '–'}</td>
+  {:else if k === 'drafts'}<td class="num text-right" style:color={heatFg(k, r)} title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{#if r.draft_n}{@render withUnit(((r.draft_accepted ?? 0) / r.draft_n) * 100, 0, '%')}{:else}–{/if}</td>
+  {:else if k === 'ttft'}<td class="num text-right" style:color={heatFg(k, r)}>{@render seconds(ttft(r))}</td>
+  {:else if k === 'duration'}<td class="num text-right" style:color={heatFg(k, r)}>{@render seconds(elapsed(r))}</td>
+  {:else if k === 'energy'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(r.energy_j != null ? r.energy_j / 3600 : null, 2, 'Wh')}</td>
+  {:else if k === 'watts'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(r.energy_j != null && elapsed(r) > 0 ? r.energy_j / (elapsed(r) / 1000) : null, 0, 'W')}</td>
+  {:else if k === 'jtok'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(r.energy_j != null && r.completion_tokens ? r.energy_j / r.completion_tokens : null, 2, 'J/t')}</td>
   {/if}
 {/snippet}
 
