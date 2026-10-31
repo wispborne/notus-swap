@@ -290,7 +290,7 @@
     { key: 'in_tps', label: 'In t/s', num: true, title: 'Prompt processing speed, tokens per second' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: 'Generation speed, tokens per second' },
     { key: 'drafts', label: 'Drafts %', num: true, title: 'Share of the tokens drafted by speculative decoding that the model kept' },
-    { key: 'experts', label: 'Experts %', num: true, title: "Strata only: the share of the model's expert work while generating that was done from the VRAM cache. Hover a value for the rest." },
+    { key: 'experts', label: 'Experts %', num: true, title: "Strata only: the share of the model's expert work while generating that was done from the VRAM cache. The bar under it splits the work into VRAM, PCIe and cache misses, and the tick marks the model's usual share. Hover a value for the numbers." },
     { key: 'ttft', label: 'TTFT s', num: true, title: 'Time to first token, in seconds' },
     { key: 'duration', label: 'Duration s', num: true, title: 'Total request time, in seconds' },
     { key: 'energy', label: 'Energy Wh', num: true, title: 'GPU energy used, in watt-hours' },
@@ -654,6 +654,33 @@
   {/if}
 {/snippet}
 
+<!-- Experts %: the VRAM share, with the same split as the expanded row's chip
+     as a thin bar under it, and a tick on the bar at the model's usual share. -->
+{#snippet expertsPct(r: Summary)}
+  {@const ex = expertShares(r.server_stats)}
+  {#if ex}
+    {@const usual = heat.median('experts', r)}
+    {@const parts = [
+      [ex.vram, colorful ? 'var(--color-primary)' : 'var(--color-dim)'],
+      [ex.pcie, colorful ? 'color-mix(in srgb, var(--color-secondary) 70%, transparent)' : 'color-mix(in srgb, var(--color-dim) 50%, transparent)'],
+      [ex.missed, colorful ? 'color-mix(in srgb, var(--color-warn) 70%, transparent)' : 'transparent'],
+    ] as const}
+    <td
+      class="num relative text-right"
+      style:color={heatFg('experts', r)}
+      title="{fixed(ex.vram * 100)}% from the VRAM cache, {fixed(ex.pcie * 100)}% read over PCIe, {fixed(ex.missed * 100)}% missed the cache.{usual != null ? ` This model usually gets ${fixed(usual * 100)}% from VRAM (the median over the requests listed).` : ''}"
+    >
+      {fixed(ex.vram * 100)}
+      <span class="absolute inset-x-1.5 bottom-0.5 flex h-0.5 rounded-sm bg-line-soft">
+        {#each parts as [share, color]}<span class="block h-full" style:width="{share * 100}%" style:background={color}></span>{/each}
+        {#if usual != null}<span class="absolute -top-px h-[4px] w-px bg-text" style:left="round(down, {usual * 100}%, 1px)"></span>{/if}
+      </span>
+    </td>
+  {:else}
+    <td class="num text-right">–</td>
+  {/if}
+{/snippet}
+
 {#snippet cell(k: string, r: Summary, flight: ReturnType<typeof live.flights.get>)}
   {@const progress = flight?.progress}
   {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
@@ -679,9 +706,7 @@
   {:else if k === 'out'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(flight ? flight.chunks : r.completion_tokens, 0, 't')}</td>
   {:else if k === 'in_tps'}{@render maybeLive(r.prompt_per_second, progress?.per_second, 0, 'Prompt speed so far', 't/s', heatFg(k, r))}
   {:else if k === 'out_tps'}{@render maybeLive(r.predicted_per_second, liveOutSpeed(flight), 1, 'Generation speed so far', 't/s', heatFg(k, r))}
-  {:else if k === 'experts'}
-    {@const ex = expertShares(r.server_stats)}
-    <td class="num text-right" style:color={heatFg(k, r)} title={ex ? `${fixed(ex.vram * 100)}% from the VRAM cache, ${fixed(ex.pcie * 100)}% read over PCIe, ${fixed(ex.missed * 100)}% missed the cache` : undefined}>{ex ? fixed(ex.vram * 100) : '–'}</td>
+  {:else if k === 'experts'}{@render expertsPct(r)}
   {:else if k === 'drafts'}<td class="num text-right" style:color={heatFg(k, r)} title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{r.draft_n ? fixed(((r.draft_accepted ?? 0) / r.draft_n) * 100) : '–'}</td>
   {:else if k === 'ttft'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(ttft(r))}</td>
   {:else if k === 'duration'}<td class="num text-right" style:color={heatFg(k, r)}>{secs(elapsed(r))}</td>
