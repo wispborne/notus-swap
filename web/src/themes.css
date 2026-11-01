@@ -15,6 +15,7 @@
    - Lavender: primary #c0a2e8 -> #e3b7d8 (the thinking violet), secondary #e3b7d8 -> #9ad8e8
    - Knights of Ludd: secondary #e03b30 -> #e4dcc4 (from Luddic Church)
    - Sindrian Diktat: secondary #c8007d -> #f2a6e0
+   - Knights of Ludd: the experts colour turns its hue the other way
    Warning, error, violet, the model colours and chart series stay the same in
    every theme. */
 
@@ -113,6 +114,8 @@
   --color-dim: #6a6b63;
   --color-primary: #b4d93c;
   --color-secondary: #e4dcc4;
+  /* Turned the other way from app.css's rule, which made it the warning's yellow. */
+  --color-experts: oklch(from var(--color-primary) calc(l + 0.05) c calc(h + 25));
 }
 :root[data-theme="sindrian-diktat"] {
   --color-surface: #170a12;

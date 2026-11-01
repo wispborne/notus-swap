@@ -28,6 +28,9 @@
   --color-warn: #f0b85a;
   --color-err: #f2677a;
   --color-violet: #b69cff;
+  /* The VRAM share of the experts bars: primary turned a little away from the
+     secondary (the PCIe share) and lighter, so it isn't read as the cache bar. */
+  --color-experts: oklch(from var(--color-primary) calc(l + 0.05) c calc(h - 25));
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
 }

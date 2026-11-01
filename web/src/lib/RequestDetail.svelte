@@ -139,7 +139,7 @@
           `${pct(experts.pcie)} read over PCIe, ${pct(experts.missed)} missed the cache.` +
           (usualExperts != null ? ` This model's median over the requests listed is ${pct(usualExperts)} from VRAM.` : ''),
         bar: [
-          { share: experts.vram, color: 'bg-primary' },
+          { share: experts.vram, color: 'bg-experts' },
           { share: experts.pcie, color: 'bg-secondary/70' },
           { share: experts.missed, color: 'bg-warn/70' },
         ],

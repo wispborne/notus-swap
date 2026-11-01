@@ -664,7 +664,7 @@
   {#if ex}
     {@const usual = heat.median('experts', r)}
     {@const parts = [
-      [ex.vram, colorful ? 'var(--color-primary)' : 'var(--color-dim)'],
+      [ex.vram, colorful ? 'var(--color-experts)' : 'var(--color-dim)'],
       [ex.pcie, colorful ? 'color-mix(in srgb, var(--color-secondary) 70%, transparent)' : 'color-mix(in srgb, var(--color-dim) 50%, transparent)'],
       [ex.missed, colorful ? 'color-mix(in srgb, var(--color-warn) 70%, transparent)' : 'transparent'],
     ] as const}
