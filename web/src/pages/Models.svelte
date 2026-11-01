@@ -424,7 +424,7 @@
       <!-- A bar under the number shows the share, as on the Requests page. -->
       <td class="num relative text-right" title="{fixed(s.cached_tokens)} of {fixed(s.prompt_tokens)} prompt tokens from the cache">
         {@render withUnit(s.cache_rate * 100, 0, '%')}
-        <span class="absolute inset-x-1.5 bottom-0 h-0.5 rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{s.cache_rate * 100}%" style:background={colorful ? 'var(--color-primary)' : 'var(--color-dim)'}></span></span>
+        <span class="absolute inset-x-1.5 bottom-0 h-[2px] rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{s.cache_rate * 100}%" style:background={colorful ? 'var(--color-primary)' : 'var(--color-dim)'}></span></span>
       </td>
     {:else}<td class="num text-right">–</td>{/if}
   {:else if k === 'out_tps'}<td class="num text-right" title={speedTitle(s, 'gen')}>{@render withUnit(s?.current?.gen_per_second, 1, 't/s')}</td>

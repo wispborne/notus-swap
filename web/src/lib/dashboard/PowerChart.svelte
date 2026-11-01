@@ -37,7 +37,7 @@
 
 <div class="flex h-full flex-col">
   <div class="flex h-4 gap-3 text-[11px] text-muted">
-    {#each shown as [, label, color]}<span class="flex items-center gap-1"><span class="inline-block h-0.5 w-3" style="background:{color}"></span>{label}</span>{/each}
+    {#each shown as [, label, color]}<span class="flex items-center gap-1"><span class="inline-block h-[2px] w-3" style="background:{color}"></span>{label}</span>{/each}
   </div>
   <div class="min-h-0 flex-1"><UChart {options} data={chartData} /></div>
 </div>

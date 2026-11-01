@@ -650,7 +650,7 @@
     {@const bar = !colorful ? 'var(--color-dim)' : miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 60%, var(--color-dim))' : 'var(--color-primary)'}
     <td class="num relative text-right" style:color={miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 55%, var(--color-text))' : undefined} title="{fixed(r.cached_tokens)} of {fixed(r.prompt_tokens)} prompt tokens from the cache">
       {@render withUnit(pct, 0, '%')}
-      <span class="absolute inset-x-1.5 bottom-0.5 h-0.5 rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{pct}%" style:background={bar}></span></span>
+      <span class="absolute inset-x-1.5 bottom-[2px] h-[2px] rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{pct}%" style:background={bar}></span></span>
     </td>
   {:else}
     <td class="num text-right">–</td>
@@ -674,7 +674,7 @@
       title="{fixed(ex.vram * 100)}% from the VRAM cache, {fixed(ex.pcie * 100)}% read over PCIe, {fixed(ex.missed * 100)}% missed the cache.{usual != null ? ` This model usually gets ${fixed(usual * 100)}% from VRAM (the median over the requests listed).` : ''}"
     >
       {@render withUnit(ex.vram * 100, 0, '%')}
-      <span class="absolute inset-x-1.5 bottom-0.5 flex h-0.5 rounded-sm bg-line-soft">
+      <span class="absolute inset-x-1.5 bottom-[2px] flex h-[2px] rounded-sm bg-line-soft">
         {#each parts as [share, color]}<span class="block h-full" style:width="{share * 100}%" style:background={color}></span>{/each}
         {#if usual != null}<span class="absolute -top-px h-[4px] w-px bg-text" style:left="round(down, {usual * 100}%, 1px)"></span>{/if}
       </span>
