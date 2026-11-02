@@ -2,20 +2,13 @@
   // Picks the server a page acts on, for pages that show one server at a
   // time (Model Config, and the server sections of Settings). Shown only when
   // the Servers list has other servers. Picking one reloads the page.
-  import { reachable, serverName, servers, showServer, stateWords } from './servers.svelte'
+  import ServerMark from './ServerMark.svelte'
+  import { reachable, serverName, servers, serverTone, showServer, stateWords } from './servers.svelte'
 
   /** The server shown now. '' is this server. */
   let { current }: { current: string } = $props()
 
   const isCurrent = (id: string, self: boolean) => (current ? id === current : self)
-  const dot: Record<string, string> = {
-    online: 'bg-primary',
-    checking: 'bg-dim',
-    needs_update: 'bg-warn',
-    offline: 'bg-line',
-    wrong_server: 'bg-err',
-    not_notus: 'bg-err',
-  }
 </script>
 
 {#if servers.many}
@@ -30,7 +23,10 @@
         class="flex items-center gap-1.5 rounded-md border bg-panel2 px-2 py-[2px] leading-[18px] disabled:opacity-50 {on ? 'border-primary text-text' : 'border-line text-muted hover:border-dim hover:text-text disabled:hover:border-line disabled:hover:text-muted'}"
         onclick={() => !on && showServer(s.id)}
       >
-        <span class="size-2 flex-none rounded-full {dot[s.state] ?? 'bg-dim'}"></span>
+        <!-- 3 px of the icon stick out past the capitals, which whole pixels
+             can't split evenly. 1 px lower puts the extra pixel under the
+             baseline. -->
+        <ServerMark server={s} tone={serverTone(s)} class="translate-y-px" />
         {serverName(s)}
       </button>
     {/each}

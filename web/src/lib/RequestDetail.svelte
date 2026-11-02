@@ -8,6 +8,7 @@
   import { expertShares } from './experts'
   import Markdown from './Markdown.svelte'
   import { modelView, serverName, servers } from './servers.svelte'
+  import ServerIcon from './ServerIcon.svelte'
   import RequestMessages from './RequestMessages.svelte'
   import StatusPill from './StatusPill.svelte'
   import { sourceLabel, sourceTitle } from './source'
@@ -235,7 +236,7 @@
     <StatusPill {row} waiting={inFlight && !firstToken} />
     <ModelMark model={row.model} color={mv.color(row.model)} shape={mv.shape(row.model)} />
     <span title={mv.title(row.model)}>{mv.requested(row.model) || '(no model)'}</span>
-    {#if host}<span class="text-muted">on {serverName(servers.get(host))}</span>{/if}
+    {#if host}<span class="flex items-center gap-1 text-muted">on <ServerIcon server={servers.get(host)} />{serverName(servers.get(host))}</span>{/if}
     {#if row.build}<span class="font-mono text-xs text-muted" title="Server build {row.build}">{shortBuild(row.build)}</span>{/if}
     <span class="text-muted">{when(row.started_at)}</span>
     <span class="font-mono text-xs text-dim">{row.method} {row.path}</span>

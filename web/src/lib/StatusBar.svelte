@@ -6,9 +6,10 @@
   import { modelLabel, modelTitle } from './modelNames.svelte'
   import { live } from './live.svelte'
   import { privacy } from './privacy.svelte'
-  import { peerStatus, reachable, serverName, servers, stateWords, type Server } from './servers.svelte'
+  import { peerStatus, reachable, serverName, servers, serverTone, stateWords, type Server } from './servers.svelte'
   import { isSocketSensor, status, type GPU, type Status } from './status.svelte'
   import { itemLabels, serversShown, statusItems, type ItemId } from './statusItems.svelte'
+  import ServerMark, { type Tone } from './ServerMark.svelte'
   import UsageBar from './UsageBar.svelte'
 
   // The bar's height, for layout that fills the screen (--bar-h in app.css).
@@ -192,21 +193,19 @@
     if (g.busy_percent != null) parts.push(`${Math.round(g.busy_percent)}% busy`)
     return parts.join(' · ')
   }
-  const dot: Record<string, string> = { checking: 'bg-dim', needs_update: 'bg-warn', offline: 'bg-line', wrong_server: 'bg-err', not_notus: 'bg-err' }
-
-  // The dot before a server's name: llama-swap's state while the server
-  // answers (green up, amber up with an error, red down), or else the
+  // The colour of the server's mark before its name: llama-swap's state
+  // while the server answers (up, up with an error, down), or else the
   // server's own state. `words` is its tooltip.
-  function nameDot(v: View): { cls: string; words: string } {
+  function nameTone(v: View): { tone: Tone; words: string } {
     const sv = v.server && !v.server.self ? v.server : null
-    if (!sv && !status.reachable) return { cls: 'bg-err', words: 'notus-swap unavailable' }
-    if (sv && !v.reachable) return { cls: dot[sv.state] ?? 'bg-dim', words: stateWords(sv) }
-    if (sv?.state === 'needs_update') return { cls: 'bg-warn', words: stateWords(sv) }
+    if (!sv && !status.reachable) return { tone: 'down', words: 'notus-swap unavailable' }
+    if (sv && !v.reachable) return { tone: serverTone(sv), words: stateWords(sv) }
+    if (sv?.state === 'needs_update') return { tone: 'warn', words: stateWords(sv) }
     const ls = v.s?.llama_swap
-    if (!ls) return { cls: 'bg-dim', words: 'Checking…' }
-    if (!ls.up) return { cls: 'bg-err', words: `llama-swap down${ls.error ? `: ${ls.error}` : ''}` }
-    if (ls.error) return { cls: 'bg-warn', words: `llama-swap up, with an error: ${ls.error}` }
-    return { cls: 'bg-primary', words: 'llama-swap up' }
+    if (!ls) return { tone: 'checking', words: 'Checking…' }
+    if (!ls.up) return { tone: 'down', words: `llama-swap down${ls.error ? `: ${ls.error}` : ''}` }
+    if (ls.error) return { tone: 'warn', words: `llama-swap up, with an error: ${ls.error}` }
+    return { tone: 'up', words: 'llama-swap up' }
   }
 </script>
 
@@ -279,7 +278,7 @@ State: {m.state}">
   {#each rows as { v, f, shown }, r (v.key)}
     {@const row = r + 1}
     {@const home = !v.server || v.server.self}
-    {@const d = nameDot(v)}
+    {@const d = nameTone(v)}
     <!-- The server's name, after a dot for llama-swap's state. This server's
          name opens llama-swap's own page. -->
     <svelte:element
@@ -293,7 +292,10 @@ State: {m.state}">
       style:grid-column={1}
       title={[d.words, !home && v.server?.url, v.local && "Open llama-swap's page"].filter(Boolean).join('\n')}
     >
-      <span class="relative top-px inline-block size-[7px] flex-none rounded-full {d.cls}"></span>
+      <!-- Centred in the 15 px row, the 12 px mark would start on a half
+           pixel. 1.5 px lower puts it on whole pixels, 2 px over the capitals
+           and 3 px under the baseline. -->
+      <ServerMark server={v.server} tone={d.tone} class="relative top-[1.5px]" />
       {home ? appTitle.text : serverName(v.server)}
     </svelte:element>
     {#if home && !status.reachable}

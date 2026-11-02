@@ -45,7 +45,13 @@ type Entry struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
 	URL  string `json:"url,omitempty"`
+	// Icon is one of Icons, or "" for the one its place in the list gives.
+	Icon string `json:"icon,omitempty"`
 }
+
+// Icons are the icons a server can show. The list must match `serverIcons`
+// in web/src/lib/serverIcons.ts.
+var Icons = []string{"tower", "rack", "laptop", "monitor", "box", "chip", "house", "cloud"}
 
 // State is what the last check found.
 type State string
@@ -411,6 +417,30 @@ func (s *Set) Edit(ctx context.Context, id string, name, raw *string) error {
 		s.endStreams(id)
 		s.next[id] = time.Time{}
 		s.poke()
+	}
+	return nil
+}
+
+// SetIcon sets a server's icon, this server's too. "" goes back to the
+// icon its place in the list gives.
+func (s *Set) SetIcon(ctx context.Context, id, icon string) error {
+	if icon != "" && !slices.Contains(Icons, icon) {
+		return problem(http.StatusBadRequest, "", "There is no icon named %q.", icon)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.list, func(e Entry) bool { return e.ID == id })
+	if i < 0 {
+		return problem(http.StatusNotFound, "", "No server with that ID is in the list.")
+	}
+	old := s.list[i]
+	s.list[i].Icon = icon
+	if err := s.save(ctx); err != nil {
+		s.list[i] = old
+		return err
+	}
+	if st := s.status[id]; st != nil {
+		st.Entry = s.list[i]
 	}
 	return nil
 }

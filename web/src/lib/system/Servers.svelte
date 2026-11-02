@@ -4,7 +4,10 @@
   // others. See servers.svelte.ts and internal/peers.
   import { onMount } from 'svelte'
   import { lastUsed } from '../format'
-  import { serverName, servers, stateWords, type Server } from '../servers.svelte'
+  import ServerIcon from '../ServerIcon.svelte'
+  import ServerMark from '../ServerMark.svelte'
+  import { serverIconNames, serverIcons } from '../serverIcons'
+  import { serverIcon, serverName, servers, serverTone, stateWords, type Server } from '../servers.svelte'
   import { status } from '../status.svelte'
 
   interface Probe {
@@ -92,6 +95,13 @@
   // the button into "Click to confirm remove"; it goes back after 5 s or on a
   // click anywhere else.
   let armed = $state<string | null>(null)
+  // ---- Icons ----
+  // Clicking a server's icon lists the others to pick from.
+  let picking = $state<string | null>(null)
+  async function setIcon(s: Server, icon: string) {
+    if (await send(`/notus/api/peers/${s.id}`, 'PATCH', { icon })) picking = null
+  }
+
   let disarm: ReturnType<typeof setTimeout> | undefined
   function remove(id: string) {
     clearTimeout(disarm)
@@ -164,14 +174,6 @@
     return `Its clock is ${secs} s ${g > 0 ? 'ahead of' : 'behind'} this server's. Requests from the two will show out of order.`
   }
 
-  const dot: Record<string, string> = {
-    online: 'bg-primary',
-    checking: 'bg-dim',
-    needs_update: 'bg-warn',
-    offline: 'bg-line',
-    wrong_server: 'bg-err',
-    not_notus: 'bg-err',
-  }
   const btn = 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:border-dim hover:text-text disabled:opacity-50 disabled:hover:border-line'
   const icon = 'flex size-6 flex-none items-center justify-center rounded-md text-dim hover:bg-hover hover:text-text disabled:opacity-30 disabled:hover:bg-transparent'
   const input = 'rounded-md border border-line bg-panel2 px-2 py-1 text-text outline-none focus:border-primary'
@@ -207,7 +209,19 @@
             </svg>
           </span>
         {/if}
-        <span class="mt-1.5 size-2 flex-none rounded-full {s.self ? 'bg-primary' : (dot[s.state] ?? 'bg-dim')}"></span>
+        <!-- The server's mark, coloured by its state, also opens the icon
+             picker. The arrow says it is a button. -->
+        <button
+          class="-my-[3px] flex h-[22px] flex-none items-center gap-[3px] rounded-md border px-[4px] {picking === s.id
+            ? 'border-primary text-text'
+            : 'border-line bg-panel text-muted hover:border-dim hover:text-text'}"
+          title="{s.self ? 'This server' : stateWords(s)}. Click to change its icon."
+          aria-label="Change {serverName(s)}'s icon"
+          aria-expanded={picking === s.id}
+          onclick={() => (picking = picking === s.id ? null : s.id)}
+          ><ServerMark server={s} tone={serverTone(s)} />
+          <svg width="5" height="3" viewBox="0 0 5 3" fill="currentColor" aria-hidden="true"><path d="M0 0h5L2.5 3z" /></svg></button
+        >
         <div class="min-w-0 flex-1">
           {#if editing?.id === s.id}
             <form
@@ -241,6 +255,19 @@
               <div class="mt-0.5 text-warn">It runs a version that this server can't show together with its own. Update both to the same release.</div>
             {/if}
             {#if !s.self && s.error && s.state !== 'offline'}<div class="mt-0.5 text-err">{s.error}</div>{/if}
+            {#if picking === s.id}
+              <div class="mt-1.5 flex flex-wrap items-center gap-1">
+                {#each serverIconNames as name (name)}
+                  <button
+                    class="flex size-[24px] items-center justify-center rounded-md border {serverIcon(s) === name ? 'border-primary text-text' : 'border-line text-muted hover:border-dim hover:text-text'}"
+                    title={serverIcons[name].label}
+                    aria-label={serverIcons[name].label}
+                    onclick={() => setIcon(s, name)}><ServerIcon icon={name} /></button
+                  >
+                {/each}
+                {#if s.icon}<button class="ml-1 text-dim hover:text-text" onclick={() => setIcon(s, '')}>Default</button>{/if}
+              </div>
+            {/if}
             {#if !s.self && clockWarning(s)}<div class="mt-0.5 text-warn">{clockWarning(s)}</div>{/if}
           {/if}
         </div>

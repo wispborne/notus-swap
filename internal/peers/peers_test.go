@@ -261,6 +261,27 @@ func TestEditAddress(t *testing.T) {
 	}
 }
 
+func TestSetIcon(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	a := newFakePeer(t, "aaaaaaaaaaaa")
+	if _, err := s.Add(ctx, a.URL, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIcon(ctx, s.SelfID, "rack"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIcon(ctx, "aaaaaaaaaaaa", "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIcon(ctx, "aaaaaaaaaaaa", "toaster"); err == nil {
+		t.Error("an unknown icon was saved")
+	}
+	if l := s.List(); l[0].Icon != "rack" || l[1].Icon != "laptop" {
+		t.Errorf("after setting icons: %+v", l)
+	}
+}
+
 func TestProxy(t *testing.T) {
 	s, _ := open(t)
 	peer := newFakePeer(t, "aaaaaaaaaaaa")

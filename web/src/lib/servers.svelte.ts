@@ -8,6 +8,7 @@ import { palette, type Shape } from './modelColors.svelte'
 import { modelId } from './modelIds.svelte'
 import { modelLabel, modelShow, modelTitle, requestedLabel } from './modelNames.svelte'
 import { setPeerLookup } from './peerModels'
+import { serverIconNames, serverIcons, type ServerIconName } from './serverIcons'
 import { privacy } from './privacy.svelte'
 import type { RunningModel, Status } from './status.svelte'
 
@@ -15,6 +16,8 @@ export interface Server {
   id: string
   name?: string
   url?: string
+  /** One of serverIcons, or none for the one its place in the list gives. */
+  icon?: string
   self: boolean
   state: 'checking' | 'online' | 'offline' | 'wrong_server' | 'not_notus' | 'needs_update'
   since?: number
@@ -61,6 +64,32 @@ export function serverName(s: Server | undefined) {
   if (!s) return 'unknown server'
   if (s.self) return appTitle.text
   return s.name || s.url || s.id
+}
+
+/**
+ * A server's icon: the one chosen for it, or else the one its place in the
+ * list gives, so servers shown together differ until the user picks.
+ */
+export function serverIcon(s: Server | undefined): ServerIconName {
+  if (s?.icon && s.icon in serverIcons) return s.icon as ServerIconName
+  const i = s ? servers.list.findIndex((x) => x.id === s.id) : 0
+  return serverIconNames[Math.max(0, i) % serverIconNames.length]
+}
+
+/** The colour of a server's mark (ServerMark) for its own state. */
+export function serverTone(s: Server): 'up' | 'warn' | 'down' | 'off' | 'checking' {
+  switch (s.state) {
+    case 'online':
+      return 'up'
+    case 'needs_update':
+      return 'warn'
+    case 'offline':
+      return 'off'
+    case 'checking':
+      return 'checking'
+    default:
+      return 'down'
+  }
 }
 
 /** Whether calls reach the server now. */
