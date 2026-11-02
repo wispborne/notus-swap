@@ -50,7 +50,7 @@
     </label>
     {#each palette.slice(autoColors) as c, i}{@render swatch(c, i + autoColors)}{/each}
   </span>
-  <span class="flex items-center gap-0.5" role="group" aria-label="Shape">
+  <span class="grid grid-cols-[repeat(14,auto)] gap-0.5" role="group" aria-label="Shape">
     {#each Object.entries(shapes) as [k, s]}
       <button class={box(shape === k)} title={s.name} aria-label={s.name} onclick={() => save({ ...keep(), shape: k as Shape })}>
         <ModelMark {model} shape={k as Shape} {color} size={16} />

@@ -235,7 +235,9 @@ type Mark struct {
 }
 
 var shapes = []string{"circle", "square", "diamond", "triangle", "triangle_down", "plus",
-	"triangle_left", "triangle_right", "cross", "star", "hexagon", "hourglass"}
+	"triangle_left", "triangle_right", "cross", "star", "hexagon", "hourglass",
+	"heart", "moon", "bolt", "drop", "sparkle", "sun", "crown", "bell", "spade", "club",
+	"ghost", "cat", "mushroom", "leaf", "eye"}
 
 var hexColor = regexp.MustCompile(`^#[0-9a-f]{6}$`)
 

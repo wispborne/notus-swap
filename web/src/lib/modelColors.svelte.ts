@@ -41,6 +41,18 @@ export interface Mark {
 let marks = $state<Record<string, Mark>>({})
 
 /**
+ * A path from rows of pixels, top to bottom: `#` is filled, anything else is
+ * empty. One rectangle per run of filled pixels in a row.
+ */
+function pixels(...rows: string[]) {
+  let d = ''
+  rows.forEach((row, y) => {
+    for (const m of row.matchAll(/#+/g)) d += `M${m.index} ${y}h${m[0].length}v1h-${m[0].length}z`
+  })
+  return d
+}
+
+/**
  * The shapes a model's dot can take, drawn on an 8 by 8 pixel grid. Straight
  * edges sit on whole pixels. `crisp` shapes have only straight, upright
  * edges, so they are drawn with crispEdges. Shapes must match `shapes` in
@@ -55,10 +67,29 @@ export const shapes = {
   triangle_left: { name: 'Triangle, pointing left', d: 'M7 0v8l-7-4z' },
   triangle_right: { name: 'Triangle, pointing right', d: 'M1 0l7 4-7 4z' },
   plus: { name: 'Plus', d: 'M3 0h2v3h3v2h-3v3h-2v-3h-3v-2h3z', crisp: true },
-  cross: { name: 'Cross', d: 'M1.5 0 4 2.5 6.5 0 8 1.5 5.5 4 8 6.5 6.5 8 4 5.5 1.5 8 0 6.5 2.5 4 0 1.5z' },
-  star: { name: 'Star', d: 'M4 0.2 5.03 2.98 8 3.1 5.66 4.94 6.47 7.8 4 6.15 1.53 7.8 2.34 4.94 0 3.1 2.97 2.98z' },
-  hexagon: { name: 'Hexagon', d: 'M2 0h4l2 4-2 4h-4l-2-4z' },
+  // Drawn in pixel steps: at 8 px, smooth diagonals or a five-pointed star
+  // blur into a blob.
+  cross: { name: 'Cross', d: 'M0 0h1v1h1v1h1v1h2v-1h1v-1h1v-1h1v2h-1v1h-1v2h1v1h1v2h-1v-1h-1v-1h-1v-1h-2v1h-1v1h-1v1h-1v-2h1v-1h1v-2h-1v-1h-1z', crisp: true },
+  star: { name: 'Star', d: 'M3 0h2v2h1v1h2v1h-1v1h-1v1h1v2h-1v-1h-1v-1h-2v1h-1v1h-1v-2h1v-1h-1v-1h-1v-1h2v-1h1z', crisp: true },
+  // Wider than tall, so it doesn't look like a circle at 8 px.
+  hexagon: { name: 'Hexagon', d: 'M2 1h4l2 3-2 3h-4l-2-3z' },
   hourglass: { name: 'Hourglass', d: 'M0 0h8l-4 4 4 4h-8l4-4z' },
+  // Small pictures, drawn pixel by pixel.
+  heart: { name: 'Heart', d: pixels('.##..##.', '########', '########', '########', '.######.', '..####..', '...##...'), crisp: true },
+  moon: { name: 'Moon', d: pixels('..####..', '.###....', '###.....', '###.....', '###.....', '###.....', '.###....', '..####..'), crisp: true },
+  bolt: { name: 'Lightning bolt', d: pixels('....###.', '...###..', '..###...', '.######.', '...###..', '..###...', '.###....', '.##.....'), crisp: true },
+  drop: { name: 'Drop', d: pixels('...##...', '..####..', '..####..', '.######.', '########', '########', '.######.', '..####..'), crisp: true },
+  sparkle: { name: 'Sparkle', d: pixels('...##...', '...##...', '..####..', '########', '########', '..####..', '...##...', '...##...'), crisp: true },
+  sun: { name: 'Sun', d: pixels('#..##..#', '.#....#.', '..####..', '#.####.#', '#.####.#', '..####..', '.#....#.', '#..##..#'), crisp: true },
+  crown: { name: 'Crown', d: pixels('........', '#..##..#', '##.##.##', '########', '########', '########', '########'), crisp: true },
+  bell: { name: 'Bell', d: pixels('...##...', '..####..', '.######.', '.######.', '.######.', '########', '........', '...##...'), crisp: true },
+  spade: { name: 'Spade', d: pixels('...##...', '..####..', '.######.', '########', '########', '.##..##.', '...##...', '..####..'), crisp: true },
+  club: { name: 'Club', d: pixels('..####..', '..####..', '##.##.##', '########', '########', '##.##.##', '...##...', '..####..'), crisp: true },
+  ghost: { name: 'Ghost', d: pixels('..####..', '.######.', '##.##.##', '########', '########', '########', '########', '##.##.##'), crisp: true },
+  cat: { name: 'Cat', d: pixels('#......#', '##....##', '########', '#.####.#', '########', '########', '.######.', '..####..'), crisp: true },
+  mushroom: { name: 'Mushroom', d: pixels('..####..', '.#.##.#.', '########', '#.####.#', '########', '..####..', '..####..', '..####..'), crisp: true },
+  leaf: { name: 'Leaf', d: pixels('....####', '..######', '.###.###', '.##.####', '.#.#####', '..######', '.#.####.', '#.......'), crisp: true },
+  eye: { name: 'Eye', d: pixels('........', '..####..', '.##..##.', '##.##.##', '##.##.##', '.##..##.', '..####..'), crisp: true },
 } satisfies Record<string, { name: string; d: string; crisp?: boolean }>
 export type Shape = keyof typeof shapes
 
