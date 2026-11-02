@@ -14,12 +14,13 @@
   import { knownModel } from '../lib/modelNames.svelte'
   import RequestDetail from '../lib/RequestDetail.svelte'
   import { modelView, peerStatus, reachable, serverName, servers, type Server } from '../lib/servers.svelte'
+  import ServerIcon from '../lib/ServerIcon.svelte'
   import { sourceLabel, sourceTitle } from '../lib/source'
   import StatusPill from '../lib/StatusPill.svelte'
 
   const PAGE = 100
   const states = [
-    ['', 'All'],
+    ['', 'All states'],
     ['in_flight', 'Streaming'],
     ['done', 'Completed'],
     ['failed', 'Errors'],
@@ -271,7 +272,8 @@
 
   // `group` puts a shared header over neighbouring columns. Only the token
   // and speed columns get one, from `groupings` below.
-  type Column = { key: string; label: string; group?: string; num?: boolean; title?: string }
+  // `menu` names the column in the Columns menu, when its header says less.
+  type Column = { key: string; label: string; menu?: string; group?: string; num?: boolean; title?: string }
   const columns = [
     { key: 'time', label: 'Time' },
     { key: 'server', label: 'Server', title: 'The server that answered. Shown when the Servers list on the Settings page has other servers.' },
@@ -288,20 +290,26 @@
     { key: 'out', label: 'Out', num: true, title: 'Generated tokens' },
     { key: 'in_tps', label: 'In t/s', num: true, title: 'Prompt processing speed, tokens per second' },
     { key: 'out_tps', label: 'Out t/s', num: true, title: 'Generation speed, tokens per second' },
-    { key: 'drafts', label: 'Drafts %', num: true, title: 'Share of the tokens drafted by speculative decoding that the model kept' },
+    {
+      key: 'drafts',
+      label: 'Drafts %',
+      num: true,
+      title: "Speculative decoding: the share of drafted tokens that the model kept. The bar under it is the share of the output that came from kept drafts. Hover a value for the numbers and the model's usual share.",
+    },
     { key: 'experts', label: 'Experts %', num: true, title: "Strata only: the share of the model's expert work while generating that was done from the VRAM cache. The bar under it splits the work into VRAM, PCIe and cache misses, and the tick marks the model's usual share. Hover a value for the numbers." },
     { key: 'ttft', label: 'TTFT s', num: true, title: 'Time to first token, in seconds' },
     { key: 'duration', label: 'Duration s', num: true, title: 'Total request time, in seconds' },
+    { key: 'timing', label: 'Duration s', menu: 'Duration and TTFT', num: true, title: 'Total request time, with the time to first token under it, in seconds' },
     { key: 'energy', label: 'Energy Wh', num: true, title: 'GPU energy used, in watt-hours' },
     { key: 'watts', label: 'Avg W', num: true, title: 'Average GPU power during this request: energy divided by duration' },
     { key: 'jtok', label: 'J/tok', num: true, title: 'GPU energy per generated token, in joules' },
   ] as const satisfies readonly Column[]
   type Col = (typeof columns)[number]['key']
-  const defaultCols: Col[] = ['time', 'server', 'model', 'status', 'source', 'prompt', 'notable', 'cache_pct', 'in', 'out', 'in_tps', 'out_tps', 'ttft', 'duration', 'energy']
+  const defaultCols: Col[] = ['time', 'server', 'model', 'status', 'source', 'prompt', 'notable', 'in', 'out', 'in_tps', 'out_tps', 'drafts', 'experts', 'timing', 'energy']
 
   // The column choice is kept per browser, since a phone may want fewer.
   // COLS_VERSION goes up when new columns should appear in saved choices.
-  const COLS_VERSION = 5
+  const COLS_VERSION = 6
   function savedCols(): Col[] {
     try {
       let v = JSON.parse(localStorage.getItem('requests_columns') ?? 'null')
@@ -316,6 +324,12 @@
         if (version < 3 && !v.includes('status')) v.push('status')
         if (version < 4 && !v.includes('source')) v.push('source')
         if (version < 5 && !v.includes('server')) v.push('server')
+        if (version < 6) {
+          // Version 6: the cache share is a bar under the prompt tokens, and
+          // TTFT and Duration share one column.
+          v = v.filter((k: string) => k !== 'cache_pct')
+          if (v.includes('ttft') && v.includes('duration')) v = [...v.filter((k: string) => k !== 'ttft' && k !== 'duration'), 'timing']
+        }
         if (version < COLS_VERSION) {
           localStorage.setItem('requests_columns', JSON.stringify(v))
           localStorage.setItem('requests_columns_version', String(COLS_VERSION))
@@ -420,7 +434,69 @@
 
   // Per-column display choices, saved per browser.
   type ColumnSetting = { key: string; label: string; options: [string, string][]; default: string; title?: string }
+  // Token counts are short ("126k", "0.4k") unless a column's setting
+  // shows them in full.
+  const tokenSetting: ColumnSetting = {
+    key: 'tokens',
+    label: 'Numbers',
+    options: [
+      ['short', 'Short, such as 126k'],
+      ['full', 'In full, such as 126,227'],
+    ],
+    default: 'short',
+  }
   const columnSettings: Partial<Record<Col, ColumnSetting[]>> = {
+    out: [tokenSetting],
+    cache: [tokenSetting],
+    time: [
+      {
+        key: 'show',
+        label: 'Show',
+        options: [
+          ['seconds', 'With seconds'],
+          ['minutes', 'Hours and minutes'],
+        ],
+        default: 'seconds',
+      },
+    ],
+    server: [
+      {
+        key: 'show',
+        label: 'Show',
+        options: [
+          ['both', 'Icon and name'],
+          ['icon', 'Icon only'],
+          ['name', 'Name only'],
+        ],
+        default: 'both',
+        title: "Pick a server's icon on the Settings page, in Servers.",
+      },
+    ],
+    model: [
+      {
+        key: 'show',
+        label: 'Show',
+        options: [
+          ['both', 'Icon and name'],
+          ['icon', 'Icon only'],
+        ],
+        default: 'both',
+        title: "With the icon only, hover it for the model's name.",
+      },
+    ],
+    in: [
+      {
+        key: 'bar',
+        label: 'Bar under the count',
+        options: [
+          ['cache', 'Share from the cache'],
+          ['none', 'None'],
+        ],
+        default: 'cache',
+        title: 'The same bar as the Cache % column, so that column can be left off.',
+      },
+      tokenSetting,
+    ],
     source: [
       {
         key: 'show',
@@ -453,8 +529,15 @@
   let colValues = $state<Record<string, Record<string, string>>>(savedColValues())
   function savedColValues() {
     try {
-      const v = JSON.parse(localStorage.getItem('requests_column_settings') ?? 'null')
-      return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+      let v = JSON.parse(localStorage.getItem('requests_column_settings') ?? 'null')
+      v = v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+      // Before token counts were set per column, one switch set them all.
+      if (localStorage.getItem('requests_full_tokens') === 'true') {
+        for (const k of ['in', 'out', 'cache']) v[k] = { tokens: 'full', ...v[k] }
+        localStorage.setItem('requests_column_settings', JSON.stringify(v))
+      }
+      localStorage.removeItem('requests_full_tokens')
+      return v
     } catch {
       return {}
     }
@@ -471,9 +554,18 @@
     } catch {
       // Not saved; it still applies until the page reloads.
     }
+    customize()
   }
+  const tokensFull = (k: Col) => colSetting(k, 'tokens') === 'full'
   let settingsFor = $state<Col | null>(null)
   const sourceShow = $derived(colSetting('source', 'show'))
+  const timeSeconds = $derived(colSetting('time', 'show') === 'seconds')
+  const serverShow = $derived(colSetting('server', 'show'))
+  const modelShow = $derived(colSetting('model', 'show'))
+  const inBar = $derived(colSetting('in', 'bar'))
+  // A column showing only icons drops its header text, so it is as narrow as
+  // the icons. Its name moves to the header's tooltip.
+  const iconOnly = (k: string) => (k === 'server' && serverShow === 'icon') || (k === 'model' && modelShow === 'icon')
   const promptShow = $derived(colSetting('prompt', 'show'))
   // The full text for the tooltip. Older requests without their bodies only
   // have the start of the last user message.
@@ -536,17 +628,17 @@
     } catch {
       // Not saved; it still applies until the page reloads.
     }
+    customize()
   }
+  // Puts the columns back in their first order and picks the Default view.
   function resetCols() {
-    setCols(defaultCols)
     order = grouped(allKeys, grouping)
-    colValues = {}
     try {
       localStorage.removeItem('requests_column_order')
-      localStorage.removeItem('requests_column_settings')
     } catch {
       // Nothing saved to remove.
     }
+    pickView('default')
   }
   function toggleCol(k: Col) {
     setCols(chosen.includes(k) ? chosen.filter((c) => c !== k) : [...chosen, k])
@@ -609,6 +701,269 @@
     } catch {
       // Not saved; it still applies until the page reloads.
     }
+    customize()
+  }
+
+  // A token count in thousands: one decimal under 10k, so small counts
+  // still differ, and whole thousands above. Millions get an M.
+  function shortTokens(v: number) {
+    if (v >= 999_500) return { n: (v / 1e6).toFixed(1), unit: 'M' }
+    if (v >= 9_950) return { n: String(Math.round(v / 1000)), unit: 'k' }
+    if (v >= 50) return { n: (v / 1000).toFixed(1), unit: 'k' }
+    return { n: '<0.1', unit: 'k' }
+  }
+  // The full count for a cell's tooltip, when the cell shows it short.
+  const tokenTitle = (v: number | null | undefined, full: boolean) => (full || v == null ? undefined : `${fixed(v)} tokens`)
+
+  // The space on each side of a cell. More is the spacing from before this
+  // was a choice. Saved per browser.
+  const spacings = [
+    ['minimal', 'Minimal', '3px'],
+    ['default', 'Default', '5px'],
+    ['more', 'More', '0.5rem'],
+  ] as const
+  type Spacing = (typeof spacings)[number][0]
+  let spacing = $state<Spacing>(savedSpacing())
+  function savedSpacing(): Spacing {
+    try {
+      const v = localStorage.getItem('requests_spacing')
+      return spacings.some(([k]) => k === v) ? (v as Spacing) : 'default'
+    } catch {
+      return 'default'
+    }
+  }
+  function setSpacing(v: Spacing) {
+    spacing = v
+    try {
+      localStorage.setItem('requests_spacing', v)
+    } catch {
+      // Not saved; it still applies until the page reloads.
+    }
+    customize()
+  }
+  const cellPx = $derived(spacings.find(([k]) => k === spacing)![2])
+
+  // ---- Column views ----
+  // A view is the settings that decide how wide the table is: the columns
+  // shown, their settings, spacing and units. Narrow, Default
+  // and Wide are fixed. Changing any of these settings switches to Custom and
+  // saves them there, so Custom is always the user's last own setup. Column
+  // order, colours and the heatmap stay the same in every view.
+  type ViewName = 'narrow' | 'default' | 'wide' | 'custom'
+  type View = { chosen: Col[]; colValues: Record<string, Record<string, string>>; spacing: Spacing; units: boolean }
+  const presets: Record<Exclude<ViewName, 'custom'>, View> = {
+    // Fits beside the side panel.
+    narrow: {
+      chosen: ['time', 'server', 'model', 'status', 'source', 'prompt', 'notable', 'in', 'in_tps', 'out', 'out_tps', 'timing'],
+      colValues: { time: { show: 'minutes' }, server: { show: 'icon' }, model: { show: 'icon' }, source: { show: 'client' } },
+      spacing: 'minimal',
+      units: false,
+    },
+    default: {
+      chosen: defaultCols,
+      colValues: { server: { show: 'icon' }, source: { show: 'client' } },
+      spacing: 'default',
+      units: false,
+    },
+    wide: {
+      chosen: ['time', 'server', 'id', 'model', 'status', 'source', 'build', 'prompt', 'notable', 'cache_pct', 'in', 'out', 'in_tps', 'out_tps', 'drafts', 'experts', 'ttft', 'duration', 'energy', 'watts', 'jtok'],
+      colValues: { in: { tokens: 'full' }, out: { tokens: 'full' }, cache: { tokens: 'full' } },
+      spacing: 'more',
+      units: true,
+    },
+  }
+  const viewNames = [
+    ['narrow', 'Narrow', 'Fewer columns, icons for server and model, and tight spacing. Fits beside the side panel.'],
+    ['default', 'Default', 'The usual columns.'],
+    ['wide', 'Wide', 'Every column, with full token counts.'],
+    ['custom', 'Custom', 'Your own columns and settings. Changing any column setting switches to this view.'],
+  ] as const
+  const firstView = savedViewName()
+  let viewName = $state<ViewName>(firstView)
+  function savedViewName(): ViewName {
+    const v = stored('requests_view')
+    if (viewNames.some(([k]) => k === v)) return v as ViewName
+    // Settings saved before views existed are the user's own.
+    const keys = ['requests_columns', 'requests_column_settings', 'requests_spacing', 'requests_units']
+    return keys.some((k) => stored(k) != null) ? 'custom' : 'default'
+  }
+  const viewNow = (): View => ({ chosen, colValues, spacing, units })
+  // Settings saved before views existed become Custom, so picking a preset
+  // doesn't lose them.
+  if (firstView === 'custom' && stored('requests_view_custom') == null) store('requests_view_custom', JSON.stringify(viewNow()))
+  function customize() {
+    viewName = 'custom'
+    store('requests_view', 'custom')
+    store('requests_view_custom', JSON.stringify(viewNow()))
+  }
+  // Puts a view's settings in place and saves them as the current ones.
+  function applyView(v: View) {
+    const copy: View = JSON.parse(JSON.stringify(v))
+    chosen = columns.map((c) => c.key).filter((k) => copy.chosen.includes(k))
+    colValues = copy.colValues
+    spacing = copy.spacing
+    units = copy.units
+    store('requests_columns', JSON.stringify(chosen))
+    store('requests_columns_version', String(COLS_VERSION))
+    store('requests_column_settings', JSON.stringify(colValues))
+    store('requests_spacing', spacing)
+    store('requests_units', String(units))
+  }
+  function pickView(name: ViewName) {
+    if (name === 'custom') {
+      try {
+        const saved = JSON.parse(stored('requests_view_custom') ?? 'null')
+        if (saved && Array.isArray(saved.chosen)) {
+          // Saved before token counts were set per column.
+          if (saved.fullTokens) for (const k of ['in', 'out', 'cache']) saved.colValues = { ...saved.colValues, [k]: { tokens: 'full', ...saved.colValues?.[k] } }
+          applyView({ ...presets.default, ...saved })
+        }
+      } catch {
+        // A bad saved view: keep the settings in place.
+      }
+    } else applyView(presets[name])
+    viewName = name
+    store('requests_view', name)
+  }
+  // A browser with nothing saved starts with the Default view's settings.
+  if (firstView === 'default' && stored('requests_view') == null) pickView('default')
+
+  // ---- Side panel ----
+  // On a wide screen, a panel right of the table can show a request in place
+  // of expanding its row: the one clicked (Selected), or the newest one in
+  // flight (Live). Whether it is open, its mode and its width are saved per
+  // browser.
+  type PanelMode = 'selected' | 'live'
+  function stored(key: string) {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  }
+  function store(key: string, v: string) {
+    try {
+      localStorage.setItem(key, v)
+    } catch {
+      // Not saved; it still applies until the page reloads.
+    }
+  }
+  let panelOn = $state(stored('requests_panel') === 'true')
+  let panelMode = $state<PanelMode>(stored('requests_panel_mode') === 'live' ? 'live' : 'selected')
+  const minPanel = 320
+  let panelWidth = $state(Math.max(minPanel, Number(stored('requests_panel_width')) || 560))
+  const wideQuery = matchMedia('(min-width: 1024px)')
+  let wide = $state(wideQuery.matches)
+  $effect(() => {
+    const changed = () => (wide = wideQuery.matches)
+    wideQuery.addEventListener('change', changed)
+    return () => wideQuery.removeEventListener('change', changed)
+  })
+  const usePanel = $derived(panelOn && wide)
+  function togglePanel() {
+    panelOn = !panelOn
+    store('requests_panel', String(panelOn))
+  }
+  function setPanelMode(m: PanelMode) {
+    panelMode = m
+    store('requests_panel_mode', m)
+  }
+
+  // Live mode follows the newest request in flight. It stays on a request
+  // until that one finishes, so requests that run side by side don't make
+  // it jump. With nothing in flight, it keeps the last one.
+  let followed = $state<string | null>(null)
+  $effect(() => {
+    if (!usePanel || panelMode !== 'live') return
+    const cur = followed ? shown.find((r) => rk(r) === followed) : undefined
+    if (cur?.state === 'in_flight') return
+    const next = shown.find((r) => r.state === 'in_flight')
+    if (next) followed = rk(next)
+  })
+  const panelKey = $derived(usePanel ? (panelMode === 'live' ? followed : open) : null)
+  const panelRow = $derived(panelKey ? (shown.find((r) => rk(r) === panelKey) ?? rows.find((r) => rk(r) === panelKey)) : undefined)
+  // The row the panel or the expanded row shows.
+  const current = $derived(usePanel ? panelKey : open)
+
+  function rowClick(r: Summary) {
+    if (!usePanel) {
+      open = open === rk(r) ? null : rk(r)
+      return
+    }
+    open = rk(r)
+    if (panelMode === 'live') setPanelMode('selected')
+  }
+
+  // Dragging the panel's left edge sets its width.
+  function resizeStart(e: PointerEvent) {
+    const handle = e.currentTarget as HTMLElement
+    const x0 = e.clientX
+    const w0 = panelWidth
+    handle.setPointerCapture(e.pointerId)
+    const move = (ev: PointerEvent) => (panelWidth = Math.round(Math.min(innerWidth * 0.7, Math.max(minPanel, w0 + x0 - ev.clientX))))
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      store('requests_panel_width', String(panelWidth))
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+
+  // While the request in the panel streams, the end of its answer stays in
+  // view, until the user scrolls it out of view. Coming back to it, or
+  // another request, starts following again.
+  let panelBody = $state<HTMLElement>()
+  let panelContent = $state<HTMLElement>()
+  let stick = true
+  let ours = false
+  const responseEnd = () => panelBody?.querySelector('[data-response-end]')
+  function panelScroll() {
+    if (ours) {
+      ours = false
+      return
+    }
+    const end = responseEnd()
+    if (!end || !panelBody) return
+    const box = panelBody.getBoundingClientRect()
+    const at = end.getBoundingClientRect().bottom
+    stick = at >= box.top && at <= box.bottom + 24
+  }
+  $effect(() => {
+    void panelKey
+    stick = true
+    if (panelBody) panelBody.scrollTop = 0
+  })
+  $effect(() => {
+    if (!panelContent || panelRow?.state !== 'in_flight') return
+    const ro = new ResizeObserver(() => {
+      const end = responseEnd()
+      if (!stick || !end || !panelBody) return
+      const over = end.getBoundingClientRect().bottom - panelBody.getBoundingClientRect().bottom + 12
+      if (over > 0) {
+        ours = true
+        panelBody.scrollTop += over
+      }
+    })
+    ro.observe(panelContent)
+    return () => ro.disconnect()
+  })
+
+  // How a row's cache share looks: its bar, and its text colour in the
+  // Cache % column. With Colorful on, a big prompt that mostly missed the
+  // cache turns amber: fully under 10%, softer under 50%.
+  function cacheLook(r: Summary) {
+    if (r.cached_tokens == null || !r.prompt_tokens) return null
+    const pct = (r.cached_tokens / r.prompt_tokens) * 100
+    const big = r.prompt_tokens >= cacheMissTokens
+    const miss = colorful && big && pct < 10
+    const low = colorful && big && !miss && pct < 50
+    return {
+      pct,
+      fg: miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 55%, var(--color-text))' : undefined,
+      bar: !colorful ? 'var(--color-dim)' : miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 60%, var(--color-dim))' : 'var(--color-primary)',
+      title: `${fixed(r.cached_tokens)} of ${fixed(r.prompt_tokens)} prompt tokens from the cache (${fixed(pct)}%)`,
+    }
   }
 
   let picker = $state<HTMLDetailsElement>()
@@ -634,27 +989,80 @@
   {#if ms == null}–{:else}{@render withUnit(ms / 1000, 2, 's')}{/if}
 {/snippet}
 
+<!-- A token count, short unless the column's setting shows it in full. The "k" shows even
+     with units off, since the number is wrong without it. -->
+{#snippet tokenCount(v: number | null | undefined, full: boolean)}
+  {#if full || v == null || !isFinite(v) || v === 0}{@render withUnit(v, 0, 't')}
+  {:else}
+    {@const t = shortTokens(v)}{t.n}<span class="ml-0.5 text-dim">{t.unit}{units ? 't' : ''}</span>
+  {/if}
+{/snippet}
+
 {#snippet withUnit(v: number | null | undefined, digits: number, unit?: string)}
   {fixed(v, digits)}{#if units && unit && v != null && isFinite(v)}<span class="ml-0.5 text-dim">{unit}</span>{/if}
 {/snippet}
 
-<!-- A bar under the number shows the cache share. With Colorful on, a big
-     prompt that mostly missed the cache turns amber: fully under 10%, softer
-     under 50%. -->
+<!-- A thin bar along the bottom of a cell, inside its padding. -->
+{#snippet bar(share: number, color: string)}
+  <span class="absolute inset-x-(--cell-px) bottom-[2px] h-[2px] rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{share * 100}%" style:background={color}></span></span>
+{/snippet}
+
+<!-- Cache %: the share with a bar under it. See cacheLook. -->
 {#snippet cachePct(r: Summary)}
-  {#if r.cached_tokens != null && r.prompt_tokens}
-    {@const pct = (r.cached_tokens / r.prompt_tokens) * 100}
-    {@const big = r.prompt_tokens >= cacheMissTokens}
-    {@const miss = colorful && big && pct < 10}
-    {@const low = colorful && big && !miss && pct < 50}
-    {@const bar = !colorful ? 'var(--color-dim)' : miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 60%, var(--color-dim))' : 'var(--color-primary)'}
-    <td class="num relative text-right" style:color={miss ? 'var(--color-warn)' : low ? 'color-mix(in srgb, var(--color-warn) 55%, var(--color-text))' : undefined} title="{fixed(r.cached_tokens)} of {fixed(r.prompt_tokens)} prompt tokens from the cache">
-      {@render withUnit(pct, 0, '%')}
-      <span class="absolute inset-x-1.5 bottom-[2px] h-[2px] rounded-sm bg-line-soft"><span class="block h-full rounded-sm" style:width="{pct}%" style:background={bar}></span></span>
+  {@const look = cacheLook(r)}
+  {#if look}
+    <td class="num relative text-right" style:color={look.fg} title={look.title}>
+      {@render withUnit(look.pct, 0, '%')}
+      {@render bar(look.pct / 100, look.bar)}
     </td>
   {:else}
     <td class="num text-right">–</td>
   {/if}
+{/snippet}
+
+<!-- Prompt tokens, with the cache share as a bar under them unless the
+     column's setting turns it off. -->
+{#snippet inTokens(r: Summary, estimate: number | undefined, title: string)}
+  {#if r.prompt_tokens == null && estimate != null}
+    <td class="num text-right text-muted" {title}>{@render tokenCount(estimate, tokensFull('in'))}</td>
+  {:else}
+    {@const look = inBar === 'cache' ? cacheLook(r) : null}
+    <td class="num relative text-right" style:color={heatFg('in', r)} title={[tokenTitle(r.prompt_tokens, tokensFull('in')), look?.title].filter(Boolean).join('\n') || undefined}>
+      {@render tokenCount(r.prompt_tokens, tokensFull('in'))}
+      {#if look}{@render bar(look.pct / 100, look.bar)}{/if}
+    </td>
+  {/if}
+{/snippet}
+
+<!-- Drafts %: the share of drafted tokens kept, with a bar under it for the
+     share of the output that came from kept drafts. -->
+{#snippet draftsPct(r: Summary)}
+  {#if r.draft_n}
+    {@const accepted = r.draft_accepted ?? 0}
+    {@const share = r.completion_tokens ? Math.min(1, accepted / r.completion_tokens) : null}
+    {@const usual = heat.median('drafts', r)}
+    <td
+      class="num relative text-right"
+      style:color={heatFg('drafts', r)}
+      title="{fixed(accepted)} of {fixed(r.draft_n)} drafted tokens kept ({fixed((accepted / r.draft_n) * 100)}%).{share != null
+        ? ` Kept drafts made up ${fixed(share * 100)}% of the ${fixed(r.completion_tokens)} output tokens.`
+        : ''}{usual != null ? ` This model usually keeps ${fixed(usual * 100)}% (the median over the requests listed).` : ''}"
+    >
+      {@render withUnit((accepted / r.draft_n) * 100, 0, '%')}
+      {#if share != null}{@render bar(share, colorful ? 'var(--color-secondary)' : 'var(--color-dim)')}{/if}
+    </td>
+  {:else}
+    <td class="num text-right">–</td>
+  {/if}
+{/snippet}
+
+<!-- Duration, with TTFT under it in smaller text. The cell has less padding
+     than the others, so the two lines fit in a row's usual height. -->
+{#snippet timing(r: Summary)}
+  <td class="num py-0! text-right">
+    <div class="leading-[14px]" style:color={heatFg('duration', r)}>{@render seconds(elapsed(r))}</div>
+    <div class="text-[10px] leading-[11px] text-muted" style:color={heatFg('ttft', r)} style:opacity={heatStrength ? 0.8 : undefined}>{@render seconds(ttft(r))}</div>
+  </td>
 {/snippet}
 
 <!-- Experts %: the VRAM share, with the same split as the expanded row's chip
@@ -674,7 +1082,7 @@
       title="{fixed(ex.vram * 100)}% from the VRAM cache, {fixed(ex.pcie * 100)}% read over PCIe, {fixed(ex.missed * 100)}% missed the cache.{usual != null ? ` This model usually gets ${fixed(usual * 100)}% from VRAM (the median over the requests listed).` : ''}"
     >
       {@render withUnit(ex.vram * 100, 0, '%')}
-      <span class="absolute inset-x-1.5 bottom-[2px] flex h-[2px] rounded-sm bg-line-soft">
+      <span class="absolute inset-x-(--cell-px) bottom-[2px] flex h-[2px] rounded-sm bg-line-soft">
         {#each parts as [share, color]}<span class="block h-full" style:width="{share * 100}%" style:background={color}></span>{/each}
         {#if usual != null}<span class="absolute -top-px h-[4px] w-px bg-text" style:left="round(down, {usual * 100}%, 1px)"></span>{/if}
       </span>
@@ -686,12 +1094,24 @@
 
 {#snippet cell(k: string, r: Summary, flight: ReturnType<typeof live.flights.get>)}
   {@const progress = flight?.progress}
-  {#if k === 'time'}<td class="num">{when(r.started_at)}</td>
+  {#if k === 'time'}<td class="num" title={timeSeconds ? undefined : when(r.started_at)}>{when(r.started_at, timeSeconds)}</td>
   {:else if k === 'id'}<td class="font-mono text-dim">{r.id}</td>
-  {:else if k === 'server'}<td class="text-muted">{serverName(serverOf(r))}</td>
+  {:else if k === 'server'}
+    {@const sv = serverOf(r)}
+    <td class="text-muted" title={serverShow === 'icon' ? serverName(sv) : undefined}>
+      <span class="flex items-center gap-1.5 {serverShow === 'icon' ? 'justify-center' : ''}">{#if serverShow !== 'name'}<ServerIcon server={sv} />{/if}{#if serverShow !== 'icon'}{serverName(sv)}{/if}</span>
+    </td>
   {:else if k === 'model'}
     {@const mv = modelView(r.server)}
-    <td><ModelMark model={r.model} color={mv.color(r.model)} shape={mv.shape(r.model)} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : undefined} /><span title={mv.title(r.model)}>{mv.requested(r.model) || '–'}</span></td>
+    {@const state = r.state === 'in_flight' ? (flight && !flight.firstTokenAt ? 'Waiting for the first token' : 'Streaming') : ''}
+    {#if modelShow === 'icon'}
+      {@const name = mv.requested(r.model)}
+      <td class="text-center" title={[name || 'No model', mv.title(r.model) !== name ? mv.title(r.model) : '', state].filter(Boolean).join('\n')}
+        ><ModelMark model={r.model} color={mv.color(r.model)} shape={mv.shape(r.model)} class={r.state === 'in_flight' ? 'pulse' : ''} /></td
+      >
+    {:else}
+      <td><ModelMark model={r.model} color={mv.color(r.model)} shape={mv.shape(r.model)} class="mr-1.5 {r.state === 'in_flight' ? 'pulse' : ''}" title={state || undefined} /><span title={mv.title(r.model)}>{mv.requested(r.model) || '–'}</span></td>
+    {/if}
   {:else if k === 'status'}<td><StatusPill row={r} waiting={!!flight && !flight.firstTokenAt} /></td>
   {:else if k === 'source'}
     <td class="overflow-hidden text-ellipsis text-muted {sourceShow === 'agent' ? 'max-w-[260px]' : 'max-w-[180px]'}" title={sourceTitle(r)}>
@@ -704,15 +1124,20 @@
   {:else if k === 'prompt'}<td class="max-w-[140px] overflow-hidden text-ellipsis text-muted" title={promptText(r)}>{promptCell(r)}</td>
   {:else if k === 'notable'}<td><NotableChips chips={rowChips(r, flight)} {colorful} /></td>
   {:else if k === 'cache_pct'}{@render cachePct(r)}
-  {:else if k === 'cache'}{@render maybeLive(r.cached_tokens, progress?.cache, 0, 'Reused from the cache so far')}
-  {:else if k === 'in'}{@render maybeLive(r.prompt_tokens, progress?.total ?? progress?.processed, 0, progress ? liveInTitle(progress) : '', 't', heatFg(k, r))}
-  {:else if k === 'out'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(flight ? flight.chunks : r.completion_tokens, 0, 't')}</td>
+  {:else if k === 'cache'}
+    {#if r.cached_tokens == null && progress?.cache != null}<td class="num text-right text-muted" title="Reused from the cache so far">{@render tokenCount(progress.cache, tokensFull('cache'))}</td>
+    {:else}<td class="num text-right" title={tokenTitle(r.cached_tokens, tokensFull('cache'))}>{@render tokenCount(r.cached_tokens, tokensFull('cache'))}</td>{/if}
+  {:else if k === 'in'}{@render inTokens(r, progress?.total ?? progress?.processed, progress ? liveInTitle(progress) : '')}
+  {:else if k === 'out'}
+    {@const n = flight ? flight.chunks : r.completion_tokens}
+    <td class="num text-right" style:color={heatFg(k, r)} title={tokenTitle(n, tokensFull('out'))}>{@render tokenCount(n, tokensFull('out'))}</td>
   {:else if k === 'in_tps'}{@render maybeLive(r.prompt_per_second, progress?.per_second, 0, 'Prompt speed so far', 't/s', heatFg(k, r))}
   {:else if k === 'out_tps'}{@render maybeLive(r.predicted_per_second, liveOutSpeed(flight), 1, 'Generation speed so far', 't/s', heatFg(k, r))}
   {:else if k === 'experts'}{@render expertsPct(r)}
-  {:else if k === 'drafts'}<td class="num text-right" style:color={heatFg(k, r)} title={r.draft_n ? `${fixed(r.draft_accepted ?? 0)} of ${fixed(r.draft_n)} drafted tokens kept` : undefined}>{#if r.draft_n}{@render withUnit(((r.draft_accepted ?? 0) / r.draft_n) * 100, 0, '%')}{:else}–{/if}</td>
+  {:else if k === 'drafts'}{@render draftsPct(r)}
   {:else if k === 'ttft'}<td class="num text-right" style:color={heatFg(k, r)}>{@render seconds(ttft(r))}</td>
   {:else if k === 'duration'}<td class="num text-right" style:color={heatFg(k, r)}>{@render seconds(elapsed(r))}</td>
+  {:else if k === 'timing'}{@render timing(r)}
   {:else if k === 'energy'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(r.energy_j != null ? r.energy_j / 3600 : null, 2, 'Wh')}</td>
   {:else if k === 'watts'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(r.energy_j != null && elapsed(r) > 0 ? r.energy_j / (elapsed(r) / 1000) : null, 0, 'W')}</td>
   {:else if k === 'jtok'}<td class="num text-right" style:color={heatFg(k, r)}>{@render withUnit(r.energy_j != null && r.completion_tokens ? r.energy_j / r.completion_tokens : null, 2, 'J/t')}</td>
@@ -725,7 +1150,8 @@
   <h1 class="mr-1 text-[17px] font-semibold">Requests</h1>
   <input
     class="w-48 rounded-md border bg-panel2 px-2 py-1 outline-none focus:border-primary {q.trim() ? 'border-primary/60' : 'border-line'}"
-    placeholder="Search prompts and models"
+    placeholder="Search"
+    title="Search prompts and models"
     bind:value={q}
   />
   <select class={filterCls(model)} bind:value={model} title="Which model's requests to list">
@@ -751,14 +1177,31 @@
     <option value="any">Any issue</option>
     {#each issueKinds as [k, label]}<option value={k}>{label}</option>{/each}
   </select>
-  <div class="inline-flex overflow-hidden rounded-md border border-line">
-    {#each states as [v, label]}
-      <button class="px-2.5 py-1 {stateFilter === v ? 'bg-panel2 text-text' : 'text-muted hover:text-text'}" onclick={() => (stateFilter = v)}>{label}</button>
-    {/each}
-  </div>
+  <select class={filterCls(stateFilter)} bind:value={stateFilter} title="Which requests to list by state">
+    {#each states as [v, label]}<option value={v}>{label}</option>{/each}
+  </select>
   <span class="flex-1"></span>
   {#if silent.length}<span class="text-xs text-muted" title="Their requests aren't listed. They're asked again when the list next loads.">{silent.map((s) => serverName(servers.get(s))).join(', ')} didn't answer</span>{/if}
   {#if !live.connected}<span class="text-xs text-warn">Live updates reconnecting…</span>{/if}
+  <div class="inline-flex overflow-hidden rounded-md border border-line" role="radiogroup" aria-label="Column view">
+    {#each viewNames as [v, label, title] (v)}
+      <button role="radio" aria-checked={viewName === v} class="px-2.5 py-1 {viewName === v ? 'bg-panel2 text-text' : 'text-muted hover:text-text'}" {title} onclick={() => pickView(v)}>{label}</button>
+    {/each}
+  </div>
+  {#if wide}
+    <button
+      class="rounded-md border px-2 py-1 {panelOn ? 'border-primary/60 bg-panel2 text-text' : 'border-line bg-panel2 text-muted hover:text-text'}"
+      title={panelOn ? 'Hide the side panel' : 'Show a request in a panel beside the table: the one clicked, or the newest one streaming'}
+      aria-label="Side panel"
+      aria-pressed={panelOn}
+      onclick={togglePanel}
+    >
+      <!-- A window with its right part filled, on a 15-pixel grid. -->
+      <svg viewBox="0 0 15 15" class="block size-[15px]" fill="currentColor" fill-rule="evenodd" shape-rendering="crispEdges" aria-hidden="true"
+        ><path d="M1 2h13v11H1zM2 3v9h7V3z" /></svg
+      >
+    </button>
+  {/if}
   <details bind:this={picker} class="relative">
     <summary class="cursor-pointer list-none rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:text-text">Columns</summary>
     <div class="absolute right-0 z-20 mt-1 w-44 rounded-md border border-line bg-panel2 p-1.5 shadow-lg">
@@ -778,7 +1221,7 @@
           <span class="text-dim" aria-hidden="true">⠿</span>
           <label class="flex flex-1 cursor-pointer items-center gap-2">
             <input type="checkbox" class="accent-primary" checked={chosen.includes(k)} onchange={() => toggleCol(k)} />
-            {columns.find((x) => x.key === k)!.label}
+            {c.menu ?? c.label}
           </label>
           {#if columnSettings[k]}
             <button
@@ -836,6 +1279,13 @@
         <input type="range" min="0" max="60" step="5" class="min-w-0 flex-1 accent-primary" value={heatStrength} oninput={(e) => setHeat(Number(e.currentTarget.value))} />
         <span class="num w-7 text-right text-xs text-muted">{heatStrength ? `${heatStrength}%` : 'Off'}</span>
       </label>
+      <div class="mt-1 border-t border-line-soft px-1.5 pt-1.5 pb-0.5 text-xs text-dim">Column spacing</div>
+      {#each spacings as [v, label]}
+        <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover">
+          <input type="radio" name="requests-spacing" class="accent-primary" checked={spacing === v} onchange={() => setSpacing(v)} />
+          {label}
+        </label>
+      {/each}
       <div class="mt-1 border-t border-line-soft px-1.5 pt-1.5 pb-0.5 text-xs text-dim">Group token columns</div>
       {#each [['phase', 'Prompt / Output'], ['kind', 'Tokens / Speed']] as const as [g, label]}
         <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover">
@@ -853,14 +1303,15 @@
      scrolls sideways can't also let the header stick to the page. The height
      leaves room for the status bar (--bar-h) and the page's bottom padding (4rem),
      so the whole box fits on screen. -->
-<div class="max-h-[calc(100dvh_-_var(--bar-h)_-_4.5rem)] overflow-auto rounded-lg border border-line bg-panel">
+<div class="flex items-start gap-2" style:--cell-px={cellPx}>
+<div class="max-h-[calc(100dvh_-_var(--bar-h)_-_4.5rem)] min-w-0 flex-1 overflow-auto rounded-lg border border-line bg-panel">
   <table class="w-full border-collapse">
     <colgroup>
       {#each visibleCols as c}<col class={edges.has(c.key) ? 'border-l border-line-soft' : ''} />{/each}
     </colgroup>
     <thead class="sticky top-0 z-10 bg-panel shadow-[inset_0_-1px_0_var(--color-line)]">
       {#if groupRow.some((g) => g.label)}
-        <tr class="text-[11px] text-dim [&>th]:px-2 [&>th]:pt-1.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
+        <tr class="text-[11px] text-dim [&>th]:px-(--cell-px) [&>th]:pt-1.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
           {#each groupRow as g}
             <th colspan={g.span} class="text-center">
               {#if g.label}<span class="block border-b border-line pb-0.5">{g.label}</span>{/if}
@@ -868,18 +1319,19 @@
           {/each}
         </tr>
       {/if}
-      <tr class="text-left text-[11px] text-dim [&>th]:border-b [&>th]:border-line [&>th]:px-2 [&>th]:py-1.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
+      <tr class="text-left text-[11px] text-dim [&>th]:border-b [&>th]:border-line [&>th]:px-(--cell-px) [&>th]:py-1.5 [&>th]:font-medium [&>th]:whitespace-nowrap">
         {#each visibleCols as c (c.key)}
           {@const k = c.key as Col}
           <th
             draggable="true"
             class="cursor-grab {c.num ? 'text-right' : ''} {dragging === k ? 'opacity-40' : ''}"
-            title={c.title}
+            title={iconOnly(k) ? [c.label, c.title].filter(Boolean).join('\n') : c.title}
+            aria-label={iconOnly(k) ? c.label : undefined}
             ondragstart={(e) => dragStart(e, k)}
             ondragover={(e) => dragOver(e, k, 'x')}
             ondrop={(e) => e.preventDefault()}
             ondragend={dragEnd}
-          >{c.label}</th>
+          >{#if k === 'timing'}<span class="block">Duration s</span><span class="block text-[10px] leading-[11px]">TTFT</span>{:else if !iconOnly(k)}{c.label}{/if}</th>
         {/each}
       </tr>
     </thead>
@@ -887,12 +1339,12 @@
       {#each shown as r (rk(r))}
         {@const flight = r.state === 'in_flight' ? live.of(r.server ?? '')?.get(r.id) : undefined}
         <tr
-          class="cursor-pointer [&>td]:border-b [&>td]:border-line-soft [&>td]:px-2 [&>td]:py-1.5 [&>td]:whitespace-nowrap {open === rk(r) ? '[&>td]:bg-primary/10' : 'hover:[&>td]:bg-hover'}"
-          onclick={() => (open = open === rk(r) ? null : rk(r))}
+          class="cursor-pointer [&>td]:border-b [&>td]:border-line-soft [&>td]:px-(--cell-px) [&>td]:py-1.5 [&>td]:whitespace-nowrap {current === rk(r) ? '[&>td]:bg-primary/10' : 'hover:[&>td]:bg-hover'}"
+          onclick={() => rowClick(r)}
         >
           {#each visibleCols as c}{@render cell(c.key, r, flight)}{/each}
         </tr>
-        {#if open === rk(r)}
+        {#if !usePanel && open === rk(r)}
           <tr><td colspan={visibleCols.length} class="border-b border-line-soft bg-[#252930] px-3.5 py-3"><RequestDetail row={r} usualExperts={heat.median('experts', r)} onopen={(id) => (open = rk({ server: r.server, id }))} /></td></tr>
         {/if}
       {:else}
@@ -907,6 +1359,55 @@
       </button>
     </div>
   {/if}
+</div>
+{#if usePanel}
+  <aside
+    class="relative flex h-[calc(100dvh_-_var(--bar-h)_-_4.5rem)] flex-none flex-col rounded-lg border border-line bg-panel"
+    style:width="{panelWidth}px"
+    aria-label="Request panel"
+  >
+    <!-- Dragging the left edge sets the width. -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      class="absolute inset-y-0 -left-[6px] z-10 w-[8px] cursor-col-resize hover:bg-primary/20"
+      title="Drag to resize"
+      onpointerdown={resizeStart}
+    ></div>
+    <div class="flex items-center gap-2 border-b border-line px-2.5 py-1.5">
+      <div class="inline-flex overflow-hidden rounded-md border border-line text-xs">
+        {#each [['selected', 'Selected', 'The request last clicked in the table'], ['live', 'Live', 'The newest request in flight. It stays on one request until that one finishes.']] as const as [m, label, title]}
+          <button class="px-2 py-0.5 {panelMode === m ? 'bg-panel2 text-text' : 'text-muted hover:text-text'}" {title} onclick={() => setPanelMode(m)}>{label}</button>
+        {/each}
+      </div>
+      {#if panelMode === 'live' && panelRow && panelRow.state !== 'in_flight'}<span class="text-xs text-dim">Finished. The next request shows here when it starts.</span>{/if}
+      <span class="flex-1"></span>
+      <button class="flex size-6 items-center justify-center rounded-md text-dim hover:bg-hover hover:text-text" title="Hide the side panel" aria-label="Hide the side panel" onclick={togglePanel}>
+        <svg viewBox="0 0 10 10" class="block size-[10px]" fill="currentColor" aria-hidden="true"><path d="M1.4 0 5 3.6 8.6 0 10 1.4 6.4 5 10 8.6 8.6 10 5 6.4 1.4 10 0 8.6 3.6 5 0 1.4z" /></svg>
+      </button>
+    </div>
+    <div bind:this={panelBody} class="min-h-0 flex-1 overflow-auto px-3 py-2.5" onscroll={panelScroll}>
+      <div bind:this={panelContent}>
+        {#if panelRow}
+          {#key panelKey}
+            <RequestDetail
+              row={panelRow}
+              usualExperts={heat.median('experts', panelRow)}
+              onopen={(id) => {
+                open = rk({ server: panelRow?.server, id })
+                setPanelMode('selected')
+              }}
+            />
+          {/key}
+        {:else}
+          <div class="py-6 text-center text-muted">
+            {panelMode === 'live' ? 'Nothing is streaming. The next request shows here when it starts.' : 'Click a request in the table to show it here.'}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </aside>
+{/if}
 </div>
 
 <ChipPopover />

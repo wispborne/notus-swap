@@ -230,7 +230,9 @@
 
 <svelte:window onclick={windowClick} />
 
-<div class="max-w-[1300px]">
+<!-- A container, so the messages stack in a narrow place, such as the
+     Requests page's side panel, whatever the window's width. -->
+<div class="@container max-w-[1300px]">
   <div class="mb-2 flex flex-wrap items-center gap-2">
     <span class="font-mono text-[15px] font-semibold">#{row.id}</span>
     <StatusPill {row} waiting={inFlight && !firstToken} />
@@ -332,7 +334,8 @@
     {#each [['side', 'Side by side'], ['request', 'Raw request'], ['response', 'Raw response']] as [k, label]}
       <button
         class="-mb-px border-b-2 px-2.5 py-1 {tab === k ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'}"
-        onclick={() => (tab = k as typeof tab)}>{label}</button
+        onclick={() => (tab = k as typeof tab)}
+        >{#if k === 'side'}<span class="@3xl:hidden">Messages</span><span class="hidden @3xl:inline">{label}</span>{:else}{label}{/if}</button
       >
     {/each}
   </div>
@@ -344,7 +347,8 @@
   {:else if !detail.has_bodies}
     <div class="text-muted">Request and response text was deleted to meet the retention limits. Timing and token counts are still available.</div>
   {:else if tab === 'side'}
-    <div class="grid gap-3 md:grid-cols-2">
+    <!-- Narrow, the response comes first, above the request it answers. -->
+    <div class="grid gap-3 @3xl:grid-cols-2">
       <div class="min-w-0">
         <div class="mb-1.5 flex items-center gap-1 text-[11px] tracking-wider text-dim uppercase">
           Request <CopyButton title="Copy the full request (JSON)" text={() => pretty(detail?.request)} />
@@ -355,7 +359,7 @@
           promptTokens={row.prompt_tokens}
         />
       </div>
-      <div class="min-w-0">
+      <div class="order-first min-w-0 @3xl:order-none">
         <div class="mb-1.5 flex items-center gap-1 text-[11px] tracking-wider text-dim uppercase">
           Response
           {#if !inFlight && detail.response_raw}<CopyButton title="Copy the full response (raw)" text={() => detail?.response_raw ?? ''} />{/if}
@@ -396,6 +400,8 @@
         {#if detail.truncated}
           <div class="text-xs text-warn">This body was larger than 32 MB, so only the start is stored.</div>
         {/if}
+        <!-- The side panel keeps this in view while the answer streams. -->
+        <div data-response-end></div>
       </div>
     </div>
   {:else}

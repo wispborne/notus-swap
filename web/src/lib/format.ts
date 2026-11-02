@@ -1,9 +1,9 @@
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** 14:03:22 today, "Sep 23 14:03" on other days. */
-export function when(ms: number) {
+export function when(ms: number, seconds = true) {
   const d = new Date(ms)
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}${seconds ? `:${pad(d.getSeconds())}` : ''}`
   if (d.toDateString() === new Date().toDateString()) return time
   return `${d.toLocaleString(undefined, { month: 'short' })} ${d.getDate()} ${time.slice(0, 5)}`
 }
