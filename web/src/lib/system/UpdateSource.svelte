@@ -98,21 +98,19 @@
     </div>
 
     {#if kind === ''}
-      <p class="mt-2 text-muted">
-        Use the <code>GITEA_</code> and <code>NOTUS_GITHUB_REPO</code> settings notus-swap was started with.
-        {#if saved.env_source}They give {saved.env_source}.{:else}They turn updates off.{/if}
+      <p class="mt-2 text-muted" title="The GITEA_ and NOTUS_GITHUB_REPO settings notus-swap was started with">
+        {#if saved.env_source}Uses {saved.env_source}.{:else}Updates are off.{/if}
       </p>
     {:else if kind === 'github'}
-      <label class="mt-2 flex flex-wrap items-center gap-2">Repository
+      <label class="mt-2 flex flex-wrap items-center gap-2" title="A GITHUB_TOKEN from the environment is still used, if set.">Repository
         <input class="{input} w-64 font-mono" bind:value={githubRepo} placeholder="owner/name" spellcheck="false" />
       </label>
-      <p class="mt-1 text-dim">A <code>GITHUB_TOKEN</code> from the environment is still used, if set.</p>
     {:else if kind === 'gitea'}
       <div class="mt-2 grid max-w-xl grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5">
         <span>Address</span><input class="{input} font-mono" bind:value={giteaURL} placeholder="https://git.example.com" spellcheck="false" />
         <span>Repository</span><input class="{input} font-mono" bind:value={giteaRepo} placeholder="owner/notus-swap" spellcheck="false" />
         <span>User</span><input class="{input} font-mono" bind:value={giteaUser} placeholder="owner" spellcheck="false" autocomplete="off" />
-        <span>Token</span>
+        <span title="Stored in notus-swap's database. This page never shows it again.">Token</span>
         <input
           class="{input} font-mono"
           type="password"
@@ -121,16 +119,14 @@
           autocomplete="new-password"
         />
       </div>
-      <p class="mt-1 text-dim">The token is stored in notus-swap's database. This page never shows it again.</p>
     {:else}
-      <p class="mt-2 text-muted">notus-swap won't check for or install its own updates.</p>
+      <p class="mt-2 text-muted">No update checks or installs.</p>
     {/if}
 
     <div class="mt-2 flex items-center gap-2">
       <button class={btn} disabled={busy} onclick={save}>{busy ? 'Saving…' : 'Save'}</button>
-      {#if done}<span class="text-primary">Saved. Now using {saved.source || 'nothing: updates are off'}.</span>{/if}
+      {#if done}<span class="text-primary">{saved.source ? `Saved. Updates now come from ${saved.source}.` : 'Saved. Updates are off.'}</span>{/if}
     </div>
-    <p class="mt-1 text-dim"><code>update-notus-swap.sh</code> always uses the environment settings.</p>
   {:else if !error}
     <p class="mt-1 text-muted">Loading…</p>
   {/if}

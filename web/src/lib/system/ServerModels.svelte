@@ -46,7 +46,7 @@
       if (remote) await remote.setHidden(m, hide)
       else await privacy.setHidden(m, hide)
     } catch (e) {
-      error = `Couldn't save: ${e instanceof Error ? e.message : e}`
+      error = `Couldn't change whether the model is hidden: ${e instanceof Error ? e.message : e}`
     }
   }
 
@@ -66,7 +66,7 @@
   <div class="text-[12.5px] text-muted">No models are hidden.</div>
 {:else if !namesVisible}
   <button class="rounded-md border border-dashed border-line px-3 py-2 text-left text-[12.5px] text-muted hover:border-primary hover:text-text" onclick={() => (reveal = true)}>
-    Click to reveal {hiddenModels.length} hidden model name{hiddenModels.length === 1 ? '' : 's'} here.
+    Reveal {hiddenModels.length} hidden model name{hiddenModels.length === 1 ? '' : 's'} on this page.
   </button>
 {:else}
   <ul class="divide-y divide-line-soft rounded-md border border-line">

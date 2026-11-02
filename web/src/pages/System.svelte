@@ -4,6 +4,7 @@
   import { modelShow } from '../lib/modelNames.svelte'
   import { privacy } from '../lib/privacy.svelte'
   import { status } from '../lib/status.svelte'
+  import InfoTip from '../lib/InfoTip.svelte'
   import DefaultModel from '../lib/system/DefaultModel.svelte'
   import KeepAwake from '../lib/system/KeepAwake.svelte'
   import Manage from '../lib/system/Manage.svelte'
@@ -51,7 +52,7 @@
       await appTitle.set(t)
       titleDraft = null
     } catch (e) {
-      titleError = `Couldn't save: ${e instanceof Error ? e.message : e}`
+      titleError = `Couldn't save the app title: ${e instanceof Error ? e.message : e}`
     }
   }
 </script>
@@ -62,7 +63,7 @@
        on share the frame's tint. -->
   <nav class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]" aria-label="Sections">
     {#if servers.many}
-      <span class="-ml-[9px] flex flex-wrap gap-x-3 rounded-md border border-primary/35 bg-primary/8 px-[8px] py-[2px]">
+      <span class="-ml-[9px] flex flex-wrap gap-x-3 rounded-md bg-primary/8 px-[8px] py-[2px]">
         {#each sections.slice(0, perServer) as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
       </span>
       {#each sections.slice(perServer) as [id, label] (id)}<a href="#{id}" class="text-muted hover:text-primary">{label}</a>{/each}
@@ -73,7 +74,8 @@
 
   <!-- The sections that belong to one server. With other servers, they sit in
        one tinted frame whose header is the server picker, kept in view while
-       they scroll past. -->
+       they scroll past. The tint alone sets the frame apart; its border is the
+       usual line. -->
   {#snippet perServerSections()}
     {#if server && !reachable(servers.get(server))}
       <ServerAsleep server={servers.get(server)} />
@@ -88,8 +90,8 @@
     {/if}
   {/snippet}
   {#if servers.many}
-    <div class="-mx-[9px] mb-4 rounded-xl border border-primary/35 bg-primary/4">
-      <div class="sticky top-(--bar-h) z-10 rounded-t-xl border-b border-primary/35 bg-[color-mix(in_srgb,var(--color-primary)_10%,var(--color-surface))] px-[8px] py-[8px]">
+    <div class="-mx-[9px] mb-4 rounded-xl border border-line bg-primary/4">
+      <div class="sticky top-(--bar-h) z-10 rounded-t-xl border-b border-line bg-[color-mix(in_srgb,var(--color-primary)_6%,var(--color-surface))] px-[8px] py-[8px]">
         <ServerPicker current={server ?? ''} />
       </div>
       <!-- A section jumped to from the links lands 8 px under the sticky header (41 px). -->
@@ -105,7 +107,6 @@
 
   <section id="app-title" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">App title</h2>
-    <p class="mt-1 text-[12.5px] text-muted">Shown in the top left corner and on the browser tab. Leave it empty for "{defaultTitle}". Saved on the server, for every browser.</p>
     <form
       class="mt-3 flex flex-wrap items-center gap-2"
       onsubmit={(e) => {
@@ -137,7 +138,6 @@
 
   <section id="theme" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Theme</h2>
-    <p class="mt-1 text-[12.5px] text-muted">Colour themes from TriOS. Saved in this browser only.</p>
     <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Theme">
       {#each themes as t (t.id)}
         <button
@@ -157,9 +157,6 @@
 
   <section id="model-labels" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
     <h2 class="text-sm font-semibold">Model labels</h2>
-    <p class="mt-1 text-[12.5px] text-muted">
-      Show models by the name in llama-swap's config, or by their ID. A model without a name shows its ID either way. Hovering a model shows both. Saved in this browser only.
-    </p>
     <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Model labels">
       {#each [['name', 'Name'], ['id', 'ID']] as const as [v, text] (v)}
         <button
@@ -175,13 +172,9 @@
   </section>
 
   <section id="models" class="scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
-    <h2 class="text-sm font-semibold">Models</h2>
-    <p class="mt-1 text-[12.5px] text-muted">
-      Click a model's dot to choose its colour and shape. They are used on every page, and saved for every browser on the server that runs the model.
-    </p>
-    <p class="mt-1 text-[12.5px] text-muted">
-      Hidden models are still recorded. When hidden, they're omitted from requests and charts; totals such as power still include them.
-    </p>
+    <h2 class="flex items-center gap-1.5 text-sm font-semibold">Models<InfoTip
+        text={"Click a model's icon to change its colour and shape.\n\nHiding only changes what these pages show. Requests to hidden models are still recorded, and llama-swap's own page at /ui still shows their names."}
+      /></h2>
 
     <label class="mt-3 flex cursor-pointer items-center gap-3 rounded-md border border-line bg-panel2 px-3 py-2">
       <button
@@ -195,10 +188,7 @@
       </button>
       <span>
         <b class="font-semibold">Show hidden models</b>
-        <span class="block text-xs text-muted">
-          {privacy.showHidden ? 'Shown in requests, charts, and logs.' : 'Hidden from requests, charts, and logs.'}
-          This applies to every device.
-        </span>
+        <span class="block text-xs text-muted">For every browser</span>
       </span>
     </label>
 
@@ -208,12 +198,11 @@
         {#if sv.self || reachable(sv)}
           <ServerModels server={sv.self ? '' : sv.id} />
         {:else}
-          <div class="mt-3 text-[12.5px] text-muted">{stateWords(sv)}. Its models show here once it answers.</div>
+          <div class="mt-3 text-[12.5px] text-muted">{stateWords(sv)}.</div>
         {/if}
       {/each}
     {:else}
       <ServerModels />
     {/if}
-    <p class="mt-3 text-xs text-dim">Hidden model names remain visible in llama-swap's UI at /ui.</p>
   </section>
 </div>

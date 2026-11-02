@@ -89,11 +89,7 @@
 </script>
 
 <section id="default-model" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
-  <h2 class="text-sm font-semibold">Default model</h2>
-  <p class="mt-1 text-[12.5px] text-muted">
-    Automatically load the selected model after {minutes} {minutes === 1 ? 'minute' : 'minutes'} with no models loaded.
-    Manually unloading a model pauses the timer until another model loads.
-  </p>
+  <h2 class="flex items-center gap-1.5 text-sm font-semibold">Default model</h2>
 
   {#if error}<div class="mt-2 text-[12.5px] text-err">{error}</div>{/if}
 
@@ -117,7 +113,7 @@
       {/each}
     </select>
     <label class="flex items-center gap-2">after
-      <input type="number" min="1" max="1440" bind:value={minutes} class="{input} w-20" disabled={!enabled} /> minutes with nothing loaded
+      <input type="number" min="1" max="1440" bind:value={minutes} class="{input} w-20" disabled={!enabled} /> minutes with no models loaded
     </label>
     <button class={btn} disabled={!dirty || busy || (enabled && !model)} onclick={save}>Save</button>
   </div>
@@ -125,25 +121,25 @@
   {#if saved && !dirty}
     <div class="mt-2 text-[12.5px] text-muted">
       {#if saved.status === 'waiting'}
-        Nothing is loaded. {label(saved.model)} loads in {duration(left)}.
+        No models are loaded. {label(saved.model)} loads in {duration(left)}.
       {:else if saved.status === 'loaded'}
-        A model is loaded. The countdown starts when no models are loaded.
+        A model is loaded, so the countdown hasn't started.
       {:else if saved.status === 'loading'}
         <span class="pulse text-secondary">●</span> Loading {label(saved.model)}…
       {:else if saved.status === 'paused'}
-        Automatic loading is paused after a manual unload. Loading another model or saving these settings clears the pause.
+        Paused after a manual unload. Loading any model, or saving here, resumes it.
       {:else if saved.status === 'missing'}
-        <span class="text-err">{label(saved.model)} isn't in llama-swap's config, so nothing will load.</span>
+        <span class="text-err">{label(saved.model)} isn't in llama-swap's config, so no model will load.</span>
       {:else if saved.status === 'down'}
-        llama-swap isn't reachable. The countdown starts once it is back.
+        llama-swap isn't reachable.
       {/if}
     </div>
   {/if}
 
   {#if enabled && model && ttl > 0}
     <div class="mt-2 rounded-md border border-l-3 border-line border-l-warn bg-panel2 px-3 py-2 text-[12.5px]">
-      {label(model)} unloads after {duration(ttl * 1000)} of inactivity and reloads
-      {Math.round(minutes)} {Math.round(minutes) === 1 ? 'minute' : 'minutes'} later if no other model is loaded. To keep it loaded, set its <code>ttl</code> to 0 on the Model Config page.
+      {label(model)} unloads after {duration(ttl * 1000)} idle, then reloads {Math.round(minutes)}
+      {Math.round(minutes) === 1 ? 'minute' : 'minutes'} later. Set its <code>ttl</code> to 0 on the Model Config page to stop this.
     </div>
   {/if}
 </section>

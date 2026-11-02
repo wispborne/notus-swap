@@ -48,6 +48,8 @@
   let busy = $state('')
   let found = $state<Probe | null>(null)
   let addError = $state('')
+  // Nothing answered at the address (a 502), which is often a firewall.
+  let unreachable = $state(false)
 
   async function test() {
     busy = 'test'
@@ -55,6 +57,7 @@
     found = null
     try {
       const res = await fetch('/notus/api/peers/test', { method: 'POST', body: JSON.stringify({ url: address }) })
+      unreachable = res.status === 502
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
       found = await res.json()
     } catch (e) {
@@ -69,6 +72,7 @@
     addError = ''
     try {
       const res = await fetch('/notus/api/peers', { method: 'POST', body: JSON.stringify({ url: address, name }) })
+      unreachable = res.status === 502
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
       address = ''
       name = ''
@@ -171,7 +175,7 @@
     const g = s.clock_gap_ms
     if (g == null || Math.abs(g) < 2000) return ''
     const secs = Math.round(Math.abs(g) / 1000)
-    return `Its clock is ${secs} s ${g > 0 ? 'ahead of' : 'behind'} this server's. Requests from the two will show out of order.`
+    return `Its clock is ${secs} s ${g > 0 ? 'ahead of' : 'behind'} this server's. Requests from the two servers will appear out of order.`
   }
 
   const btn = 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-muted hover:border-dim hover:text-text disabled:opacity-50 disabled:hover:border-line'
@@ -183,10 +187,6 @@
 
 <section id="servers" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
   <h2 class="text-sm font-semibold">Servers</h2>
-  <p class="mt-1 text-[12.5px] text-muted">
-    Other notus-swap servers to show here. Calls to them go through this server, so each one only needs to be reachable from this server, not from your browser. The
-    top server is the primary: it's shown first. Drag the rows to change the order. This list is kept on this server only; other servers have their own.
-  </p>
 
   {#if error}<p class="mt-2 text-[12.5px] text-err">{error}</p>{/if}
 
@@ -248,11 +248,10 @@
               {:else}
                 {stateWords(s)}{#if s.state !== 'online' && s.state !== 'checking' && s.since}{' '}since {lastUsed(s.since)}{/if}
                 {#if s.version}· notus-swap {s.version}{/if}
-                {#if s.state === 'online' && s.last_seen}· last answered {lastUsed(s.last_seen)}{/if}
               {/if}
             </div>
             {#if !s.self && s.state === 'needs_update'}
-              <div class="mt-0.5 text-warn">It runs a version that this server can't show together with its own. Update both to the same release.</div>
+              <div class="mt-0.5 text-warn">Data from these two server versions can't be shown together. Update both servers to the same release.</div>
             {/if}
             {#if !s.self && s.error && s.state !== 'offline'}<div class="mt-0.5 text-err">{s.error}</div>{/if}
             {#if picking === s.id}
@@ -302,6 +301,7 @@
       class="{input} w-64 font-mono"
       placeholder="http://192.168.1.5:8080"
       aria-label="Address of another notus-swap"
+      title="An address this server can reach. Your browser doesn't need to reach it."
       bind:value={address}
       oninput={() => {
         found = null
@@ -314,12 +314,12 @@
   </form>
   {#if found}
     <p class="mt-2 text-[12.5px] text-primary">
-      Found notus-swap {found.version}{found.name ? ` ("${found.name}")` : ''} at {found.url}. It answered in {found.latency_ms} ms.
-      {#if Math.abs(found.clock_gap_ms) >= 2000}<span class="text-warn">Its clock is {Math.round(Math.abs(found.clock_gap_ms) / 1000)} s off from this server's.</span>{/if}
+      Found notus-swap {found.version}{found.name ? ` ("${found.name}")` : ''} at {found.url}.
+      {#if Math.abs(found.clock_gap_ms) >= 2000}<span class="text-warn">Its clock differs from this server's clock by {Math.round(Math.abs(found.clock_gap_ms) / 1000)} s.</span>{/if}
     </p>
   {/if}
-  {#if addError}<p class="mt-2 text-[12.5px] text-err">{addError}</p>{/if}
-  <p class="mt-2 text-[12.5px] text-dim">
-    The other server must let this one reach its port. On Windows, that takes a Windows Firewall rule for inbound TCP on notus-swap's port.
-  </p>
+  {#if addError}
+    <p class="mt-2 text-[12.5px] text-err">{addError}</p>
+    {#if unreachable}<p class="mt-1 text-[12.5px] text-muted">If that server runs Windows, it needs a firewall rule that allows inbound TCP on notus-swap's port.</p>{/if}
+  {/if}
 </section>

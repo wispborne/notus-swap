@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import InfoTip from '../InfoTip.svelte'
   import { api } from '../servers.svelte'
 
   /** The server this section acts on. '' is this server. */
@@ -56,11 +57,9 @@
 </script>
 
 <section id="keep-awake" class="mb-4 scroll-mt-[calc(var(--bar-h)_+_14px)] rounded-lg border border-line bg-panel p-4">
-  <h2 class="text-sm font-semibold">Keep awake</h2>
-  <p class="mt-1 text-[12.5px] text-muted">
-    Stop the computer from sleeping while it answers a request, and let it sleep again a few seconds after the last one ends.
-    The screen can still turn off. Requests from other computers don't count as activity, so without this the computer can sleep mid-answer.
-  </p>
+  <h2 class="flex items-center gap-1.5 text-sm font-semibold">Keep awake<InfoTip
+      text="Windows doesn't count requests from other computers as activity, so it can sleep in the middle of an answer."
+    /></h2>
 
   {#if error}<div class="mt-2 text-[12.5px] text-err">{error}</div>{/if}
 
@@ -82,16 +81,16 @@
     </div>
     <div class="mt-2 text-[12.5px] text-muted">
       {#if !saved.supported}
-        Only Windows servers can be kept awake. This one isn't running Windows.
+        Windows only.
       {:else if !saved.enabled}
-        Off. The computer may sleep while requests are in flight.
+        Off.
       {:else if saved.held && saved.in_flight === 0}
-        Keeping awake for a few more seconds after the last request.
+        Letting the computer sleep in a few seconds.
       {:else if saved.held}
-        <span class="pulse text-secondary">●</span> Keeping awake: {saved.in_flight}
-        {saved.in_flight === 1 ? 'request' : 'requests'} in flight.
+        <span class="pulse text-secondary">●</span> Keeping the computer awake for {saved.in_flight}
+        active {saved.in_flight === 1 ? 'request' : 'requests'}.
       {:else}
-        Nothing in flight. The computer may sleep.
+        No active requests.
       {/if}
     </div>
   {/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import InfoTip from '../InfoTip.svelte'
   import Markdown from '../Markdown.svelte'
   import Changelog, { type Entry } from './Changelog.svelte'
   import { bytes, when } from '../format'
@@ -121,7 +122,6 @@
   const swap = $derived(info?.llama_swap)
   const cpp = $derived(info?.llama_cpp)
   const loadedModels = $derived((remote ? remote.current : status.current)?.llama_swap.models.length ?? 0)
-  const checked = $derived(info?.checked_at ? `GitHub was last checked at ${when(Date.parse(info.checked_at))}, and is checked every hour.` : '')
 
   /** "today", or a date such as "Sep 23". */
   function day(iso: string) {
@@ -171,7 +171,7 @@
       {/if}
     {:else}
       {#if j.finished}<span class="text-dim">{when(Date.parse(j.finished))}</span>{/if}
-      {j.error ? `${j.action === 'install' ? 'Install' : 'Roll back'} failed: ${j.error}` : j.result}
+      {j.error ? `${j.action === 'install' ? 'Installation' : 'Rollback'} failed: ${j.error}` : j.result}
       {#if !j.error && j.component === 'llama.cpp' && loadedModels && !unloaded}
         <div class="mt-2">
           <button class={btn} onclick={unloadAll}>Unload {loadedModels === 1 ? 'the loaded model' : `all ${loadedModels} loaded models`} now</button>
@@ -212,16 +212,16 @@
         class={primary}
         disabled={busy || !swap.latest || !(swap.newer || !swap.installed)}
         onclick={() =>
-          start('llama-swap', 'install', swap!.latest!.tag, `Update llama-swap to ${swap!.latest!.tag}? llama-swap restarts, so loaded models unload and running requests stop.`)}
+          start('llama-swap', 'install', swap!.latest!.tag, `Update llama-swap to ${swap!.latest!.tag}? llama-swap will restart. Loaded models will unload. Running requests will stop.`)}
       >
         {swap.latest && (swap.newer || !swap.installed) ? `Update to ${swap.latest.tag}` : 'Update'}
       </button>
       <button
         class={btn}
         disabled={busy || !swap.has_backup}
-        title={swap.has_backup ? `Swap in ${swap.bin}.bak` : 'No previous version kept yet'}
+        title={swap.has_backup ? undefined : 'No previous version kept yet'}
         onclick={() =>
-          start('llama-swap', 'rollback', '', `Go back to llama-swap ${swap!.backup || 'from the .bak file'}? llama-swap restarts, so loaded models unload and running requests stop.`)}
+          start('llama-swap', 'rollback', '', `Go back to llama-swap ${swap!.backup || 'from the .bak file'}? llama-swap will restart. Loaded models will unload. Running requests will stop.`)}
       >
         {backLabel(swap.backup, swap.installed)}
       </button>
@@ -231,15 +231,13 @@
     {#if shown === 'llama-swap'}
       <Changelog entries={logs['llama-swap'] ?? null} error={logError} isNew={(tag) => !!swap.installed && num(tag) > num(swap.installed)} />
     {/if}
-    <p class="mt-2 text-xs text-dim">
-      An update checks llama-swap's config with the new version first, then restarts llama-swap. If the new version doesn't answer within a minute,
-      the old one is put back. The old binary is kept as <code>llama-swap.bak</code>. {checked}
-    </p>
   {/if}
 </section>
 
 <section class={section}>
-  <h2 class="text-sm font-semibold">llama.cpp version</h2>
+  <h2 class="flex items-center gap-1.5 text-sm font-semibold">llama.cpp version<InfoTip
+      text={'Models switch to a new build the next time they load. Weekly releases are tested more than nightly builds.'}
+    /></h2>
   {#if !cpp}
     <p class="mt-1 text-muted">Loading…</p>
   {:else if cpp.off}
@@ -247,7 +245,7 @@
   {:else}
     <p class="mt-1 text-[12.5px] text-muted">
       {#if cpp.installed}
-        In use: <b class="font-mono text-text">{cpp.installed}</b>{#if cpp.flavor}, the <code>{cpp.flavor}</code> build{/if}, in <code>{cpp.dir}</code>.
+        In use: <b class="font-mono text-text" title={cpp.dir}>{cpp.installed}</b>{#if cpp.flavor} (<code>{cpp.flavor}</code>){/if}.
       {:else if !cpp.problem}
         No build is installed in <code>{cpp.dir}</code> yet.
       {/if}
@@ -309,9 +307,5 @@
     {#if shown === 'llama.cpp'}
       <Changelog entries={logs['llama.cpp'] ?? null} error={logError} isNew={cppIsNew} />
     {/if}
-    <p class="mt-2 text-xs text-dim">
-      Each build gets its own folder, and the <code>current</code> link points at the one in use. Models use a new build the next time they load. The build before is kept
-      for rollback; older builds are removed unless a program is still running from them. Weekly releases are tested more than nightly builds. {checked}
-    </p>
   {/if}
 </section>

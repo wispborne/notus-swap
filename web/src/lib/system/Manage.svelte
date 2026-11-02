@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { bytes, when } from '../format'
   import { api } from '../servers.svelte'
+  import InfoTip from '../InfoTip.svelte'
   import LlamaUpdates from './LlamaUpdates.svelte'
   import Changelog from './Changelog.svelte'
   import UpdateSource from './UpdateSource.svelte'
@@ -96,7 +97,7 @@
 
   async function toggleLlama() {
     const action = serviceRunning ? 'stop' : 'start'
-    if (action === 'stop' && !confirm('Stop llama-swap? Active requests will stop; loaded models will unload.')) return
+    if (action === 'stop' && !confirm('Stop llama-swap? Active requests will stop. Loaded models will unload.')) return
     busy = `${action}-llama`
     message = { kind: 'wait', text: action === 'stop' ? 'Stopping llama-swap…' : 'Starting llama-swap…' }
     try {
@@ -145,11 +146,11 @@
     busy = ''
     waiting = null
     const where = info?.self_restart === 'systemd' ? 'journalctl -u notus-swap.service -n 50' : "the window or terminal it runs in"
-    message = { kind: 'err', text: `notus-swap didn't come back within 90 seconds. Check its log: ${where}` }
+    message = { kind: 'err', text: `notus-swap didn't finish restarting within 90 seconds. Check its log: ${where}` }
   }
 
   async function restartNow() {
-    if (!confirm('Restart now? Answers still streaming get 10 seconds to finish, then they are cut off.')) return
+    if (!confirm('Restart now? Streaming answers have 10 seconds to finish. Any unfinished answers are then cut off.')) return
     try {
       await post('/notus/api/restart/notus-swap/now')
       waiting = null
@@ -176,7 +177,7 @@
       text: reason.startsWith('update')
         ? 'Update cancelled and download removed. The current version is still running.'
         : reason === 'roll back'
-          ? 'Roll back cancelled. The current version is still running.'
+          ? 'Rollback cancelled. The current version is still running.'
           : 'Restart cancelled.',
     }
     load() // Cancelling an update changes the available rollback version.
@@ -210,7 +211,7 @@
       await waitForRestart()
     } catch (e) {
       busy = ''
-      message = { kind: 'err', text: `Roll back failed: ${e instanceof Error ? e.message : e}` }
+      message = { kind: 'err', text: `Rollback failed: ${e instanceof Error ? e.message : e}` }
     }
   }
 
@@ -227,7 +228,7 @@
   }
 
   async function restartLlama() {
-    if (!confirm('Restart llama-swap? Active requests will stop; loaded models will unload.')) return
+    if (!confirm('Restart llama-swap? Active requests will stop. Loaded models will unload.')) return
     busy = 'restart-llama'
     message = { kind: 'wait', text: 'Restarting llama-swap…' }
     try {
@@ -283,7 +284,7 @@
     {#if message.kind === 'wait'}<span class="pulse mr-1 text-secondary">●</span>{/if}{message.text}
     {#if waiting && waiting.in_flight > 0}
       <div class="mt-1.5 flex flex-wrap items-center gap-2 text-muted">
-        Waiting for {waiting.in_flight} {waiting.in_flight === 1 ? 'request' : 'requests'} to finish, so no answer is cut off.
+        Waiting for {waiting.in_flight} {waiting.in_flight === 1 ? 'request' : 'requests'} to finish.
         <button class={btn} onclick={restartNow}>Restart now</button>
         <button class={btn} onclick={cancelRestart}>Cancel</button>
       </div>
@@ -296,7 +297,6 @@
   {#if info}
     <p class="mt-1 text-[12.5px] text-muted">
       Running <b class="font-mono text-text">{info.version}</b>.
-      {#if info.update_source && !info.release_error}Releases come from {info.update_source}.{/if}
       {#if !info.update_configured}
         Updates are off.
       {:else if info.release_error}
@@ -311,8 +311,8 @@
     {#if info.pending}
       <p class="mt-2 text-[12.5px] text-secondary">If {info.pending.to} runs for 30 seconds, the update is kept.</p>
     {/if}
-    {#if info.last_result}
-      <p class="mt-2 text-[12.5px] {info.last_result.outcome === 'installed' ? 'text-muted' : 'text-warn'}">
+    {#if info.last_result && info.last_result.outcome !== 'installed'}
+      <p class="mt-2 text-[12.5px] text-warn">
         Last update ({when(Date.parse(info.last_result.at))}):
         {#if info.last_result.outcome === 'installed'}
           Installed {info.last_result.to}.
@@ -333,21 +333,18 @@
           </li>
         {/each}
       </ul>
-      {#if !info.current_known}
-        <p class="mt-1 text-xs text-dim">The running version isn't among the recent releases (a local build, or an old one), so only the newest few are listed.</p>
-      {/if}
     {/if}
 
     <div class="mt-3 flex flex-wrap gap-2">
       <button class="rounded-md border border-primary bg-primary px-3 py-1 font-semibold text-sunken disabled:opacity-40" disabled={!!busy || !newer.length} onclick={update}>
         {busy === 'update' ? 'Updating…' : newer.length ? `Update to ${newer[0].tag}` : 'Update'}
       </button>
-      <button class={btn} disabled={!!busy || !info.has_previous} onclick={rollback} title={info.has_previous ? 'Swap the previous binary back in' : 'No previous version kept yet'}>
+      <button class={btn} disabled={!!busy || !info.has_previous} onclick={rollback} title={info.has_previous ? undefined : 'No previous version kept yet'}>
         Roll back to the previous version
       </button>
       <button class={btn} disabled={!!busy} onclick={load}>Check for updates</button>
       <button class={btn} disabled={!info.update_configured} onclick={() => (showChangelog = !showChangelog)}>{showChangelog ? 'Hide changelog' : 'Changelog'}</button>
-      <button class={btn} onclick={() => (showSource = !showSource)}>{showSource ? 'Hide update source' : 'Change update source'}</button>
+      <button class={btn} title={info.update_source ? `Updates come from ${info.update_source}` : 'Updates are off'} onclick={() => (showSource = !showSource)}>{showSource ? 'Hide update source' : 'Change update source'}</button>
     </div>
     {#if showSource}
       <UpdateSource {server} onsaved={load} />
@@ -355,9 +352,6 @@
     {#if showChangelog}
       <Changelog entries={info.changelog} error={info.release_error} markdown={false} isNew={(tag) => newer.some((r) => r.tag === tag)} />
     {/if}
-    <p class="mt-2 text-xs text-dim">
-      Updates keep the current binary. If the new version stops before 30 seconds twice, notus-swap restores it automatically.
-    </p>
   {:else if !error}
     <p class="mt-1 text-muted">Loading…</p>
   {/if}
@@ -366,7 +360,9 @@
 <LlamaUpdates {server} />
 
 <section id="services" class={section}>
-  <h2 class="text-sm font-semibold">Services</h2>
+  <h2 class="flex items-center gap-1.5 text-sm font-semibold">Services{#if info?.llama_swap_service === 'systemd'}<InfoTip text="These buttons need the polkit rule from the install guide." />{:else if info?.llama_swap_service === 'process'}<InfoTip
+        text="notus-swap starts llama-swap itself, so quitting notus-swap stops llama-swap too. Restarting notus-swap from here leaves llama-swap running."
+      />{/if}</h2>
   <div class="mt-2 flex flex-wrap gap-2">
     <button class={btn} disabled={!!busy || !serviceState || serviceChanging} onclick={toggleLlama}>
       {busy === 'start-llama' ? 'Starting llama-swap…' : busy === 'stop-llama' ? 'Stopping llama-swap…' : serviceRunning ? 'Stop llama-swap' : 'Start llama-swap'}
@@ -374,22 +370,14 @@
     <button class={btn} disabled={!!busy} onclick={restartLlama}>{busy === 'restart-llama' ? 'Restarting llama-swap…' : 'Restart llama-swap'}</button>
     <button class={btn} disabled={!!busy} onclick={restartSelf}>{busy === 'restart-self' ? 'Restarting…' : 'Restart notus-swap'}</button>
   </div>
-  <p class="mt-2 text-xs text-dim">
-    {#if serviceState}llama-swap: {serviceState}.{/if}
-    {#if info?.llama_swap_service === 'systemd'}
-      Service controls use the polkit rule in the install guide.
-    {:else if info?.llama_swap_service === 'process'}
-      notus-swap runs llama-swap itself. Stopping notus-swap stops llama-swap too; restarting notus-swap leaves it running.
-    {/if}
-  </p>
+  {#if serviceState}<p class="mt-2 text-xs text-dim">llama-swap: {serviceState}.</p>{/if}
   {#if serviceError}<p class="mt-2 text-xs text-err">Could not read llama-swap's service state: {serviceError}</p>{/if}
 </section>
 
 <section id="storage" class={section}>
-  <h2 class="text-sm font-semibold">Keeping request and response text</h2>
-  <p class="mt-1 text-[12.5px] text-muted">
-    Request and response text is deleted oldest first to meet the retention limits. Timing, token counts and energy are kept.
-  </p>
+  <h2 class="flex items-center gap-1.5 text-sm font-semibold">Keeping request and response text<InfoTip
+      text="Only the text is deleted, oldest first. Timing, token counts and energy are kept."
+    /></h2>
   <div class="mt-3 flex flex-wrap items-center gap-3 text-[12.5px]">
     <label class="flex items-center gap-2">Keep for
       <input type="number" min="1" bind:value={days} class="w-20 rounded-md border border-line bg-panel2 px-2 py-1 outline-none focus:border-primary" /> days
@@ -398,7 +386,7 @@
       <input type="number" min="1" bind:value={gb} class="w-20 rounded-md border border-line bg-panel2 px-2 py-1 outline-none focus:border-primary" /> GB
     </label>
     <button class={btn} disabled={!retentionDirty} onclick={saveRetention}>Save</button>
-    {#if savedRetention}<span class="text-primary">Saved. Old bodies are being cleared now.</span>{/if}
+    {#if savedRetention}<span class="text-primary">Saved.</span>{/if}
   </div>
 
   {#if info?.database}
@@ -410,22 +398,20 @@
           <td class="whitespace-nowrap text-muted">On disk</td>
           <td class="num text-right font-semibold whitespace-nowrap">{bytes(d.file_bytes + d.wal_bytes)}</td>
           <td class="text-dim">
-            <code class="break-all">{d.path}</code>{#if d.wal_bytes}, including {bytes(d.wal_bytes)} in the write-ahead log (the <code>-wal</code> file){/if}
+            <code class="break-all">{d.path}</code>
           </td>
         </tr>
         <tr>
           <td class="whitespace-nowrap text-muted">Request and response text</td>
           <td class="num text-right whitespace-nowrap">{bytes(d.bodies_bytes)}</td>
           <td class="text-dim">
-            {percent(d.bodies_bytes / (info.retention.gb * 1024 ** 3))} of the {info.retention.gb} GB limit.
-            {#if d.oldest_body}Text is kept back to {keptSince(d.oldest_body)}.{/if}
-            {d.with_bodies.toLocaleString()} of {d.requests.toLocaleString()} requests still have their text.
+            {percent(d.bodies_bytes / (info.retention.gb * 1024 ** 3))} of {info.retention.gb} GB{#if d.oldest_body}, back to {keptSince(d.oldest_body)}{/if}
           </td>
         </tr>
         <tr>
           <td class="whitespace-nowrap text-muted">Free space inside the file</td>
           <td class="num text-right whitespace-nowrap">{bytes(d.free_bytes)}</td>
-          <td class="text-dim">Space freed by deleting request text. New requests reuse it, but the file doesn't shrink.</td>
+          <td></td>
         </tr>
       </tbody>
     </table>
